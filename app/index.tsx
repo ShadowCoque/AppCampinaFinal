@@ -4,29 +4,46 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 type Perfil = "SOCIOS" | "CONTABILIDAD";
 
-const CLUB_BLUE = "#003963";
-
+/**
+ * 👇 IMPORTANTE
+ * Expo Router exige rutas literales, NO string genérico
+ */
 type AppRoute = "/afiliacion" | "/facturacion";
 
-const modulos: {
-  key: string;
-  label: string;
-  route: AppRoute;
-}[] = [
-  { key: "afi", label: "Afiliación", route: "/afiliacion" },
-  { key: "fac", label: "Facturación", route: "/facturacion" },
-];
-
+const CLUB_BLUE = "#003963";
 
 export default function Home() {
   const router = useRouter();
   const [perfil, setPerfil] = useState<Perfil>("SOCIOS");
 
-  const modulos = useMemo(() => {
+  /**
+   * 👇 Tipamos explícitamente las rutas permitidas
+   */
+  const modulos = useMemo<
+    { key: string; label: string; route: AppRoute }[]
+  >(() => {
     if (perfil === "SOCIOS") {
-      return [{ key: "afiliacion", label: "Formulario de Afiliación", route: "/afiliacion" }];
+      return [
+        {
+          key: "afiliacion",
+          label: "Formulario de Afiliación",
+          route: "/afiliacion",
+        },
+        {
+          key: "renovacion",
+          label: "Renovación de Credencial",
+          route: "/demo",
+        },
+      ];
     }
-    return [{ key: "facturacion", label: "Facturación (demo)", route: "/facturacion" }];
+
+    return [
+      {
+        key: "facturacion",
+        label: "Facturación (demo)",
+        route: "/facturacion",
+      },
+    ];
   }, [perfil]);
 
   return (
@@ -38,22 +55,36 @@ export default function Home() {
           resizeMode="contain"
         />
 
-        <Text style={styles.title}>Portal TIC - Club</Text>
-        <Text style={styles.subtitle}>Selecciona un perfil para ver módulos disponibles.</Text>
+        <Text style={styles.title}>Portal - Club La Campiña</Text>
+        <Text style={styles.subtitle}>
+          Selecciona un perfil para ver módulos disponibles.
+        </Text>
 
+        {/* Selector de perfil */}
         <View style={styles.profileRow}>
           <Pressable
             onPress={() => setPerfil("SOCIOS")}
-            style={[styles.profileBtn, perfil === "SOCIOS" && styles.profileBtnActive]}
+            style={[
+              styles.profileBtn,
+              perfil === "SOCIOS" && styles.profileBtnActive,
+            ]}
           >
-            <Text style={[styles.profileText, perfil === "SOCIOS" && styles.profileTextActive]}>
+            <Text
+              style={[
+                styles.profileText,
+                perfil === "SOCIOS" && styles.profileTextActive,
+              ]}
+            >
               Socios
             </Text>
           </Pressable>
 
           <Pressable
             onPress={() => setPerfil("CONTABILIDAD")}
-            style={[styles.profileBtn, perfil === "CONTABILIDAD" && styles.profileBtnActive]}
+            style={[
+              styles.profileBtn,
+              perfil === "CONTABILIDAD" && styles.profileBtnActive,
+            ]}
           >
             <Text
               style={[
@@ -66,9 +97,14 @@ export default function Home() {
           </Pressable>
         </View>
 
+        {/* Módulos */}
         <View style={{ width: "100%", marginTop: 16 }}>
           {modulos.map((m) => (
-            <Pressable key={m.key} onPress={() => router.push(m.route)} style={styles.moduleBtn}>
+            <Pressable
+              key={m.key}
+              onPress={() => router.push(m.route)}
+              style={styles.moduleBtn}
+            >
               <Text style={styles.moduleBtnText}>{m.label}</Text>
             </Pressable>
           ))}
@@ -79,7 +115,12 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f4f7fb", alignItems: "center", justifyContent: "center" },
+  container: {
+    flex: 1,
+    backgroundColor: "#f4f7fb",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   card: {
     width: "92%",
     backgroundColor: "#fff",
@@ -88,11 +129,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5eef8",
   },
-  logo: { width: 90, height: 90, alignSelf: "center", marginBottom: 10 },
-  title: { fontSize: 18, fontWeight: "800", color: CLUB_BLUE, textAlign: "center" },
-  subtitle: { marginTop: 4, fontSize: 13, color: "#4a6a83", textAlign: "center" },
+  logo: {
+    width: 300,
+    height: 300,
+    alignSelf: "center",
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: CLUB_BLUE,
+    textAlign: "center",
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#4a6a83",
+    textAlign: "center",
+  },
 
-  profileRow: { flexDirection: "row", gap: 10, marginTop: 14, justifyContent: "center" },
+  profileRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    justifyContent: "center",
+  },
   profileBtn: {
     paddingVertical: 10,
     paddingHorizontal: 14,
@@ -101,9 +162,17 @@ const styles = StyleSheet.create({
     borderColor: "#d7e6f5",
     backgroundColor: "#fff",
   },
-  profileBtnActive: { backgroundColor: CLUB_BLUE, borderColor: CLUB_BLUE },
-  profileText: { fontWeight: "700", color: CLUB_BLUE },
-  profileTextActive: { color: "#fff" },
+  profileBtnActive: {
+    backgroundColor: CLUB_BLUE,
+    borderColor: CLUB_BLUE,
+  },
+  profileText: {
+    fontWeight: "700",
+    color: CLUB_BLUE,
+  },
+  profileTextActive: {
+    color: "#fff",
+  },
 
   moduleBtn: {
     paddingVertical: 14,
@@ -112,5 +181,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-  moduleBtnText: { color: "#fff", fontWeight: "800" },
+  moduleBtnPress: {
+    backgroundColor: "#28c2ff",
+  },
+  moduleBtnText: {
+    color: "#fff",
+    fontWeight: "800",
+  },
 });

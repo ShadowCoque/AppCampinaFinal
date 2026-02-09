@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSolicitudes, SolicitudAfiliacion } from "../src/storage/solicitudes";
 
+
+
 const CLUB_BLUE = "#003963";
 
 type RegistroFacturacion = SolicitudAfiliacion & {
@@ -37,23 +39,18 @@ export default function FacturacionScreen() {
       ) : (
         items.map((it) => (
           <View key={it.id} style={styles.card}>
-            {/* ✅ FIX: el campo se llama "nombreCompleto" */}
-            <Text style={styles.cardTitle}>{it.nombreCompleto}</Text>
+            <Text style={styles.cardTitle}>Nombre: {it.nombreCompleto}</Text>
             <Text style={styles.meta}>CI: {it.cedula}</Text>
-            <Text style={styles.meta}>No. Socio: {it.noSocioDemo}</Text>
+            <Text style={styles.meta}>No. Socio (demo): {it.noSocioDemo}</Text>
 
-            <Text style={styles.label}>
-              Observación Control Socios (N° factura a ingresar en SAFI)
-            </Text>
+            <Text style={styles.label}>Observación Control Socios (N° factura SAFI)</Text>
             <TextInput
               placeholder="Ej: 04-3842"
               placeholderTextColor="#8aa4b8"
               style={styles.input}
               value={it.facturaSafi ?? ""}
               onChangeText={(t) =>
-                setItems((prev) =>
-                  prev.map((x) => (x.id === it.id ? { ...x, facturaSafi: t } : x))
-                )
+                setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, facturaSafi: t } : x)))
               }
             />
 
@@ -85,25 +82,11 @@ const styles = StyleSheet.create({
   container: { padding: 16, backgroundColor: "#f4f7fb" },
   title: { fontSize: 18, fontWeight: "900", color: CLUB_BLUE },
   subtitle: { marginTop: 4, color: "#4a6a83" },
-  refreshBtn: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#d7e6f5",
-  },
+  refreshBtn: { marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: "#d7e6f5" },
   refreshText: { color: CLUB_BLUE, fontWeight: "800", textAlign: "center" },
   empty: { marginTop: 20, color: "#4a6a83" },
 
-  card: {
-    marginTop: 12,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#e5eef8",
-  },
+  card: { marginTop: 12, backgroundColor: "#fff", borderRadius: 16, padding: 14, borderWidth: 1, borderColor: "#e5eef8" },
   cardTitle: { fontSize: 16, fontWeight: "900", color: "#0f2b3a" },
   meta: { marginTop: 2, color: "#4a6a83" },
   label: { marginTop: 12, fontWeight: "800", color: "#0f2b3a" },
@@ -117,12 +100,5 @@ const styles = StyleSheet.create({
     color: "#0f2b3a",
   },
   tagRow: { marginTop: 10, flexDirection: "row" },
-  tag: {
-    backgroundColor: "#fff5cc",
-    color: "#7a5b00",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    fontWeight: "900",
-  },
+  tag: { backgroundColor: "#fff5cc", color: "#7a5b00", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, fontWeight: "900" },
 });

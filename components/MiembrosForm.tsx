@@ -12,18 +12,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getNextNoSocio } from "../src/storage/socioCounter";
-import { saveSolicitud } from "../src/storage/solicitudes";
-const KEY = "no_socio_counter";
-const START = 2800;
-
-export async function getNextNoSocio(): Promise<number> {
-  const raw = await AsyncStorage.getItem(KEY);
-  const current = raw ? parseInt(raw, 10) : START;
-  const next = current + 1;
-  await AsyncStorage.setItem(KEY, String(next));
-  return next;
-}
 
 const BRAND = {
   primary: "#003963",
@@ -233,34 +221,53 @@ function MiembrosForm() {
   ]);
 
   const onSubmit = async () => {
-  if (!canSubmit) {
-    Alert.alert("Falta información", "Completa los campos obligatorios.");
-    return;
-  }
+    if (!canSubmit) {
+      Alert.alert(
+        "Falta información",
+        "Completa los campos obligatorios y acepta los términos."
+      );
+      return;
+    }
 
-  const noSocio = await getNextNoSocio();
+    const estado = estadoActivo ? "Activo" : estadoPasivo ? "Pasivo" : "";
+    const fuerza = fuerzaTerrestre ? "Terrestre" : fuerzaNaval ? "Naval" : "";
 
-  const payload = {
-  id: Date.now().toString(),
-  nombre: nombreCompleto,     // 🔥 clave: mapear correctamente
-  cedula,
-  telefono,
-  correo,
-  fechaNacimiento,
-  tipoMiembro,
-  noSocioDemo: noSocio,       // 🔥 number, no string
-  createdAt: new Date().toISOString(),
-};
+    const payload: SolicitudAfiliacion = {
+      id: String(Date.now()),
+      createdAt: new Date().toISOString(),
+      tipoMiembro,
+      nombreSocioPrincipal: requiresSocioPrincipal
+        ? nombreSocioPrincipal.trim()
+        : undefined,
 
+      gradoMilitar: isCorresponsal ? gradoMilitar.trim() : undefined,
+      estado: isCorresponsal ? (estado as any) : undefined,
+      fuerza: isCorresponsal ? (fuerza as any) : undefined,
 
-  await saveSolicitud(payload); // tu storage local actual
+      nombreCompleto: nombreCompleto.trim(),
+      cedula: cedula.trim(),
+      telefono: telefono.trim() || undefined,
+      correo: correo.trim() || undefined,
+      fechaNacimiento: fechaNacimiento.trim() || undefined,
 
-  Alert.alert(
-    "Solicitud registrada",
-    `Solicitud guardada.\nNo. Socio asignado: ${noSocio}`
-  );
-};
+      noSocioDemo: "2800",
+    };
 
+    try {
+      await addSolicitudLocal(payload);
+
+      Alert.alert("Listo", "Solicitud guardada (pendiente de integración).");
+
+      // Si quieres, puedes limpiar el formulario después de guardar:
+      // resetFormForType("Default");
+      // (o mantener tipo y limpiar campos)
+    } catch (e) {
+      Alert.alert(
+        "Error",
+        "No se pudo guardar localmente. Revisa permisos/almacenamiento."
+      );
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -494,7 +501,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BRAND.border,
   },
-  logo: { width: 48, height: 48 },
+  logo: { width: 80, height: 80 },
   title: {
     fontSize: 18,
     fontWeight: "800",
