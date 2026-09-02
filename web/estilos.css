@@ -1,0 +1,650 @@
+/*
+ * Bandeja de tareas del Club La Campiña.
+ *
+ * Sin frameworks ni dependencias externas: la página debe abrir en los equipos
+ * de Contabilidad y Gerencia sin instalar nada y sin salir a internet, porque
+ * el servidor vive en la red interna del Club.
+ *
+ * La paleta es la institucional: azul 08407D y dorado D0A33E.
+ */
+
+:root {
+  --azul: #08407d;
+  --azul-claro: #edf3f9;
+  --azul-borde: #cfdcec;
+  --dorado: #d0a33e;
+  --texto: #101820;
+  --texto-suave: #54657a;
+  --fondo: #f4f7fb;
+  --superficie: #ffffff;
+  --borde: #dce5ef;
+  --exito: #0f7b4f;
+  --alerta: #b06a00;
+  --peligro: #b3261e;
+  --sombra: 0 1px 2px rgba(16, 24, 32, 0.05), 0 4px 12px rgba(16, 24, 32, 0.06);
+  --radio: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --azul: #6ea8e8;
+    --azul-claro: #16283c;
+    --azul-borde: #2b445f;
+    --texto: #e8eef5;
+    --texto-suave: #9db0c4;
+    --fondo: #0d1620;
+    --superficie: #14202c;
+    --borde: #26374a;
+    --exito: #4fc98d;
+    --alerta: #e0a54a;
+    --peligro: #f08a80;
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* --- Marca ---------------------------------------------------------- */
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.marca strong {
+  display: block;
+  color: var(--azul);
+  font-size: 15px;
+  letter-spacing: 0.2px;
+}
+.marca span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--texto-suave);
+}
+.marca-icono {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--azul);
+  position: relative;
+  flex: none;
+}
+.marca-icono::after {
+  content: "";
+  position: absolute;
+  inset: 10px 7px;
+  background: var(--dorado);
+  clip-path: polygon(0 100%, 30% 25%, 55% 62%, 72% 38%, 100% 100%);
+}
+
+/* --- Acceso --------------------------------------------------------- */
+
+.acceso {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+}
+
+.tarjeta-acceso {
+  width: 100%;
+  max-width: 380px;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tarjeta-acceso .marca {
+  margin-bottom: 10px;
+}
+.ayuda-acceso {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--texto-suave);
+}
+.pie-acceso {
+  font-size: 12px;
+  color: var(--texto-suave);
+  text-align: center;
+  max-width: 420px;
+  margin: 0;
+}
+
+label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--texto-suave);
+  margin-top: 8px;
+}
+.opcional {
+  font-weight: 400;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--borde);
+  border-radius: 7px;
+  background: var(--superficie);
+  color: var(--texto);
+  font: inherit;
+  font-size: 14px;
+}
+input:read-only {
+  background: var(--azul-claro);
+  color: var(--texto-suave);
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--azul);
+  outline-offset: 1px;
+}
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* --- Botones -------------------------------------------------------- */
+
+.boton {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 9px 15px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.boton:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+.boton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.boton.primario {
+  background: var(--azul);
+  color: #fff;
+  margin-top: 14px;
+}
+.boton.sutil {
+  background: transparent;
+  border-color: var(--borde);
+  color: var(--texto-suave);
+}
+.boton.peligro {
+  background: transparent;
+  border-color: var(--peligro);
+  color: var(--peligro);
+}
+
+/* --- Cabecera ------------------------------------------------------- */
+
+.cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+  flex-wrap: wrap;
+}
+.cabecera-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.usuario-activo {
+  font-size: 13px;
+  color: var(--texto-suave);
+  margin-right: 4px;
+}
+
+/* --- Pestañas ------------------------------------------------------- */
+
+.pestanas {
+  display: flex;
+  gap: 2px;
+  padding: 0 20px;
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+  overflow-x: auto;
+}
+.pestana {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--texto-suave);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pestana.activa {
+  color: var(--azul);
+  border-bottom-color: var(--azul);
+}
+.contador {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--azul);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+  margin-left: 4px;
+}
+.contador.cero {
+  background: var(--borde);
+  color: var(--texto-suave);
+}
+
+/* --- Contenido ------------------------------------------------------ */
+
+.contenido {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--azul);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.tarjeta.warning {
+  border-left-color: var(--alerta);
+}
+.tarjeta.danger {
+  border-left-color: var(--peligro);
+}
+.tarjeta.gold {
+  border-left-color: var(--dorado);
+}
+.tarjeta.success {
+  border-left-color: var(--exito);
+}
+
+.tarjeta-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tarjeta h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+.tarjeta .detalle {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--texto-suave);
+}
+
+.etiqueta {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: var(--azul-claro);
+  color: var(--azul);
+  border: 1px solid var(--azul-borde);
+  white-space: nowrap;
+}
+.etiqueta.warning {
+  background: rgba(176, 106, 0, 0.1);
+  color: var(--alerta);
+  border-color: rgba(176, 106, 0, 0.3);
+}
+.etiqueta.danger {
+  background: rgba(179, 38, 30, 0.1);
+  color: var(--peligro);
+  border-color: rgba(179, 38, 30, 0.3);
+}
+.etiqueta.success {
+  background: rgba(15, 123, 79, 0.1);
+  color: var(--exito);
+  border-color: rgba(15, 123, 79, 0.3);
+}
+.etiqueta.gold {
+  background: rgba(208, 163, 62, 0.12);
+  color: #8a6a1c;
+  border-color: rgba(208, 163, 62, 0.4);
+}
+@media (prefers-color-scheme: dark) {
+  .etiqueta.gold {
+    color: var(--dorado);
+  }
+}
+
+.datos-socio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--texto-suave);
+}
+.datos-socio b {
+  color: var(--texto);
+  font-weight: 600;
+}
+
+.tarjeta-acciones {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.tarjeta-acciones .boton {
+  padding: 7px 13px;
+  font-size: 13.5px;
+}
+.antiguedad {
+  font-size: 12.5px;
+  color: var(--texto-suave);
+  align-self: center;
+  margin-left: auto;
+}
+.antiguedad.vieja {
+  color: var(--alerta);
+  font-weight: 600;
+}
+
+/* --- Tabla de atendidas --------------------------------------------- */
+
+.tabla-envoltorio {
+  overflow-x: auto;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+table.listado {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  min-width: 640px;
+}
+table.listado th {
+  text-align: left;
+  background: var(--azul-claro);
+  color: var(--azul);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--borde);
+  white-space: nowrap;
+}
+table.listado td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--borde);
+}
+table.listado tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- Estado vacío y ayuda ------------------------------------------- */
+
+.vacio {
+  text-align: center;
+  padding: 44px 20px;
+  color: var(--texto-suave);
+  background: var(--superficie);
+  border: 1px dashed var(--borde);
+  border-radius: var(--radio);
+}
+.vacio strong {
+  display: block;
+  color: var(--texto);
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.instructivo {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 18px 22px;
+}
+.instructivo h2 {
+  margin-top: 0;
+  font-size: 16px;
+  color: var(--azul);
+}
+.instructivo ol {
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.instructivo code {
+  background: var(--azul-claro);
+  border: 1px solid var(--azul-borde);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--azul);
+}
+
+.comprobador {
+  margin-top: 18px;
+  border-top: 1px solid var(--borde);
+  padding-top: 14px;
+}
+.comprobador-fila {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.comprobador-fila input {
+  flex: 1;
+  min-width: 240px;
+}
+.comprobador-fila .boton {
+  margin-top: 0;
+}
+.resultado-comprobacion {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  font-size: 13.5px;
+}
+.resultado-comprobacion.ok {
+  background: rgba(15, 123, 79, 0.1);
+  border: 1px solid rgba(15, 123, 79, 0.3);
+}
+.resultado-comprobacion.no {
+  background: rgba(179, 38, 30, 0.1);
+  border: 1px solid rgba(179, 38, 30, 0.3);
+}
+
+/* --- Diálogo -------------------------------------------------------- */
+
+dialog {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--texto);
+  padding: 20px 22px;
+  max-width: 480px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 40px rgba(16, 24, 32, 0.25);
+}
+dialog::backdrop {
+  background: rgba(16, 24, 32, 0.45);
+}
+dialog h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  color: var(--azul);
+}
+.dialogo-detalle {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--texto-suave);
+}
+.dialogo-acciones {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+.dialogo-acciones .boton {
+  margin-top: 0;
+}
+
+/* --- Diálogo de alta en SAFI ---------------------------------------- */
+
+/* Lleva bastantes más campos que el de revisión, y conviene verlos todos a la
+   vez: son los que quedarán escritos en el CRM. */
+#dialogo-safi {
+  max-width: 640px;
+}
+
+.grupo-campos {
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 6px 12px 12px;
+  margin: 12px 0 0;
+}
+.grupo-campos legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--azul);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+}
+
+.rejilla-campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 4px 14px;
+}
+
+.pista {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+
+.nota-safi {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: var(--azul-claro);
+  border: 1px solid var(--azul-borde);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.nota-safi.peligro {
+  background: color-mix(in srgb, var(--peligro) 10%, var(--superficie));
+  border-color: var(--peligro);
+  color: var(--peligro);
+}
+
+/* Un valor que el tarifario del Club exige y la lista de SAFI todavía no
+   tiene. Se muestra en lugar de ocultarse: dice qué hay que añadir al CRM. */
+.aviso-safi {
+  margin-bottom: 8px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--alerta);
+  background: color-mix(in srgb, var(--alerta) 10%, var(--superficie));
+  font-size: 13px;
+  line-height: 1.45;
+}
+.aviso-safi.bloquea {
+  border-color: var(--peligro);
+  background: color-mix(in srgb, var(--peligro) 10%, var(--superficie));
+}
+.aviso-safi strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* --- Mensajes ------------------------------------------------------- */
+
+.error {
+  color: var(--peligro);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+.aviso-flotante {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  background: var(--texto);
+  color: var(--fondo);
+  padding: 10px 18px;
+  border-radius: 22px;
+  font-size: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  z-index: 10;
+  max-width: calc(100% - 32px);
+  text-align: center;
+}
+
+@media (max-width: 620px) {
+  .contenido {
+    padding: 14px;
+  }
+  .cabecera {
+    padding: 10px 14px;
+  }
+  .pestanas {
+    padding: 0 14px;
+  }
+  .antiguedad {
+    margin-left: 0;
+  }
+}

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Bandeja de tareas · Club La Campiña</title>
+    <link rel="stylesheet" href="estilos.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2308407D'/%3E%3Cpath d='M7 20l6-9 5 6 3-4 4 7z' fill='%23D0A33E'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <!-- ------------------------------------------------------------ -->
+    <!-- Acceso                                                        -->
+    <!-- ------------------------------------------------------------ -->
+    <main id="pantalla-acceso" class="acceso" hidden>
+      <form class="tarjeta-acceso" id="form-acceso" autocomplete="on">
+        <div class="marca">
+          <span class="marca-icono" aria-hidden="true"></span>
+          <div>
+            <strong>Club La Campiña</strong>
+            <span>Bandeja de tareas</span>
+          </div>
+        </div>
+
+        <p class="ayuda-acceso">
+          Ingrese con el usuario de su área. Cada área ve únicamente las tareas que le corresponden.
+        </p>
+
+        <label for="usuario">Usuario</label>
+        <input id="usuario" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false" />
+
+        <label for="clave">Contraseña</label>
+        <input id="clave" name="password" type="password" autocomplete="current-password" required />
+
+        <p class="error" id="error-acceso" role="alert" hidden></p>
+
+        <button type="submit" class="boton primario" id="boton-acceso">Ingresar</button>
+      </form>
+      <p class="pie-acceso">
+        Coordinación de TICs · Club Social y Deportivo de Oficiales de la Fuerza Aérea Ecuatoriana
+      </p>
+    </main>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- Bandeja                                                       -->
+    <!-- ------------------------------------------------------------ -->
+    <div id="pantalla-bandeja" hidden>
+      <header class="cabecera">
+        <div class="marca">
+          <span class="marca-icono" aria-hidden="true"></span>
+          <div>
+            <strong>Club La Campiña</strong>
+            <span id="etiqueta-area">Bandeja de tareas</span>
+          </div>
+        </div>
+
+        <div class="cabecera-acciones">
+          <span class="usuario-activo" id="usuario-activo"></span>
+          <button type="button" class="boton sutil" id="boton-actualizar" title="Actualizar (R)">
+            Actualizar
+          </button>
+          <button type="button" class="boton sutil" id="boton-salir">Salir</button>
+        </div>
+      </header>
+
+      <nav class="pestanas" role="tablist">
+        <button type="button" class="pestana activa" data-vista="pendientes" role="tab" aria-selected="true">
+          Pendientes <span class="contador" id="contador-pendientes">0</span>
+        </button>
+        <button type="button" class="pestana" data-vista="atendidas" role="tab" aria-selected="false">
+          Atendidas
+        </button>
+        <button type="button" class="pestana" data-vista="ayuda" role="tab" aria-selected="false" id="pestana-ayuda" hidden>
+          Cómo escanear
+        </button>
+      </nav>
+
+      <main class="contenido">
+        <section id="vista-pendientes" class="vista"></section>
+        <section id="vista-atendidas" class="vista" hidden></section>
+        <section id="vista-ayuda" class="vista" hidden></section>
+      </main>
+
+      <div class="aviso-flotante" id="aviso" hidden role="status"></div>
+    </div>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- Diálogo de resolución de una tarea                            -->
+    <!-- ------------------------------------------------------------ -->
+    <dialog id="dialogo-tarea">
+      <form method="dialog" id="form-tarea">
+        <h2 id="dialogo-titulo">Resolver tarea</h2>
+        <p class="dialogo-detalle" id="dialogo-detalle"></p>
+
+        <div id="campo-factura" hidden>
+          <label for="numero-factura">
+            Número de factura (casilla FC del formulario)
+            <span class="opcional">(solo si esta afiliación genera comprobante)</span>
+          </label>
+          <input id="numero-factura" type="text" inputmode="numeric" placeholder="001-002-000012345" />
+        </div>
+
+        <label for="observacion">Observación <span class="opcional" id="etiqueta-observacion">(opcional)</span></label>
+        <textarea id="observacion" rows="3" placeholder="Se imprime en el reverso del formulario."></textarea>
+
+        <p class="error" id="error-dialogo" role="alert" hidden></p>
+
+        <div class="dialogo-acciones">
+          <button type="button" class="boton sutil" id="boton-cancelar">Cancelar</button>
+          <button type="button" class="boton peligro" id="boton-observar">Devolver con observación</button>
+          <button type="button" class="boton primario" id="boton-confirmar">Confirmar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ------------------------------------------------------------ -->
+    <!-- Confirmación de los datos que van al CRM de SAFI              -->
+    <!-- ------------------------------------------------------------ -->
+    <dialog id="dialogo-safi">
+      <form method="dialog" id="form-safi">
+        <h2>Confirmar los datos y crear en SAFI</h2>
+        <p class="dialogo-detalle" id="safi-detalle"></p>
+
+        <p class="nota-safi" id="safi-contexto"></p>
+        <div id="safi-avisos"></div>
+
+        <fieldset class="grupo-campos">
+          <legend>Numeración</legend>
+          <div class="rejilla-campos">
+            <div>
+              <label for="safi-numero-socio">Número de socio</label>
+              <input id="safi-numero-socio" type="text" inputmode="numeric" placeholder="280" />
+            </div>
+            <div id="safi-campo-ordinal">
+              <label for="safi-ordinal">Secuencia dentro de la cuenta</label>
+              <input id="safi-ordinal" type="number" min="1" max="99" />
+              <span class="pista" id="safi-pista-ordinal"></span>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="grupo-campos" id="safi-grupo-cuenta">
+          <legend>Cuenta · facturación</legend>
+          <div class="rejilla-campos">
+            <div>
+              <label for="safi-grupo">Grupo Facturación</label>
+              <select id="safi-grupo"></select>
+            </div>
+            <div>
+              <label for="safi-forma-pago">Forma de pago</label>
+              <select id="safi-forma-pago"></select>
+            </div>
+            <div>
+              <label for="safi-contribuyente">Tipo Contribuyente</label>
+              <select id="safi-contribuyente"></select>
+            </div>
+            <div>
+              <label for="safi-valor-cuota">Valor Cuota</label>
+              <input id="safi-valor-cuota" type="text" inputmode="decimal" />
+              <span class="pista">Se propone desde la carta de compromiso. Es editable.</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="grupo-campos" id="safi-grupo-cuotas">
+          <legend>Socio · cuotas</legend>
+          <div class="rejilla-campos">
+            <div>
+              <label for="safi-suscripcion">Subscripciones</label>
+              <select id="safi-suscripcion"></select>
+            </div>
+            <div>
+              <label for="safi-membresia">Valor Membresía</label>
+              <select id="safi-membresia"></select>
+            </div>
+            <div>
+              <label for="safi-cuota-anual">Cuota Anual</label>
+              <select id="safi-cuota-anual"></select>
+            </div>
+            <div>
+              <label for="safi-cuota-mensual">Cuota Mensual</label>
+              <select id="safi-cuota-mensual"></select>
+            </div>
+          </div>
+          <p class="pista">
+            El socio se acoge a una modalidad o a la otra: al elegir una cuota, la otra se vacía.
+          </p>
+        </fieldset>
+
+        <fieldset class="grupo-campos" id="safi-campo-manual" hidden>
+          <legend>Alta hecha a mano en el CRM</legend>
+          <p class="pista">
+            La integración está en modo manual. Cree la Cuenta y el Socio en SAFI con los valores de
+            arriba y copie aquí los identificadores que les asignó: son el número que aparece en
+            <code>record=</code> en la barra de direcciones al abrir cada ficha. Sin ellos el
+            expediente no puede subir después su documentación.
+          </p>
+          <div class="rejilla-campos">
+            <div>
+              <label for="safi-cuenta-id">Identificador de la Cuenta</label>
+              <input id="safi-cuenta-id" type="text" inputmode="numeric" placeholder="13352" />
+            </div>
+            <div>
+              <label for="safi-socio-id">Identificador del Socio</label>
+              <input id="safi-socio-id" type="text" inputmode="numeric" placeholder="13353" />
+            </div>
+          </div>
+        </fieldset>
+
+        <p class="error" id="error-safi" role="alert" hidden></p>
+
+        <div class="dialogo-acciones">
+          <button type="button" class="boton sutil" id="safi-cancelar">Cancelar</button>
+          <button type="button" class="boton primario" id="safi-confirmar">
+            Confirmar y crear en SAFI
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="bandeja.js"></script>
+  </body>
+</html>

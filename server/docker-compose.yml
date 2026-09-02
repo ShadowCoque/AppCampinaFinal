@@ -1,0 +1,84 @@
+# Despliegue del servidor de afiliación en el servidor del Club que ya sirve
+# GLPI (soporte.clublacampina.com.ec, 192.168.2.185).
+#
+# Convive con GLPI sin tocarlo: contenedor propio, red interna de Docker
+# propia, y su propio puerto. El servidor es interno y no tiene certificado
+# TLS, así que por defecto el puerto se publica directo en la interfaz de la
+# LAN (BIND_HOST=0.0.0.0): no se asume que exista un proxy inverso delante. Si
+# más adelante se pone uno, cambie BIND_HOST a 127.0.0.1 en server/.env y active
+# TRUST_PROXY=true — nunca lo uno sin lo otro (ver server/src/config.ts).
+#
+#   cd /opt/campina-socios
+#   docker compose -f server/docker-compose.yml up -d --build
+#
+# El contexto de construcción es la raíz del proyecto: el servidor comparte el
+# dominio TypeScript con la aplicación móvil.
+
+services:
+  socios:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: campina/socios:1.0.0
+    container_name: campina-socios
+    restart: unless-stopped
+
+    # BIND_HOST=0.0.0.0 (por defecto): publicado directo en la LAN, sin proxy.
+    # BIND_HOST=127.0.0.1: solo si hay un proxy inverso propio delante (y
+    # entonces TRUST_PROXY=true más abajo).
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${PUERTO:-8080}:8080"
+
+    environment:
+      NODE_ENV: production
+      PUERTO: "8080"
+      # Dirección real desde la que se abre la bandeja. Sin https:// aquí, la
+      # cookie de sesión no se marca Secure (sesion.ts) y el inicio de sesión
+      # funciona sobre HTTP plano, que es lo que tiene este servidor.
+      URL_PUBLICA: "${URL_PUBLICA:?Defina URL_PUBLICA en server/.env, p. ej. http://soporte.clublacampina.com.ec:8080}"
+      SECRETO_SESION: "${SECRETO_SESION:?Defina SECRETO_SESION en server/.env}"
+      HORAS_SESION: "${HORAS_SESION:-10}"
+      # Ver la nota de BIND_HOST arriba: actívelo solo junto con
+      # BIND_HOST=127.0.0.1 y un proxy inverso real.
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      INTERVALO_VIGILANCIA_SEG: "${INTERVALO_VIGILANCIA_SEG:-30}"
+      INTERVALO_SAFI_SEG: "${INTERVALO_SAFI_SEG:-120}"
+      SAFI_MODO: "${SAFI_MODO:-MANUAL}"
+      SAFI_BASE_URL: "${SAFI_BASE_URL:-}"
+      SAFI_USUARIO: "${SAFI_USUARIO:-}"
+      SAFI_CLAVE: "${SAFI_CLAVE:-}"
+      MAX_ARCHIVO_MB: "${MAX_ARCHIVO_MB:-25}"
+      TZ: "America/Guayaquil"
+
+    volumes:
+      # Base de datos y repositorio digital de expedientes.
+      - datos:/datos
+      # Carpeta compartida donde la Jefatura de Socios deposita los escaneos.
+      # En el anfitrión la publica Samba; el contenedor solo la lee y vacía.
+      - "${ESCANEOS_HOST:-/srv/campina/escaneos}:/escaneos"
+
+    # Límites explícitos: la mesa de ayuda no puede quedarse sin memoria por
+    # culpa de este servicio.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  datos:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      # Ruta en el anfitrión: entra en el respaldo del servidor junto con GLPI.
+      device: ${DATOS_HOST:-/srv/campina/datos}

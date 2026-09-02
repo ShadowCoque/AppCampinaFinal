@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "Club La Campiña",
+    "slug": "AppCampina",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "appcampina",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F2F5F9",
+    "primaryColor": "#08407D",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ec.com.clublacampina.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "La aplicación usa la cámara para fotografiar los documentos de respaldo y la fotografía tipo carnet del socio.",
+        "NSPhotoLibraryUsageDescription": "La aplicación accede a sus imágenes para adjuntar documentos al expediente de afiliación."
+      }
+    },
+    "android": {
+      "package": "ec.com.clublacampina.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 260,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "backgroundColor": "#08407D"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permita el acceso a sus fotos para adjuntar documentos al expediente de afiliación.",
+          "cameraPermission": "Permita el uso de la cámara para fotografiar documentos y la foto tipo carnet."
+        }
+      ],
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
