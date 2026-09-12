@@ -47,14 +47,37 @@ export const TIPOS_TAREA = [
 
 export type TipoTarea = (typeof TIPOS_TAREA)[number];
 
+/**
+ * Una de las formas de sacar una tarea de la bandeja.
+ *
+ * `clave` es el identificador estable que la interfaz enlaza con su acción: la
+ * bandeja web y la aplicación dibujan un botón por cada salida y no necesitan
+ * saber nada más del tipo de tarea.
+ */
+export type SalidaTarea = {
+  clave: string;
+  etiqueta: string;
+  /** Peso visual: una principal por tarea, el resto secundarias. */
+  peso: "principal" | "secundaria" | "destructiva";
+  /** Exige escribir un motivo antes de aplicarla; queda en la bitácora. */
+  exigeMotivo?: boolean;
+};
+
 export type MetaTarea = {
   etiqueta: string;
   area: Area;
   tono: TonoEstado;
-  /** Verbo del botón que resuelve la tarea, o `null` si se resuelve fuera del sistema. */
-  accion: string | null;
-  /** La tarea exige escribir una observación al resolverla. */
-  exigeObservacion: boolean;
+  /**
+   * Qué debe hacer quien recibe la tarea, en imperativo y en una línea. Es lo
+   * primero que lee el funcionario en la tarjeta.
+   */
+  instruccion: string;
+  /**
+   * Formas de resolverla. El tipo exige **al menos una**: una tarea sin salida
+   * es un trámite atascado, y así no se puede añadir un tipo nuevo sin decir
+   * cómo se cierra.
+   */
+  salidas: [SalidaTarea, ...SalidaTarea[]];
 };
 
 export const TAREA_META: Record<TipoTarea, MetaTarea> = {
@@ -62,71 +85,132 @@ export const TAREA_META: Record<TipoTarea, MetaTarea> = {
     etiqueta: "Pendiente de revisión",
     area: "CONTABILIDAD",
     tono: "info",
-    accion: "Marcar como revisada",
-    exigeObservacion: false,
+    instruccion:
+      "Compruebe el ingreso del socio en SAFI y márquela como revisada, o devuélvala con una observación.",
+    salidas: [
+      { clave: "revisar", etiqueta: "Marcar como revisada", peso: "principal" },
+      {
+        clave: "observar",
+        etiqueta: "Devolver con observación",
+        peso: "destructiva",
+        exigeMotivo: true,
+      },
+    ],
   },
   APROBAR: {
     etiqueta: "Pendiente de aprobación",
     area: "GERENCIA",
     tono: "gold",
-    accion: "Aprobar el ingreso",
-    exigeObservacion: false,
+    instruccion:
+      "Revise el expediente y apruebe el ingreso, o devuélvalo con una observación al Área de Socios.",
+    salidas: [
+      { clave: "aprobar", etiqueta: "Aprobar el ingreso", peso: "principal" },
+      {
+        clave: "observar",
+        etiqueta: "Devolver con observación",
+        peso: "destructiva",
+        exigeMotivo: true,
+      },
+    ],
   },
   CORREGIR_OBSERVACION: {
     etiqueta: "Devuelta con observaciones",
     area: "SOCIOS",
     tono: "warning",
-    accion: "Atender y reenviar",
-    exigeObservacion: true,
+    instruccion:
+      "Corrija lo que se observó y reenvíe el trámite, o anúlelo si la afiliación no procede.",
+    salidas: [
+      { clave: "reenviar", etiqueta: "Atender y reenviar", peso: "principal", exigeMotivo: true },
+      { clave: "anular", etiqueta: "Anular el trámite", peso: "destructiva", exigeMotivo: true },
+    ],
   },
   CONFIRMAR_SAFI: {
     etiqueta: "Falta crear al socio en SAFI",
     area: "SOCIOS",
     tono: "warning",
-    accion: "Confirmar y crear en SAFI",
-    exigeObservacion: false,
+    instruccion:
+      "Abra el panel, asigne el número de socio y confirme las listas cerradas para crear la ficha en el CRM.",
+    salidas: [
+      { clave: "abrir-safi", etiqueta: "Confirmar y crear en SAFI", peso: "principal" },
+      { clave: "anular", etiqueta: "Anular el trámite", peso: "destructiva", exigeMotivo: true },
+    ],
   },
   ADJUNTOS_PENDIENTES: {
     etiqueta: "Faltan archivos de la tableta",
     area: "SOCIOS",
     tono: "danger",
-    accion: null,
-    exigeObservacion: false,
+    instruccion:
+      "Sincronice la tableta. Si el archivo ya no está en ella, súbalo aquí desde un escaneo o declare que consta en el formulario en papel.",
+    salidas: [
+      { clave: "subir-adjunto", etiqueta: "Subir el archivo", peso: "principal" },
+      {
+        clave: "omitir-adjunto",
+        etiqueta: "Consta en papel: continuar sin él",
+        peso: "secundaria",
+        exigeMotivo: true,
+      },
+    ],
   },
   ESCANEO_PENDIENTE: {
     etiqueta: "Falta escanear documentación",
     area: "SOCIOS",
     tono: "warning",
-    accion: null,
-    exigeObservacion: false,
+    instruccion:
+      "Deposite el escaneo en la carpeta compartida con el nombre exacto que se indica, o súbalo aquí desde el navegador.",
+    salidas: [
+      { clave: "subir-escaneo", etiqueta: "Subir el escaneo", peso: "principal" },
+      {
+        clave: "omitir-escaneo",
+        etiqueta: "No aplica a este trámite",
+        peso: "secundaria",
+        exigeMotivo: true,
+      },
+      { clave: "revisar-carpeta", etiqueta: "Revisar la carpeta ahora", peso: "secundaria" },
+    ],
   },
   ESCANEO_NO_RECONOCIDO: {
     etiqueta: "Archivo escaneado con nombre no reconocido",
     area: "SOCIOS",
     tono: "danger",
-    accion: "Renombrar en la carpeta compartida",
-    exigeObservacion: false,
+    instruccion:
+      "Renómbrelo en la carpeta compartida con el nombre que pide el trámite y vuelva a revisar la carpeta.",
+    salidas: [
+      { clave: "revisar-carpeta", etiqueta: "Ya lo renombré: revisar", peso: "principal" },
+      { clave: "asignar-escaneo", etiqueta: "Asignar a un trámite…", peso: "secundaria" },
+      { clave: "resolver-incidencia", etiqueta: "Dar por resuelto", peso: "secundaria" },
+    ],
   },
   ESCANEO_EN_ESPERA: {
     etiqueta: "Archivo escaneado en espera de su trámite",
     area: "SOCIOS",
     tono: "warning",
-    accion: null,
-    exigeObservacion: false,
+    instruccion:
+      "Asígnelo al trámite al que pertenece, o apártelo a _REVISAR si llegó por error.",
+    salidas: [
+      { clave: "asignar-escaneo", etiqueta: "Asignar a un trámite…", peso: "principal" },
+      { clave: "apartar-escaneo", etiqueta: "Apartar a _REVISAR", peso: "secundaria" },
+      { clave: "resolver-incidencia", etiqueta: "Dar por resuelto", peso: "secundaria" },
+    ],
   },
   FORMULARIO_FINAL_PENDIENTE: {
     etiqueta: "Falta archivar el formulario final",
     area: "SOCIOS",
     tono: "danger",
-    accion: "Generar el formulario final",
-    exigeObservacion: false,
+    instruccion: "Genere el formulario final con las tres constancias y archívelo en el expediente.",
+    salidas: [
+      { clave: "formulario-final", etiqueta: "Generar y archivar el formulario", peso: "principal" },
+    ],
   },
   CARGA_SAFI_PENDIENTE: {
     etiqueta: "Pendiente de cargar al CRM de SAFI",
     area: "SOCIOS",
     tono: "warning",
-    accion: "Reintentar la carga",
-    exigeObservacion: false,
+    instruccion:
+      "Reintente la carga del expediente en SAFI, o declare que ya subió los documentos a mano.",
+    salidas: [
+      { clave: "reintentar-safi", etiqueta: "Reintentar la carga", peso: "principal" },
+      { clave: "documentos-a-mano", etiqueta: "Ya los cargué a mano", peso: "secundaria" },
+    ],
   },
 };
 
@@ -148,6 +232,18 @@ export type IncidenciaEscaneo = {
   numeroSocio?: string;
 };
 
+/**
+ * Pieza concreta que una tarea reclama: una firma, la fotografía o un documento
+ * por escanear. La salida de la tarea actúa sobre una de ellas.
+ */
+export type PiezaPendiente = {
+  /** `RolAdjunto` o `TipoDocumento`, según la tarea. */
+  clave: string;
+  etiqueta: string;
+  /** Nombre exacto con el que debe depositarse en la carpeta compartida. */
+  nombreArchivo?: string;
+};
+
 export type Tarea = {
   id: string;
   tipo: TipoTarea;
@@ -157,6 +253,12 @@ export type Tarea = {
   codigo: string;
   titulo: string;
   detalle: string;
+  /** Qué debe hacer quien la recibe, en una línea. Lo declara su tipo. */
+  instruccion: string;
+  /** Formas de resolverla: la bandeja dibuja un botón por cada una. */
+  salidas: SalidaTarea[];
+  /** Piezas que reclama, cuando la salida actúa sobre una de ellas. */
+  pendientes?: PiezaPendiente[];
   /** Nombres exactos de archivo que la tarea pide, cuando aplica. */
   archivosEsperados?: string[];
   /** Número de socio, cédula y nombre: lo que la bandeja muestra en la lista. */
@@ -171,6 +273,24 @@ export type Tarea = {
 /* ------------------------------------------------------------------ */
 /* Derivación                                                          */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Tarea tal como la construye la derivación, antes de completarla con lo que
+ * declara su tipo.
+ */
+type TareaBase = Omit<Tarea, "instruccion" | "salidas">;
+
+/**
+ * Completa una tarea con la instrucción y las salidas de su tipo.
+ *
+ * Es el único camino por el que una tarea llega a una bandeja: así ninguna
+ * puede aparecer sin decir qué debe hacer quien la recibe ni con qué botón se
+ * resuelve, que es como se quedaban atascados los trámites.
+ */
+function completar(tarea: TareaBase): Tarea {
+  const meta = TAREA_META[tarea.tipo];
+  return { ...tarea, instruccion: meta.instruccion, salidas: meta.salidas };
+}
 
 function baseDe(solicitud: SolicitudAfiliacion) {
   return {
@@ -215,12 +335,12 @@ export function nombresDeEscaneo(solicitud: SolicitudAfiliacion, tipos: TipoDocu
 
 /** Tareas que genera una sola solicitud, en todas las áreas. */
 export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
-  const tareas: Tarea[] = [];
+  const tareas: TareaBase[] = [];
   const base = baseDe(solicitud);
   const { tramite, expediente, estado } = solicitud;
 
   // Un trámite anulado no reclama nada a nadie.
-  if (estado === "RECHAZADA" || estado === "BORRADOR") return tareas;
+  if (estado === "RECHAZADA" || estado === "BORRADOR") return [];
 
   // El alta en SAFI es lo primero que hace el Área de Socios tras registrar la
   // afiliación: Contabilidad revisa comprobando el ingreso en el CRM, así que
@@ -300,7 +420,11 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
       titulo: `Faltan archivos de la tableta para ${base.nombreSocio}`,
       detalle: `El servidor aún no recibió: ${faltantes
         .map((rol) => ROL_ADJUNTO_META[rol].etiqueta.toLowerCase())
-        .join(", ")}. La tableta los envía sola al sincronizar; abra en ella «Configuración y envío» y pulse «Sincronizar ahora».`,
+        .join(", ")}. La tableta los envía sola al sincronizar; abra en ella «Configuración y envío» y pulse «Sincronizar ahora». Si el archivo ya no está en la tableta, súbalo aquí o declare que consta en el formulario en papel.`,
+      pendientes: faltantes.map((rol) => ({
+        clave: rol,
+        etiqueta: ROL_ADJUNTO_META[rol].etiqueta,
+      })),
       desde: tramite.registro?.en ?? solicitud.creadaEn,
     });
   }
@@ -319,6 +443,11 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
         expediente.escaneosPendientes
       )}. Use exactamente estos nombres de archivo.`,
       archivosEsperados: nombres,
+      pendientes: expediente.escaneosPendientes.map((tipo, indice) => ({
+        clave: tipo,
+        etiqueta: nombreDocumento(tipo),
+        nombreArchivo: nombres[indice],
+      })),
       desde: tramite.registro?.en ?? solicitud.creadaEn,
     });
   }
@@ -356,12 +485,12 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
     });
   }
 
-  return tareas;
+  return tareas.map(completar);
 }
 
 /** Tareas que generan los archivos que el repositorio no pudo clasificar. */
 export function tareasDeIncidencias(incidencias: IncidenciaEscaneo[]): Tarea[] {
-  return incidencias.map((incidencia) => {
+  return incidencias.map((incidencia): Tarea => {
     const enEspera = incidencia.tipo === "EN_ESPERA";
     return {
       id: `escaneo:${incidencia.id}`,
@@ -377,6 +506,8 @@ export function tareasDeIncidencias(incidencias: IncidenciaEscaneo[]): Tarea[] {
       nombreSocio: "—",
       tipoMiembro: "—",
       desde: incidencia.detectadaEn,
+      instruccion: TAREA_META[enEspera ? "ESCANEO_EN_ESPERA" : "ESCANEO_NO_RECONOCIDO"].instruccion,
+      salidas: TAREA_META[enEspera ? "ESCANEO_EN_ESPERA" : "ESCANEO_NO_RECONOCIDO"].salidas,
     };
   });
 }

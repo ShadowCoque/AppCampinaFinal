@@ -184,6 +184,8 @@ export function archivarContenido(entrada: {
   extension: string;
   solicitud: SolicitudAfiliacion;
   tipoDocumento: TipoDocumento;
+  /** `ESCANEO` cuando lo sube una persona desde la bandeja. */
+  origen?: "APP" | "ESCANEO";
 }): ResultadoArchivado {
   const temporal = path.join(
     config.datosDir,
@@ -198,7 +200,7 @@ export function archivarContenido(entrada: {
       origenRuta: temporal,
       solicitud: entrada.solicitud,
       tipoDocumento: entrada.tipoDocumento,
-      origen: "APP",
+      origen: entrada.origen ?? "APP",
     });
   } finally {
     fs.rmSync(temporal, { force: true });

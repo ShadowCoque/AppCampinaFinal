@@ -8,7 +8,8 @@ import {
   nombreCoincide,
   prefijoDe,
 } from "../../../src/domain/expediente";
-import { nombreCompleto } from "../../../src/domain/solicitud";
+import { nombreCompleto, type SolicitudAfiliacion } from "../../../src/domain/solicitud";
+import type { TipoDocumento } from "../../../src/domain/documentos";
 import { config } from "../config";
 import {
   incidenciasAbiertas,
@@ -18,7 +19,7 @@ import {
 } from "../db/archivos";
 import { registrarBitacora } from "../db/indice";
 import { familiaDe, personaEnExpediente } from "../db/solicitudes";
-import { archivar } from "./repositorio";
+import { archivar, type ResultadoArchivado } from "./repositorio";
 
 /**
  * Vigilante de la carpeta compartida de escaneos.
@@ -394,5 +395,118 @@ function cerrarIncidenciasSinArchivo(): void {
     if (incidencia.ruta && !fs.existsSync(incidencia.ruta)) {
       resolverIncidenciaPorId(incidencia.id);
     }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Resolución a mano desde la bandeja                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Localiza dentro de la carpeta compartida el archivo de una incidencia.
+ *
+ * El nombre llega de una petición, así que la ruta se resuelve y se comprueba
+ * que quede dentro de la carpeta compartida: un nombre con `..` no puede
+ * alcanzar nada del servidor.
+ */
+function localizarEscaneo(nombre: string): { ruta: string; nombre: string } | null {
+  const abierta = incidenciasAbiertas().find((i) => i.archivo === nombre);
+  const candidatas = [
+    abierta?.ruta,
+    path.join(config.escaneosDir, nombre),
+    path.join(config.escaneosRevisarDir, nombre),
+  ].filter((r): r is string => Boolean(r));
+
+  const raiz = path.resolve(config.escaneosDir);
+  for (const candidata of candidatas) {
+    const resuelta = path.resolve(candidata);
+    if (resuelta !== raiz && !resuelta.startsWith(raiz + path.sep)) continue;
+    if (fs.existsSync(resuelta) && fs.statSync(resuelta).isFile()) {
+      return { ruta: resuelta, nombre: path.basename(resuelta) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Aparta a `_REVISAR/` un archivo que la Jefatura decidió no archivar y cierra
+ * su tarea.
+ *
+ * Es una de las salidas de las tareas de escaneo: un archivo que llegó por
+ * error dejaba la bandeja con una tarea que nadie podía resolver desde el
+ * sistema. El archivo se conserva íntegro; aquí no se borra nada.
+ */
+export function apartarEscaneo(nombre: string): { ok: boolean; error?: string } {
+  const archivo = localizarEscaneo(nombre);
+  if (!archivo) return { ok: false, error: "El archivo ya no está en la carpeta compartida." };
+
+  if (path.dirname(archivo.ruta) === path.resolve(config.escaneosRevisarDir)) {
+    resolverIncidencia(nombre);
+    return { ok: true };
+  }
+
+  try {
+    fs.mkdirSync(config.escaneosRevisarDir, { recursive: true });
+    fs.renameSync(archivo.ruta, destinoLibre(path.join(config.escaneosRevisarDir, archivo.nombre)));
+  } catch (error) {
+    return {
+      ok: false,
+      error: `No se pudo mover a _REVISAR: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  tamanosPrevios.delete(archivo.ruta);
+  anunciadosEnEspera.delete(archivo.ruta);
+  resolverIncidencia(nombre);
+  return { ok: true };
+}
+
+/**
+ * Archiva a mano un escaneo en el trámite que indica la Jefatura, cuando el
+ * nombre del archivo no permitió deducirlo.
+ *
+ * Hace lo mismo que el vigilante cuando reconoce un archivo —archivar en el
+ * expediente y retirar el original a `_ARCHIVADOS/`—, pero con el trámite y el
+ * tipo de documento elegidos por una persona.
+ */
+export function asignarEscaneo(
+  nombre: string,
+  solicitud: SolicitudAfiliacion,
+  tipoDocumento: TipoDocumento
+): { ok: true; resultado: ResultadoArchivado } | { ok: false; error: string } {
+  const archivo = localizarEscaneo(nombre);
+  if (!archivo) return { ok: false, error: "El archivo ya no está en la carpeta compartida." };
+
+  try {
+    const resultado = archivar({
+      origenRuta: archivo.ruta,
+      solicitud,
+      tipoDocumento,
+      origen: "ESCANEO",
+    });
+
+    const trasladado = trasladarArchivado(
+      { ruta: archivo.ruta, nombre: archivo.nombre, carpeta: null },
+      path.basename(resultado.carpeta)
+    );
+    tamanosPrevios.delete(archivo.ruta);
+    anunciadosEnEspera.delete(archivo.ruta);
+    resolverIncidencia(nombre);
+
+    registrarBitacora({
+      area: "SOCIOS",
+      accion: "ARCHIVAR_ESCANEO",
+      entidad: solicitud.tramite.numeroSocio || solicitud.codigo,
+      detalle: `${tipoDocumento} · ${resultado.archivo.nombreArchivo} (asignado a mano desde la bandeja)`,
+    });
+
+    if (!trasladado) {
+      console.warn(
+        `[vigilante] ${archivo.nombre} quedó archivado, pero no se pudo trasladar a _ARCHIVADOS/.`
+      );
+    }
+    return { ok: true, resultado };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }

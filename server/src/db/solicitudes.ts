@@ -725,3 +725,56 @@ export function marcarEscaneoRecibido(
 
   return actualizarExpediente(solicitudId, { escaneosPendientes: pendientes });
 }
+
+/**
+ * Declara que una firma o la fotografía ya no llegarán de la tableta.
+ *
+ * Sin esto, un trámite cuya tableta perdió la captura se quedaba reclamando un
+ * archivo que nadie podía entregar: la tarea de la bandeja no tenía salida. La
+ * justificación queda en el expediente y en la bitácora, de modo que se sabe
+ * quién decidió continuar y por qué.
+ */
+export function omitirAdjunto(
+  solicitudId: string,
+  rol: RolAdjunto,
+  omision: { motivo: string; responsable: string }
+): SolicitudAfiliacion | null {
+  const actual = obtenerSolicitud(solicitudId);
+  if (!actual) return null;
+
+  const previas = actual.expediente.adjuntosOmitidos ?? [];
+  if (previas.some((o) => o.rol === rol)) return actual;
+
+  return actualizarExpediente(solicitudId, {
+    adjuntosOmitidos: [
+      ...previas,
+      { rol, motivo: omision.motivo, responsable: omision.responsable, en: ahora() },
+    ],
+  });
+}
+
+/**
+ * Declara que un documento por escanear no aplica a este trámite.
+ *
+ * Descuenta el documento de lo pendiente y conserva la justificación: el
+ * expediente debe poder explicar por qué se cerró sin él.
+ */
+export function omitirEscaneo(
+  solicitudId: string,
+  tipo: TipoDocumento,
+  omision: { motivo: string; responsable: string }
+): SolicitudAfiliacion | null {
+  const actual = obtenerSolicitud(solicitudId);
+  if (!actual) return null;
+
+  const previas = actual.expediente.escaneosOmitidos ?? [];
+  if (previas.some((o) => o.tipo === tipo)) return actual;
+
+  return actualizarExpediente(solicitudId, {
+    escaneosPendientes: actual.expediente.escaneosPendientes.filter((t) => t !== tipo),
+    escaneosOmitidos: [
+      ...previas,
+      { tipo, motivo: omision.motivo, responsable: omision.responsable, en: ahora() },
+    ],
+  });
+}

@@ -367,6 +367,18 @@ textarea {
   color: var(--texto-suave);
 }
 
+/* Qué debe hacer quien recibe la tarea: lo primero que se lee en la tarjeta. */
+.tarjeta .instruccion {
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border-left: 3px solid var(--azul);
+  background: var(--superficie-alt);
+  border-radius: 0 7px 7px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--texto);
+}
+
 .etiqueta {
   display: inline-block;
   padding: 2px 8px;

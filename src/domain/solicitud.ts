@@ -488,10 +488,14 @@ export function adjuntosEsperados(solicitud: SolicitudAfiliacion): RolAdjunto[] 
   return roles;
 }
 
-/** Los esperados que el servidor todavía no ha recibido. */
+/**
+ * Los esperados que el servidor todavía no ha recibido y nadie ha declarado
+ * resueltos por otra vía.
+ */
 export function adjuntosFaltantes(solicitud: SolicitudAfiliacion): RolAdjunto[] {
   const recibidos = new Set(solicitud.expediente.adjuntosRecibidos ?? []);
-  return adjuntosEsperados(solicitud).filter((rol) => !recibidos.has(rol));
+  const omitidos = new Set((solicitud.expediente.adjuntosOmitidos ?? []).map((o) => o.rol));
+  return adjuntosEsperados(solicitud).filter((rol) => !recibidos.has(rol) && !omitidos.has(rol));
 }
 
 export type RegistroConsentimiento = {
@@ -756,6 +760,14 @@ export type EstadoExpediente = {
   /** Documentos escaneados que el Área de Socios aún no ha depositado. */
   escaneosPendientes: TipoDocumento[];
   /**
+   * Firmas o fotografía que ya no llegarán de la tableta y la Jefatura de
+   * Socios declaró resueltas de otro modo (la firma consta en el formulario en
+   * papel, por ejemplo). Se descuentan de lo que falta.
+   */
+  adjuntosOmitidos?: OmisionAdjunto[];
+  /** Documentos por escanear que este trámite no necesita, y por qué. */
+  escaneosOmitidos?: OmisionEscaneo[];
+  /**
    * Firmas y fotografía que la tableta ya entregó al servidor. Los que falten
    * generan una tarea en la bandeja del Área de Socios: sin la firma, el
    * formulario no se puede componer.
@@ -774,6 +786,31 @@ export type EstadoExpediente = {
   safiActualizadoEn?: string;
 };
 
+/**
+ * Archivo que la tableta debía entregar y que ya no llegará.
+ *
+ * La firma y la fotografía viven en el almacenamiento privado de la tableta: si
+ * el dispositivo se reinstala o la captura se pierde, no hay reintento que las
+ * recupere. Sin poder declararlo, la tarea de la bandeja no tenía salida y el
+ * trámite se quedaba esperando para siempre.
+ */
+export type OmisionAdjunto = {
+  rol: RolAdjunto;
+  /** Por qué no llegará y dónde queda constancia (firma en papel, etc.). */
+  motivo: string;
+  /** Funcionario que lo declaró, tal como se imprime en el expediente. */
+  responsable: string;
+  en: string;
+};
+
+/** Documento por escanear que este trámite no necesita, con su justificación. */
+export type OmisionEscaneo = {
+  tipo: TipoDocumento;
+  motivo: string;
+  responsable: string;
+  en: string;
+};
+
 export function expedienteVacio(): EstadoExpediente {
   return {
     carpeta: null,
@@ -782,6 +819,8 @@ export function expedienteVacio(): EstadoExpediente {
     confirmacionSafi: null,
     escaneosPendientes: [],
     adjuntosRecibidos: [],
+    adjuntosOmitidos: [],
+    escaneosOmitidos: [],
     formularioFinal: null,
     safi: "PENDIENTE",
   };

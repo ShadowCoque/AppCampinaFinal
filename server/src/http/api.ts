@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
-import { nombreDocumento } from "../../../src/domain/documentos";
+import { TIPOS_DOCUMENTO, nombreDocumento } from "../../../src/domain/documentos";
 import { INSTRUCTIVO_ESCANEO, analizarNombreArchivo } from "../../../src/domain/expediente";
 import {
   AREA_META,
@@ -55,6 +55,8 @@ import {
   guardarAltaSafi,
   listarSolicitudes,
   obtenerSolicitud,
+  omitirAdjunto,
+  omitirEscaneo,
   personaEnExpediente,
   registrarAdjuntosRecibidos,
   registrarSolicitud,
@@ -68,8 +70,8 @@ import {
 import { abrirSesion, autenticar, cerrarSesion, usuarioDeSesion } from "../db/usuarios";
 import { archivarFormularioFinal, htmlDeSolicitud, pdfDeSolicitud } from "../formularios/expediente";
 import { pdfDisponible } from "../formularios/pdf";
-import { rutaSegura } from "../expediente/repositorio";
-import { recorrer, vigilanciaActiva } from "../expediente/vigilante";
+import { archivarContenido, rutaSegura } from "../expediente/repositorio";
+import { apartarEscaneo, asignarEscaneo, recorrer, vigilanciaActiva } from "../expediente/vigilante";
 import { adaptadorSafi, type ListasSafi, type VerificacionSafi } from "../safi/adaptador";
 import {
   CUOTAS_ANUALES_SAFI,
@@ -101,6 +103,7 @@ import {
   validarObservacion,
   validarRolAdjunto,
   validarSolicitudEntrante,
+  validarTipoDocumento,
 } from "./validacion";
 
 /**
@@ -320,6 +323,11 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       atendidas: atendidasPor(usuario.area, solicitudesRecientes()).slice(0, 100).map(resumir),
       contadores: contadoresDeTareas(tareas),
       instructivoEscaneo: usuario.area === "SOCIOS" ? INSTRUCTIVO_ESCANEO : [],
+      // Para asignar a mano un escaneo que el vigilante no pudo identificar.
+      catalogoDocumentos:
+        usuario.area === "SOCIOS"
+          ? TIPOS_DOCUMENTO.map((tipo) => ({ tipo, nombre: nombreDocumento(tipo) }))
+          : [],
       sistema: estadoDelSistema(),
     });
   });
@@ -503,6 +511,140 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       .header("X-Content-Type-Options", "nosniff")
       .header("Cache-Control", "private, max-age=60")
       .send(fs.createReadStream(ruta));
+  });
+
+  /**
+   * Declara que una firma o la fotografía ya no llegarán de la tableta.
+   *
+   * La firma vive en el almacenamiento privado de la tableta: si el dispositivo
+   * se reinstaló o la captura se perdió, ningún reintento la recupera y la
+   * tarea de la bandeja se quedaba sin salida. Con esto la Jefatura declara
+   * dónde consta —el formulario en papel, normalmente— y el trámite continúa.
+   */
+  app.post("/api/solicitudes/:id/adjuntos/:rol/omitir", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id, rol } = peticion.params as { id: string; rol: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const comprobado = validarRolAdjunto(rol);
+    if (!comprobado.ok) return respuesta.code(400).send({ error: comprobado.error });
+
+    const motivo = validarObservacion((peticion.body as { motivo?: unknown })?.motivo);
+    if (!motivo.ok) return respuesta.code(400).send({ error: motivo.error });
+
+    const actualizada = omitirAdjunto(id, comprobado.valor, {
+      motivo: motivo.valor,
+      responsable: usuario.nombre,
+    });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "OMITIR_ADJUNTO",
+      entidad: solicitud.codigo,
+      detalle: `${ROL_ADJUNTO_META[comprobado.valor].etiqueta}: ${motivo.valor}`,
+    });
+
+    return respuesta.send(actualizada ?? solicitud);
+  });
+
+  /**
+   * Escaneo que la Jefatura sube desde el navegador, sin pasar por la carpeta
+   * compartida.
+   *
+   * Es la salida de la tarea «falta escanear» cuando Samba no está a mano o el
+   * nombre del archivo se resiste: se archiva en el expediente con el nombre
+   * que le corresponde, exactamente como si lo hubiera recogido el vigilante.
+   */
+  app.post("/api/solicitudes/:id/escaneos/:tipo", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id, tipo } = peticion.params as { id: string; tipo: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const comprobado = validarTipoDocumento(tipo);
+    if (!comprobado.ok) return respuesta.code(400).send({ error: comprobado.error });
+
+    if (!numeroEnExpediente(solicitud)) {
+      return respuesta.code(409).send({
+        error:
+          "El trámite todavía no tiene número de socio, y sin número no hay carpeta donde archivar. Cree primero al socio en SAFI.",
+      });
+    }
+
+    const parte = await peticion.file();
+    if (!parte) return respuesta.code(400).send({ error: "No se recibió ningún archivo." });
+
+    const extension = validarExtension(parte.filename ?? "");
+    if (!extension.ok) return respuesta.code(415).send({ error: extension.error });
+
+    const contenido = await parte.toBuffer();
+    const formato = validarContenido(contenido, extension.valor);
+    if (!formato.ok) return respuesta.code(415).send({ error: formato.error });
+
+    try {
+      const resultado = archivarContenido({
+        contenido,
+        extension: extension.valor,
+        solicitud,
+        tipoDocumento: comprobado.valor,
+        origen: "ESCANEO",
+      });
+
+      registrarBitacora({
+        usuario: usuario.usuario,
+        area: usuario.area,
+        accion: "ARCHIVAR_ESCANEO",
+        entidad: numeroEnExpediente(solicitud),
+        detalle: `${comprobado.valor} · ${resultado.archivo.nombreArchivo} (subido desde la bandeja)`,
+      });
+
+      return respuesta.code(201).send({
+        ok: true,
+        nombreArchivo: resultado.archivo.nombreArchivo,
+        reemplazado: resultado.reemplazado,
+      });
+    } catch (error) {
+      return respuesta
+        .code(500)
+        .send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** Documento por escanear que este trámite no necesita, con su justificación. */
+  app.post("/api/solicitudes/:id/escaneos/:tipo/omitir", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id, tipo } = peticion.params as { id: string; tipo: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const comprobado = validarTipoDocumento(tipo);
+    if (!comprobado.ok) return respuesta.code(400).send({ error: comprobado.error });
+
+    const motivo = validarObservacion((peticion.body as { motivo?: unknown })?.motivo);
+    if (!motivo.ok) return respuesta.code(400).send({ error: motivo.error });
+
+    const actualizada = omitirEscaneo(id, comprobado.valor, {
+      motivo: motivo.valor,
+      responsable: usuario.nombre,
+    });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "OMITIR_ESCANEO",
+      entidad: solicitud.codigo,
+      detalle: `${nombreDocumento(comprobado.valor)}: ${motivo.valor}`,
+    });
+
+    return respuesta.send(actualizada ?? solicitud);
   });
 
   /**
@@ -1132,6 +1274,72 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       entidad: archivo,
     });
     return respuesta.send({ ok: true });
+  });
+
+  /**
+   * Aparta a `_REVISAR/` un archivo que llegó por error, y cierra su tarea.
+   * No se borra nada: queda en la carpeta compartida, a la vista.
+   */
+  app.post("/api/escaneos/incidencias/:archivo/apartar", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const archivo = decodeURIComponent((peticion.params as { archivo: string }).archivo);
+    const resultado = apartarEscaneo(archivo);
+    if (!resultado.ok) return respuesta.code(409).send({ error: resultado.error });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "APARTAR_ESCANEO",
+      entidad: archivo,
+      detalle: "Apartado a _REVISAR desde la bandeja.",
+    });
+    return respuesta.send({ ok: true });
+  });
+
+  /**
+   * Archiva a mano un escaneo en el trámite que indica la Jefatura.
+   *
+   * Es la salida de «archivo en espera» y de «archivo no reconocido»: cuando el
+   * nombre no permite deducir a quién pertenece, lo decide una persona y queda
+   * constancia de quién lo hizo.
+   */
+  app.post("/api/escaneos/incidencias/:archivo/asignar", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const archivo = decodeURIComponent((peticion.params as { archivo: string }).archivo);
+    const cuerpo = (peticion.body ?? {}) as { solicitudId?: unknown; tipoDocumento?: unknown };
+
+    const solicitud =
+      typeof cuerpo.solicitudId === "string" ? obtenerSolicitud(cuerpo.solicitudId) : null;
+    if (!solicitud) return respuesta.code(404).send({ error: "Elija el trámite al que pertenece." });
+
+    if (!numeroEnExpediente(solicitud)) {
+      return respuesta.code(409).send({
+        error: `El trámite ${solicitud.codigo} todavía no tiene número de socio, y sin número no hay carpeta donde archivar.`,
+      });
+    }
+
+    const tipo = validarTipoDocumento(cuerpo.tipoDocumento);
+    if (!tipo.ok) return respuesta.code(400).send({ error: tipo.error });
+
+    const resultado = asignarEscaneo(archivo, solicitud, tipo.valor);
+    if (!resultado.ok) return respuesta.code(409).send({ error: resultado.error });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "ASIGNAR_ESCANEO",
+      entidad: solicitud.codigo,
+      detalle: `${archivo} → ${nombreDocumento(tipo.valor)}`,
+    });
+
+    return respuesta.send({
+      ok: true,
+      nombreArchivo: resultado.resultado.archivo.nombreArchivo,
+    });
   });
 
   /* ---------------------------------------------------------------- */

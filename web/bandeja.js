@@ -41,7 +41,9 @@ async function api(ruta, opciones = {}) {
   try {
     respuesta = await fetch(ruta, {
       credentials: "same-origin",
-      headers: opciones.body ? { "Content-Type": "application/json" } : {},
+      // Solo el JSON lleva cabecera propia: a un FormData la pone el navegador,
+      // con el separador del multipart. Fijarla a mano rompe la subida.
+      headers: typeof opciones.body === "string" ? { "Content-Type": "application/json" } : {},
       ...opciones,
     });
   } catch {
@@ -281,58 +283,7 @@ function dibujarPendientes() {
           )}">Ver expediente</button>`
         );
       }
-      if (tarea.tipo === "REVISAR" || tarea.tipo === "APROBAR") {
-        acciones.push(
-          `<button type="button" class="boton primario" data-accion="resolver" data-id="${escapar(tarea.id)}">
-             ${tarea.tipo === "REVISAR" ? "Marcar como revisada" : "Aprobar el ingreso"}
-           </button>`
-        );
-      }
-      if (tarea.tipo === "CONFIRMAR_SAFI") {
-        acciones.push(
-          `<button type="button" class="boton primario" data-accion="abrir-safi" data-id="${escapar(
-            tarea.solicitudId
-          )}">Confirmar y crear en SAFI</button>`
-        );
-      }
-      if (tarea.tipo === "CORREGIR_OBSERVACION") {
-        acciones.push(
-          `<button type="button" class="boton primario" data-accion="reenviar" data-id="${escapar(
-            tarea.solicitudId
-          )}">Atender y reenviar</button>`,
-          `<button type="button" class="boton peligro" data-accion="anular" data-id="${escapar(
-            tarea.solicitudId
-          )}">Anular el trámite</button>`
-        );
-      }
-      if (tarea.tipo === "ESCANEO_NO_RECONOCIDO" || tarea.tipo === "ESCANEO_EN_ESPERA") {
-        acciones.push(
-          `<button type="button" class="boton sutil" data-accion="revisar-carpeta">Revisar la carpeta ahora</button>`,
-          `<button type="button" class="boton sutil" data-accion="resolver-incidencia" data-archivo="${escapar(
-            tarea.codigo
-          )}">Ya lo corregí</button>`
-        );
-      }
-      if (tarea.tipo === "ESCANEO_PENDIENTE" || tarea.tipo === "ADJUNTOS_PENDIENTES") {
-        acciones.push(
-          `<button type="button" class="boton sutil" data-accion="revisar-carpeta">Revisar la carpeta ahora</button>`
-        );
-      }
-      if (tarea.tipo === "FORMULARIO_FINAL_PENDIENTE") {
-        acciones.push(
-          `<button type="button" class="boton primario" data-accion="formulario-final" data-id="${escapar(
-            tarea.solicitudId
-          )}">Generar y archivar el formulario</button>`
-        );
-      }
-      if (tarea.tipo === "CARGA_SAFI_PENDIENTE") {
-        acciones.push(
-          `<button type="button" class="boton sutil" data-accion="reintentar-safi">Reintentar la carga</button>`,
-          `<button type="button" class="boton sutil" data-accion="documentos-a-mano" data-id="${escapar(
-            tarea.solicitudId
-          )}">Ya los cargué a mano</button>`
-        );
-      }
+      acciones.push(...botonesDeSalidas(tarea));
 
       const archivos =
         tarea.archivosEsperados && tarea.archivosEsperados.length > 0
@@ -351,6 +302,7 @@ function dibujarPendientes() {
           <span class="antiguedad ${edad.dias >= 3 ? "vieja" : ""}">${escapar(edad.texto)}</span>
         </div>
         ${identificacion(tarea)}
+        ${tarea.instruccion ? `<p class="instruccion">${escapar(tarea.instruccion)}</p>` : ""}
         <p class="detalle">${escapar(tarea.detalle)}</p>
         ${archivos}
         ${acciones.length ? `<div class="tarjeta-acciones">${acciones.join("")}</div>` : ""}
@@ -571,8 +523,212 @@ function hayDialogoAbierto() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Salidas de las tareas                                               */
+/* ------------------------------------------------------------------ */
+
+/** Peso que declara el dominio → clase del botón. */
+const CLASE_PESO = { principal: "primario", secundaria: "sutil", destructiva: "peligro" };
+
+/**
+ * Salidas que se ejercen sobre una pieza concreta (una firma, la fotografía, un
+ * documento por escanear). Se dibuja un botón por pieza pendiente.
+ */
+const SALIDAS_POR_PIEZA = new Set([
+  "subir-adjunto",
+  "omitir-adjunto",
+  "subir-escaneo",
+  "omitir-escaneo",
+]);
+
+/**
+ * Dibuja un botón por cada salida que declara la tarea.
+ *
+ * Las salidas las decide el dominio (`TAREA_META`), no este archivo: una tarea
+ * nueva llega con sus botones puestos y ninguna puede aparecer sin forma de
+ * resolverse. Si alguna llegara sin acción programada aquí, el botón se dibuja
+ * deshabilitado y lo dice —antes desaparecía en silencio y el trámite se
+ * quedaba atascado sin que nadie supiera por qué.
+ */
+function botonesDeSalidas(tarea) {
+  const botones = [];
+
+  for (const salida of tarea.salidas || []) {
+    const clase = CLASE_PESO[salida.peso] || "sutil";
+    const conocida = ACCIONES_CONOCIDAS.has(salida.clave);
+    const porPieza = SALIDAS_POR_PIEZA.has(salida.clave);
+    const piezas = porPieza ? tarea.pendientes || [] : [null];
+
+    for (const pieza of piezas) {
+      const etiqueta =
+        pieza && piezas.length > 1 ? `${salida.etiqueta}: ${pieza.etiqueta}` : salida.etiqueta;
+      const titulo = conocida
+        ? ""
+        : "Esta bandeja no tiene programada esta acción. Avise a Soporte TIC.";
+
+      botones.push(`<button type="button" class="boton ${clase}"${conocida ? "" : " disabled"}
+        data-accion="${escapar(salida.clave)}"
+        data-id="${escapar(tarea.solicitudId || "")}"
+        data-archivo="${escapar(tarea.solicitudId ? "" : tarea.codigo)}"
+        data-clave="${escapar(pieza ? pieza.clave : "")}"
+        data-etiqueta="${escapar(pieza ? pieza.etiqueta : salida.etiqueta)}"
+        title="${escapar(titulo)}">${escapar(etiqueta)}</button>`);
+    }
+  }
+
+  return botones;
+}
+
+/**
+ * Pide un archivo al operador sin dejar un `input` permanente en la página.
+ *
+ * Si cancela el diálogo del sistema no llega ningún evento, así que se resuelve
+ * también al recuperar el foco: sin eso la promesa quedaría colgada y el botón
+ * deshabilitado para siempre.
+ */
+function pedirArchivo(aceptados) {
+  return new Promise((resolver) => {
+    const entrada = document.createElement("input");
+    entrada.type = "file";
+    entrada.accept = aceptados;
+    entrada.style.display = "none";
+    document.body.appendChild(entrada);
+
+    let resuelto = false;
+    const terminar = (archivo) => {
+      if (resuelto) return;
+      resuelto = true;
+      entrada.remove();
+      resolver(archivo);
+    };
+
+    entrada.addEventListener("change", () => terminar(entrada.files && entrada.files[0]), {
+      once: true,
+    });
+    window.addEventListener(
+      "focus",
+      () => setTimeout(() => terminar(entrada.files && entrada.files[0]), 500),
+      { once: true }
+    );
+    entrada.click();
+  });
+}
+
+/** Sube un archivo por multipart, con los campos que acompañan al formulario. */
+async function subirArchivo(ruta, archivo, campos = {}) {
+  const formulario = new FormData();
+  for (const [clave, valor] of Object.entries(campos)) formulario.append(clave, valor);
+  formulario.append("archivo", archivo, archivo.name);
+  return api(ruta, { method: "POST", body: formulario });
+}
+
+/**
+ * Asigna a mano un escaneo a un trámite, cuando su nombre no permitió deducirlo.
+ *
+ * Solo se ofrecen los trámites que ya tienen número de socio: sin número no hay
+ * carpeta de expediente donde archivar.
+ */
+async function abrirAsignacion(nombreArchivo) {
+  const solicitudes = await api("/api/solicitudes");
+  const candidatas = solicitudes.filter((s) => s.numeroSocio && s.estado !== "RECHAZADA");
+
+  if (candidatas.length === 0) {
+    avisar(
+      "Ningún trámite tiene número de socio todavía: créelo primero en SAFI y vuelva a intentarlo."
+    );
+    return;
+  }
+
+  const documentos = estado.bandeja.catalogoDocumentos || [];
+  const dialogo = document.createElement("dialog");
+  dialogo.className = "dialogo";
+  dialogo.innerHTML = `<form method="dialog">
+    <h2>Asignar un escaneo a un trámite</h2>
+    <p class="dialogo-detalle">${escapar(nombreArchivo)}</p>
+    <label for="asignar-tramite">Trámite</label>
+    <select id="asignar-tramite">
+      ${candidatas
+        .map(
+          (s) =>
+            `<option value="${escapar(s.id)}">${escapar(
+              `${s.numeroSocio} · ${s.nombre} (${s.codigo})`
+            )}</option>`
+        )
+        .join("")}
+    </select>
+    <label for="asignar-tipo">Qué documento es</label>
+    <select id="asignar-tipo">
+      ${documentos
+        .map((d) => `<option value="${escapar(d.tipo)}">${escapar(d.nombre)}</option>`)
+        .join("")}
+    </select>
+    <p class="error" id="asignar-error" hidden></p>
+    <div class="dialogo-acciones">
+      <button type="button" class="boton sutil" id="asignar-cancelar">Cancelar</button>
+      <button type="button" class="boton primario" id="asignar-aceptar">Archivar</button>
+    </div>
+  </form>`;
+
+  document.body.appendChild(dialogo);
+  const cerrar = () => {
+    dialogo.close();
+    dialogo.remove();
+  };
+  dialogo.querySelector("#asignar-cancelar").addEventListener("click", cerrar);
+  dialogo.querySelector("#asignar-aceptar").addEventListener("click", async (evento) => {
+    const boton = evento.currentTarget;
+    boton.disabled = true;
+    try {
+      const resultado = await api(
+        `/api/escaneos/incidencias/${encodeURIComponent(nombreArchivo)}/asignar`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            solicitudId: dialogo.querySelector("#asignar-tramite").value,
+            tipoDocumento: dialogo.querySelector("#asignar-tipo").value,
+          }),
+        }
+      );
+      cerrar();
+      avisar(`Archivado como ${resultado.nombreArchivo}.`);
+      await cargarBandeja();
+    } catch (fallo) {
+      const error = dialogo.querySelector("#asignar-error");
+      error.textContent = fallo.message;
+      error.hidden = false;
+      boton.disabled = false;
+    }
+  });
+  dialogo.showModal();
+}
+
+/* ------------------------------------------------------------------ */
 /* Acciones sobre las tarjetas                                         */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Salidas que esta bandeja sabe ejercer. El dominio declara las salidas de cada
+ * tarea y aquí se programan: si alguna falta, el botón se dibuja deshabilitado
+ * con un aviso en lugar de no aparecer.
+ */
+const ACCIONES_CONOCIDAS = new Set([
+  "revisar",
+  "aprobar",
+  "observar",
+  "abrir-safi",
+  "reenviar",
+  "anular",
+  "subir-adjunto",
+  "omitir-adjunto",
+  "subir-escaneo",
+  "omitir-escaneo",
+  "revisar-carpeta",
+  "asignar-escaneo",
+  "apartar-escaneo",
+  "resolver-incidencia",
+  "formulario-final",
+  "reintentar-safi",
+  "documentos-a-mano",
+]);
 
 document.addEventListener("click", async (evento) => {
   const boton = evento.target.closest("[data-accion]");
@@ -580,9 +736,16 @@ document.addEventListener("click", async (evento) => {
 
   const accion = boton.dataset.accion;
 
-  if (accion === "resolver") {
-    const tarea = estado.bandeja.pendientes.find((t) => t.id === boton.dataset.id);
-    if (tarea) abrirDialogo(tarea);
+  // Revisión y aprobación comparten diálogo: ahí están la factura, la
+  // observación y el botón de devolver.
+  if (accion === "resolver" || accion === "revisar" || accion === "aprobar" || accion === "observar") {
+    const id = boton.dataset.id;
+    const tarea =
+      estado.bandeja.pendientes.find((t) => t.id === id) ||
+      estado.bandeja.pendientes.find(
+        (t) => t.solicitudId === id && (t.tipo === "REVISAR" || t.tipo === "APROBAR")
+      );
+    if (tarea) abrirDialogo(tarea, accion === "observar");
     return;
   }
 
@@ -634,6 +797,64 @@ document.addEventListener("click", async (evento) => {
         { method: "POST" }
       );
       avisar(`Marcados como cargados a mano: ${resultado.documentos} documento(s).`);
+      await cargarBandeja();
+    } else if (accion === "subir-adjunto") {
+      const archivo = await pedirArchivo("image/png,image/jpeg,.png,.jpg,.jpeg");
+      if (archivo) {
+        await subirArchivo(
+          `/api/solicitudes/${encodeURIComponent(boton.dataset.id)}/adjuntos`,
+          archivo,
+          { rol: boton.dataset.clave }
+        );
+        avisar(`${boton.dataset.etiqueta}: recibida en el servidor.`);
+        await cargarBandeja();
+      }
+    } else if (accion === "omitir-adjunto") {
+      await pedirTexto({
+        titulo: `Continuar sin ${boton.dataset.etiqueta.toLowerCase()}`,
+        detalle:
+          "Diga dónde consta —normalmente, en el formulario firmado en papel que se escaneará—. Queda en el expediente y en la bitácora con su nombre.",
+        etiqueta: "Motivo",
+        ruta: `/api/solicitudes/${encodeURIComponent(
+          boton.dataset.id
+        )}/adjuntos/${encodeURIComponent(boton.dataset.clave)}/omitir`,
+        campo: "motivo",
+        exito: "Registrado: el trámite continúa sin ese archivo.",
+      });
+    } else if (accion === "subir-escaneo") {
+      const archivo = await pedirArchivo(
+        ".pdf,.jpg,.jpeg,.png,.tif,.tiff,application/pdf,image/*"
+      );
+      if (archivo) {
+        const resultado = await subirArchivo(
+          `/api/solicitudes/${encodeURIComponent(
+            boton.dataset.id
+          )}/escaneos/${encodeURIComponent(boton.dataset.clave)}`,
+          archivo
+        );
+        avisar(`Archivado en el expediente como ${resultado.nombreArchivo}.`);
+        await cargarBandeja();
+      }
+    } else if (accion === "omitir-escaneo") {
+      await pedirTexto({
+        titulo: `${boton.dataset.etiqueta}: no aplica`,
+        detalle:
+          "Explique por qué este trámite no necesita ese documento. Queda en el expediente y en la bitácora con su nombre.",
+        etiqueta: "Motivo",
+        ruta: `/api/solicitudes/${encodeURIComponent(
+          boton.dataset.id
+        )}/escaneos/${encodeURIComponent(boton.dataset.clave)}/omitir`,
+        campo: "motivo",
+        exito: "Registrado: ese documento deja de reclamarse.",
+      });
+    } else if (accion === "asignar-escaneo") {
+      await abrirAsignacion(boton.dataset.archivo);
+    } else if (accion === "apartar-escaneo") {
+      await api(
+        `/api/escaneos/incidencias/${encodeURIComponent(boton.dataset.archivo)}/apartar`,
+        { method: "POST" }
+      );
+      avisar("Apartado a _REVISAR: el archivo se conserva y la tarea queda cerrada.");
       await cargarBandeja();
     } else if (accion === "resolver-incidencia") {
       await api(`/api/escaneos/incidencias/${encodeURIComponent(boton.dataset.archivo)}/resolver`, {
@@ -912,7 +1133,7 @@ async function abrirExpediente(id) {
 
 const dialogo = $("dialogo-tarea");
 
-function abrirDialogo(tarea) {
+function abrirDialogo(tarea, enfocarObservacion = false) {
   estado.tareaActiva = tarea;
 
   const esRevision = tarea.tipo === "REVISAR";
@@ -928,7 +1149,7 @@ function abrirDialogo(tarea) {
   $("boton-confirmar").textContent = esRevision ? "Marcar revisada" : "Aprobar";
 
   dialogo.showModal();
-  (esRevision ? $("numero-factura") : $("observacion")).focus();
+  (enfocarObservacion || !esRevision ? $("observacion") : $("numero-factura")).focus();
 }
 
 /** La misma resolución, abierta desde el expediente que se está viendo. */
