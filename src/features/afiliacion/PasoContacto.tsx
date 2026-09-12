@@ -3,7 +3,7 @@ import React from "react";
 import { FORMAS_PAGO, FORMA_PAGO_META, type FormaPago } from "../../domain/facturacion";
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
-import { PROVINCIAS } from "../../domain/tiposMiembro";
+import { PROVINCIAS, tieneCuentaPropia } from "../../domain/tiposMiembro";
 import { formatearNombre, normalizarCorreo, soloDigitos } from "../../domain/validaciones";
 import { Card, InfoNote, SelectField, TextField } from "../../ui";
 
@@ -112,32 +112,40 @@ export function PasoContacto({ datos, errores, setDato }: Props) {
         Contabilidad en el CRM de SAFI a partir del registro ya creado (informe
         CLC-TI-010 versión 6, numerales 1 y 10). Lo único que se captura aquí es
         cómo paga el socio, porque es un dato de su ficha —el campo FORMA_PAGO
-        de su Cuenta en el CRM— y no un cálculo de cobro.
+        de su Cuenta en el CRM— y no un cálculo de cobro. Quien no abre Cuenta
+        propia (cónyuge, padres, juvenil) queda cubierto por la de su titular.
       */}
-      <Card
-        title="Forma de pago"
-        subtitle="Modalidad acordada con el socio para su cuota de mantenimiento."
-        icon="card"
-      >
-        <SelectField
-          label="Forma de pago"
+      {tieneCuentaPropia(datos.tipoMiembro) ? (
+        <Card
           title="Forma de pago"
-          required
-          icon="card-outline"
-          value={datos.formaPago}
-          options={FORMAS_PAGO.map((f) => ({
-            value: f,
-            label: FORMA_PAGO_META[f].etiqueta,
-            description: FORMA_PAGO_META[f].detalle,
-          }))}
-          onChange={(v) => setDato("formaPago", v as FormaPago)}
-          error={errores.formaPago}
-        />
-        <InfoNote tone="info" icon="information-circle-outline">
-          El grupo de facturación y el valor de la cuota los confirma la Jefatura del Área de Socios
-          en su bandeja web antes de crear al socio en el CRM.
+          subtitle="Modalidad acordada con el socio para su cuota de mantenimiento."
+          icon="card"
+        >
+          <SelectField
+            label="Forma de pago"
+            title="Forma de pago"
+            required
+            icon="card-outline"
+            value={datos.formaPago}
+            options={FORMAS_PAGO.map((f) => ({
+              value: f,
+              label: FORMA_PAGO_META[f].etiqueta,
+              description: FORMA_PAGO_META[f].detalle,
+            }))}
+            onChange={(v) => setDato("formaPago", v as FormaPago)}
+            error={errores.formaPago}
+          />
+          <InfoNote tone="info" icon="information-circle-outline">
+            El grupo de facturación y el valor de la cuota los confirma la Jefatura del Área de Socios
+            en su bandeja web antes de crear al socio en el CRM.
+          </InfoNote>
+        </Card>
+      ) : (
+        <InfoNote tone="neutral" icon="card-outline">
+          Este tipo de socio no tiene cuenta propia: su cuota la cubre la cuenta del socio titular,
+          así que no se pide forma de pago.
         </InfoNote>
-      </Card>
+      )}
     </>
   );
 }

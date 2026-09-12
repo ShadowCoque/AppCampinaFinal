@@ -2,13 +2,14 @@ import type { TipoDocumento } from "./documentos";
 import type { FormaPago } from "./facturacion";
 import type { ModoFirma } from "./firmaElectronica";
 import type { ClaveConsentimiento } from "./privacidad";
-import type {
-  Fuerza,
-  ModeloCarta,
-  Sexo,
-  SituacionMilitar,
-  TipoMiembro,
-  VinculoDependiente,
+import {
+  bloquesPara,
+  type Fuerza,
+  type ModeloCarta,
+  type Sexo,
+  type SituacionMilitar,
+  type TipoMiembro,
+  type VinculoDependiente,
 } from "./tiposMiembro";
 
 /**
@@ -18,8 +19,15 @@ import type {
  */
 export type TonoEstado = "neutral" | "info" | "success" | "warning" | "danger" | "gold";
 
-/** Versión del esquema de datos persistido. Permite migrar registros antiguos. */
-export const ESQUEMA_SOLICITUD = 6;
+/**
+ * Versión del esquema de datos persistido. Permite migrar registros antiguos.
+ *
+ *   6 → 7  Se retiró el listado «Dependientes a su cargo» del R-PGS1-1, las
+ *          devoluciones con observación dejaron de escribirse sobre las
+ *          constancias de revisión y aprobación (`tramite.devolucion`), y el
+ *          expediente registra qué firmas y fotografía entregó ya la tableta.
+ */
+export const ESQUEMA_SOLICITUD = 7;
 
 /* ------------------------------------------------------------------ */
 /* Áreas que intervienen en el trámite                                 */
@@ -82,8 +90,8 @@ export const ESTADO_META: Record<
     etiqueta: "Registrada",
     tono: "info",
     descripcion:
-      "El Área de Socios registró la afiliación. Pendiente de revisión por el Área de Contabilidad.",
-    responsable: "Contabilidad",
+      "El Área de Socios registró la afiliación. Pendiente de crear al socio en SAFI y de la revisión del Área de Contabilidad.",
+    responsable: "Área de Socios y Contabilidad",
   },
   REVISADA: {
     etiqueta: "Revisada",
@@ -104,10 +112,12 @@ export const ESTADO_META: Record<
     descripcion: "Se devolvió al Área de Socios para corregir o completar información.",
     responsable: "Área de Socios",
   },
+  // El valor interno se conserva por compatibilidad con los registros ya
+  // guardados; lo que la interfaz muestra es la anulación del trámite.
   RECHAZADA: {
-    etiqueta: "Rechazada",
+    etiqueta: "Anulada",
     tono: "danger",
-    descripcion: "La solicitud no procede. Revise la observación registrada.",
+    descripcion: "El trámite se anuló y no continúa. Consulte el motivo registrado.",
     responsable: "—",
   },
 };
@@ -225,16 +235,6 @@ export function garanteVacio(id: string): DatosGarante {
     firmaUri: null,
   };
 }
-
-/**
- * Listado «Dependientes a su cargo» del formulario del socio activo
- * (R-PGS1-1): hasta seis personas, con su vínculo familiar.
- */
-export type DependienteACargo = {
-  id: string;
-  apellidosNombres: string;
-  vinculo: VinculoDependiente | null;
-};
 
 /* ------------------------------------------------------------------ */
 /* Carta de compromiso                                                 */
@@ -357,14 +357,21 @@ export type DatosAfiliacion = {
   situacion: SituacionMilitar | null;
   fuerza: Fuerza | null;
 
-  /** Fecha de ingreso al Club declarada en el formulario. */
+  /**
+   * «Fecha de ingreso al Club» del R-PGS1-1. No se pregunta: es la fecha en
+   * que se registra la afiliación, y se fija al registrarla.
+   */
   fechaIngresoClub: string;
 
-  /** Bloques que solo aparecen en algunos formularios. */
+  /**
+   * Recuadros que añade la hoja de solicitud de algunas categorías.
+   *
+   * El listado «Dependientes a su cargo» del R-PGS1-1 se retiró del
+   * formulario: cada dependiente se afilia con su propio trámite.
+   */
   conyuge: DatosConyuge;
   hijos: DatosHijo[];
   garantes: DatosGarante[];
-  dependientesACargo: DependienteACargo[];
   carta: DatosCartaCompromiso | null;
 };
 
@@ -408,7 +415,6 @@ export function datosVacios(): DatosAfiliacion {
     conyuge: conyugeVacio(),
     hijos: [],
     garantes: [],
-    dependientesACargo: [],
     carta: null,
   };
 }
@@ -436,6 +442,57 @@ export type ArchivoAdjunto = {
   tamanoBytes: number;
   capturadoEn: string;
 };
+
+/**
+ * Archivos que la tableta captura y el servidor necesita para componer el
+ * formulario y el expediente: las firmas trazadas en pantalla y la fotografía
+ * tipo carnet.
+ *
+ * En la tableta viven como archivos privados de la aplicación; la ruta que
+ * guarda la solicitud (`firmaUri`, `garantes[].firmaUri`, `documentos[].uri`)
+ * no significa nada fuera de ella. Por eso viajan aparte, y el servidor lleva la
+ * cuenta de cuáles recibió en `expediente.adjuntosRecibidos`.
+ */
+export const ROLES_ADJUNTO = [
+  "FIRMA_SOLICITANTE",
+  "FIRMA_GARANTE_1",
+  "FIRMA_GARANTE_2",
+  "FOTO_CARNET",
+] as const;
+
+export type RolAdjunto = (typeof ROLES_ADJUNTO)[number];
+
+export const ROL_ADJUNTO_META: Record<RolAdjunto, { etiqueta: string; esFirma: boolean }> = {
+  FIRMA_SOLICITANTE: { etiqueta: "Firma del solicitante", esFirma: true },
+  FIRMA_GARANTE_1: { etiqueta: "Firma del socio garante", esFirma: true },
+  FIRMA_GARANTE_2: { etiqueta: "Firma del segundo socio garante", esFirma: true },
+  FOTO_CARNET: { etiqueta: "Fotografía tipo carnet", esFirma: false },
+};
+
+/** Rol de la firma de un garante, por su posición en `datos.garantes`. */
+export function rolFirmaGarante(indice: number): RolAdjunto {
+  return indice === 0 ? "FIRMA_GARANTE_1" : "FIRMA_GARANTE_2";
+}
+
+/**
+ * Archivos que el servidor debe tener de una solicitud para que su expediente
+ * esté completo: siempre la firma del solicitante, la de cada garante que su
+ * hoja de solicitud exige y la fotografía.
+ */
+export function adjuntosEsperados(solicitud: SolicitudAfiliacion): RolAdjunto[] {
+  const roles: RolAdjunto[] = ["FIRMA_SOLICITANTE"];
+  const bloques = bloquesPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
+  const garantes = Math.min(bloques?.garantes ?? 0, solicitud.datos.garantes.length);
+  for (let indice = 0; indice < garantes; indice += 1) roles.push(rolFirmaGarante(indice));
+  if (solicitud.documentos.some((d) => d.tipo === "FOTO_CARNET")) roles.push("FOTO_CARNET");
+  return roles;
+}
+
+/** Los esperados que el servidor todavía no ha recibido. */
+export function adjuntosFaltantes(solicitud: SolicitudAfiliacion): RolAdjunto[] {
+  const recibidos = new Set(solicitud.expediente.adjuntosRecibidos ?? []);
+  return adjuntosEsperados(solicitud).filter((rol) => !recibidos.has(rol));
+}
 
 export type RegistroConsentimiento = {
   versionAviso: string;
@@ -546,6 +603,23 @@ export type TramiteInterno = {
    */
   revision: (ConstanciaTramite & { numeroFactura: string }) | null;
   aprobacion: ConstanciaTramite | null;
+  /**
+   * Devolución pendiente: Contabilidad o la Gerencia devolvieron el trámite al
+   * Área de Socios con una observación.
+   *
+   * Va aparte de las constancias a propósito. Una devolución no es una
+   * revisión ni una aprobación: si se escribiera sobre ellas, el reverso
+   * imprimiría «Revisado» con el nombre de quien en realidad lo devolvió.
+   */
+  devolucion?: ConstanciaTramite | null;
+  /**
+   * Todas las observaciones del trámite, en orden: las devoluciones y las
+   * respuestas del Área de Socios al reenviarlo. Son las que el reverso imprime
+   * en los recuadros de observación de cada área.
+   */
+  observaciones?: ConstanciaTramite[];
+  /** Constancia de anulación del trámite, con su motivo. */
+  anulacion?: ConstanciaTramite | null;
 };
 
 export function tramiteVacio(): TramiteInterno {
@@ -557,7 +631,31 @@ export function tramiteVacio(): TramiteInterno {
     registro: null,
     revision: null,
     aprobacion: null,
+    devolucion: null,
+    observaciones: [],
+    anulacion: null,
   };
+}
+
+/**
+ * Observaciones de un área para el reverso del formulario: la de su constancia
+ * y las de sus devoluciones o respuestas, con su fecha.
+ */
+export function observacionesDeArea(tramite: TramiteInterno, area: Area): string[] {
+  const constancia =
+    area === "SOCIOS" ? tramite.registro : area === "CONTABILIDAD" ? tramite.revision : tramite.aprobacion;
+
+  const textos: string[] = [];
+  if (constancia?.observacion?.trim()) textos.push(constancia.observacion.trim());
+  for (const nota of tramite.observaciones ?? []) {
+    if (nota.area === area && nota.observacion.trim()) {
+      textos.push(`${nota.en.slice(0, 10).split("-").reverse().join("/")}: ${nota.observacion.trim()}`);
+    }
+  }
+  if (area === "SOCIOS" && tramite.anulacion?.observacion) {
+    textos.push(`Anulado: ${tramite.anulacion.observacion}`);
+  }
+  return textos;
 }
 
 export type EventoSolicitud = {
@@ -657,6 +755,19 @@ export type EstadoExpediente = {
   altaSafiMensaje?: string;
   /** Documentos escaneados que el Área de Socios aún no ha depositado. */
   escaneosPendientes: TipoDocumento[];
+  /**
+   * Firmas y fotografía que la tableta ya entregó al servidor. Los que falten
+   * generan una tarea en la bandeja del Área de Socios: sin la firma, el
+   * formulario no se puede componer.
+   */
+  adjuntosRecibidos?: RolAdjunto[];
+  /**
+   * Formulario final —R-PGS1-1, hoja de solicitud, carta y reverso con las tres
+   * constancias— archivado en el expediente tras la aprobación.
+   */
+  formularioFinal?: { archivadoEn: string; nombreArchivo: string } | null;
+  /** Motivo por el que el formulario final no pudo generarse, si falló. */
+  formularioFinalMensaje?: string;
   /** Publicación en el módulo Cuentas del CRM de SAFI. */
   safi: EstadoSincronizacion;
   safiMensaje?: string;
@@ -670,6 +781,8 @@ export function expedienteVacio(): EstadoExpediente {
     socioSafiId: null,
     confirmacionSafi: null,
     escaneosPendientes: [],
+    adjuntosRecibidos: [],
+    formularioFinal: null,
     safi: "PENDIENTE",
   };
 }
@@ -693,6 +806,73 @@ export type SolicitudAfiliacion = {
   expediente: EstadoExpediente;
   historial: EventoSolicitud[];
 };
+
+/**
+ * Pone al día una solicitud guardada con un esquema anterior.
+ *
+ * La usan la tableta (sus borradores y registros sobreviven a las
+ * actualizaciones de la aplicación) y el servidor (su base guarda cada trámite
+ * con la forma que tenía al escribirse). Sin esto, un expediente antiguo
+ * abierto con el código nuevo mostraría campos en blanco en lugar de su
+ * contenido, que es peor que un error: parece un dato que nunca se capturó.
+ *
+ *   5 → 6  El nombre del socio titular pasó a dos campos, apellidos y nombres.
+ *          El valor antiguo se conserva entero en el de apellidos: partirlo por
+ *          la mitad escribiría un nombre equivocado en el CRM.
+ *   6 → 7  Se retira «Dependientes a su cargo». Una devolución con observación
+ *          que quedó escrita sobre la constancia de revisión o de aprobación
+ *          se traslada a `tramite.devolucion`, que es lo que en realidad era.
+ *
+ * No escribe nada: devuelve la versión al día y quien la guarde la persiste.
+ */
+export function migrarSolicitud(guardada: SolicitudAfiliacion): SolicitudAfiliacion {
+  if (guardada.esquema >= ESQUEMA_SOLICITUD) return guardada;
+
+  const antiguo = (guardada.datos ?? {}) as Partial<DatosAfiliacion> & {
+    titularNombre?: string;
+    dependientesACargo?: unknown;
+  };
+  const { titularNombre, dependientesACargo, ...conservados } = antiguo;
+  void dependientesACargo;
+
+  const tramite: TramiteInterno = { ...tramiteVacio(), ...(guardada.tramite ?? {}) };
+  const historial = guardada.historial ?? [];
+
+  if (guardada.estado === "OBSERVADA" && !tramite.devolucion) {
+    const ultima = [...historial].reverse().find((evento) => evento.estado === "OBSERVADA");
+    const deContabilidad = ultima?.area === "CONTABILIDAD" && tramite.revision?.en === ultima.en;
+    const deGerencia = ultima?.area === "GERENCIA" && tramite.aprobacion?.en === ultima.en;
+
+    if (deContabilidad && tramite.revision) {
+      const { numeroFactura, ...constancia } = tramite.revision;
+      void numeroFactura;
+      tramite.devolucion = constancia;
+      tramite.observaciones = [...(tramite.observaciones ?? []), constancia];
+      tramite.revision = null;
+    } else if (deGerencia && tramite.aprobacion) {
+      tramite.devolucion = tramite.aprobacion;
+      tramite.observaciones = [...(tramite.observaciones ?? []), tramite.aprobacion];
+      tramite.aprobacion = null;
+    }
+  }
+
+  return {
+    ...guardada,
+    esquema: ESQUEMA_SOLICITUD,
+    datos: {
+      ...datosVacios(),
+      ...conservados,
+      titularApellidos: conservados.titularApellidos ?? titularNombre ?? "",
+      titularNombres: conservados.titularNombres ?? "",
+      provincia: conservados.provincia ?? "",
+    },
+    documentos: guardada.documentos ?? [],
+    identidad: guardada.identidad ?? identidadVacia(),
+    tramite,
+    expediente: { ...expedienteVacio(), ...(guardada.expediente ?? {}) },
+    historial,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Actualización de datos del socio                                    */

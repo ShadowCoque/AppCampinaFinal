@@ -5,16 +5,12 @@ import {
   ESQUEMA_SOLICITUD,
   datosVacios,
   expedienteVacio,
+  migrarSolicitud,
   tramiteVacio,
-  type Area,
-  type ConstanciaTramite,
-  type DatosAfiliacion,
-  type EstadoSolicitud,
   type SolicitudAfiliacion,
   type TramiteInterno,
 } from "../domain/solicitud";
 import type { EstadoFormulario } from "../domain/formularioAfiliacion";
-import { normalizarNumeroSocio } from "../domain/texto";
 import { CLAVES, escribirJSON, leerJSON, nuevoId } from "./almacenamiento";
 import { eliminarExpediente, persistirFirma } from "./archivos";
 
@@ -23,55 +19,19 @@ import { eliminarExpediente, persistirFirma } from "./archivos";
  *
  * Es la copia que vive en la tableta del Área de Socios. El servidor
  * (`server/`) es la fuente de verdad institucional; aquí se conserva lo
- * registrado para que el trámite pueda completarse sin conexión y sincronizarse
- * después (ver `services/sincronizacion.ts`).
+ * registrado para que el trámite pueda completarse sin conexión y enviarse en
+ * cuanto la haya (ver `services/servidor.ts`), y para mostrar en la tableta el
+ * avance que el servidor le devuelve.
  */
 
 export async function listarSolicitudes(): Promise<SolicitudAfiliacion[]> {
   const lista = await leerJSON<SolicitudAfiliacion[]>(CLAVES.solicitudes, []);
   return lista
     .filter((s) => s && typeof s === "object" && s.id)
-    .map(migrar)
+    // Los borradores y registros sobreviven a las actualizaciones de la
+    // aplicación: se ponen al día con el mismo código que usa el servidor.
+    .map((s) => migrarSolicitud({ ...s, datos: { ...datosVacios(), ...s.datos } }))
     .sort((a, b) => b.creadaEn.localeCompare(a.creadaEn));
-}
-
-/**
- * Adapta un registro guardado con un esquema anterior.
- *
- * Los borradores viven en la tableta y sobreviven a las actualizaciones de la
- * aplicación, así que un formulario a medio llenar puede reabrirse meses
- * después con una versión que ya pide campos que entonces no existían.
- *
- *   Esquema 5 → 6  Se separó el nombre del socio titular en apellidos y
- *                  nombres, y se añadieron la provincia del domicilio, el
- *                  ordinal del dependiente y la confirmación de SAFI.
- *
- * El nombre del titular se conserva entero en el campo de apellidos en lugar de
- * partirlo por la mitad: adivinar cuántos apellidos tiene una persona acabaría
- * escribiendo un nombre equivocado en el CRM. Al reabrir el borrador la
- * validación pedirá completar el desglose, que es lo correcto.
- */
-function migrar(solicitud: SolicitudAfiliacion): SolicitudAfiliacion {
-  if (solicitud.esquema >= ESQUEMA_SOLICITUD) return solicitud;
-
-  const antiguo = solicitud.datos as Partial<DatosAfiliacion> & { titularNombre?: string };
-  const tramite = solicitud.tramite ?? tramiteVacio();
-  const expediente = solicitud.expediente ?? expedienteVacio();
-
-  return {
-    ...solicitud,
-    esquema: ESQUEMA_SOLICITUD,
-    datos: {
-      ...datosVacios(),
-      ...solicitud.datos,
-      titularApellidos: antiguo.titularApellidos ?? antiguo.titularNombre ?? "",
-      titularNombres: antiguo.titularNombres ?? "",
-      provincia: antiguo.provincia ?? "",
-    },
-    tramite: { ...tramiteVacio(), ...tramite },
-    expediente: { ...expedienteVacio(), ...expediente },
-    historial: solicitud.historial ?? [],
-  };
 }
 
 export async function obtenerSolicitud(id: string): Promise<SolicitudAfiliacion | null> {
@@ -103,11 +63,18 @@ export function nuevaSolicitudId(): string {
 export async function crearSolicitud(
   id: string,
   estado: EstadoFormulario,
-  responsable: string,
-  estadoInicial: EstadoSolicitud = "REGISTRADA"
+  responsable: string
 ): Promise<SolicitudAfiliacion> {
   const lista = await listarSolicitudes();
+
+  // Si la aplicación se cerró justo después de registrar y antes de cerrar el
+  // borrador, al volver a enviarlo llegaría el mismo identificador. Se devuelve
+  // lo ya registrado: duplicarlo dejaría dos trámites con los mismos archivos.
+  const yaRegistrada = lista.find((s) => s.id === id);
+  if (yaRegistrada) return yaRegistrada;
+
   const ahora = new Date().toISOString();
+  const hoy = ahora.slice(0, 10);
 
   // Las firmas normalmente ya están en disco: el asistente las escribe al
   // trazarlas. Esta llamada es la red de seguridad para un borrador guardado
@@ -123,7 +90,7 @@ export async function crearSolicitud(
 
   const tramite: TramiteInterno = {
     ...tramiteVacio(),
-    fechaRegistro: ahora.slice(0, 10),
+    fechaRegistro: hoy,
     registro: {
       area: "SOCIOS",
       responsable,
@@ -136,10 +103,17 @@ export async function crearSolicitud(
     id,
     codigo: generarCodigo(lista),
     esquema: ESQUEMA_SOLICITUD,
-    estado: estadoInicial,
+    estado: "REGISTRADA",
     creadaEn: ahora,
     actualizadaEn: ahora,
-    datos: { ...estado.datos, garantes },
+    datos: {
+      ...estado.datos,
+      garantes,
+      // «Fecha de ingreso al Club» del R-PGS1-1: la del registro.
+      fechaIngresoClub: estado.datos.fechaIngresoClub || hoy,
+      // La carta se firma junto con el formulario: queda la constancia.
+      carta: estado.datos.carta ? { ...estado.datos.carta, aceptadaEn: ahora } : null,
+    },
     documentos: estado.documentos,
     firmaUri,
     modoFirma: MODO_FIRMA,
@@ -157,7 +131,7 @@ export async function crearSolicitud(
     historial: [
       {
         en: ahora,
-        estado: estadoInicial,
+        estado: "REGISTRADA",
         area: "SOCIOS",
         responsable,
         nota: "Afiliación registrada desde la aplicación.",
@@ -170,90 +144,49 @@ export async function crearSolicitud(
 }
 
 /**
- * Registra los números que el Área de Socios asigna al crear al socio en el
- * CRM. Sin el número de socio no puede nombrarse la carpeta del expediente.
+ * Lo que el servidor sabe de un trámite y la tableta no: el código definitivo,
+ * el estado, las constancias del reverso, el número de socio y el estado del
+ * expediente.
  */
-export async function registrarNumeros(
-  id: string,
-  numeros: { numeroSocio?: string; numeroTarjeta?: string }
-): Promise<SolicitudAfiliacion | null> {
+export type AvanceDelServidor = Pick<
+  SolicitudAfiliacion,
+  "id" | "codigo" | "estado" | "actualizadaEn" | "tramite" | "expediente" | "historial"
+>;
+
+/**
+ * Incorpora a la copia de la tableta el avance que devolvió el servidor.
+ *
+ * Solo se toma lo que el servidor gobierna. Los datos del solicitante, sus
+ * documentos y las rutas de sus firmas son los de la tableta: las rutas que
+ * conoce el servidor no significan nada en el dispositivo, y sustituirlas
+ * dejaría el formulario de la tableta sin firmas —que es justo lo que ocurría
+ * antes de esta corrección.
+ */
+export async function incorporarAvance(avances: AvanceDelServidor[]): Promise<number> {
+  if (avances.length === 0) return 0;
   const lista = await listarSolicitudes();
-  const indice = lista.findIndex((s) => s.id === id);
-  if (indice === -1) return null;
+  let cambios = 0;
 
-  const actual = lista[indice];
-  const actualizada: SolicitudAfiliacion = {
-    ...actual,
-    actualizadaEn: new Date().toISOString(),
-    tramite: {
-      ...actual.tramite,
-      numeroSocio:
-        numeros.numeroSocio !== undefined
-          ? normalizarNumeroSocio(numeros.numeroSocio)
-          : actual.tramite.numeroSocio,
-      numeroTarjeta: numeros.numeroTarjeta?.trim() ?? actual.tramite.numeroTarjeta,
-    },
-  };
+  for (const avance of avances) {
+    const indice = lista.findIndex((s) => s.id === avance.id);
+    if (indice === -1) continue;
+    const local = lista[indice];
+    if (local.actualizadaEn === avance.actualizadaEn && local.estado === avance.estado) continue;
 
-  lista[indice] = actualizada;
-  await guardarLista(lista);
-  return actualizada;
-}
-
-/** Aplica una constancia del reverso (revisión, aprobación u observación). */
-export async function registrarConstancia(
-  id: string,
-  estado: EstadoSolicitud,
-  constancia: ConstanciaTramite & { numeroFactura?: string }
-): Promise<SolicitudAfiliacion | null> {
-  const lista = await listarSolicitudes();
-  const indice = lista.findIndex((s) => s.id === id);
-  if (indice === -1) return null;
-
-  const actual = lista[indice];
-  const tramite = { ...actual.tramite };
-
-  switch (constancia.area) {
-    case "CONTABILIDAD":
-      tramite.revision = { ...constancia, numeroFactura: constancia.numeroFactura ?? "" };
-      break;
-    case "GERENCIA":
-      tramite.aprobacion = constancia;
-      break;
-    case "SOCIOS":
-      tramite.registro = constancia;
-      break;
+    lista[indice] = {
+      ...local,
+      codigo: avance.codigo || local.codigo,
+      estado: avance.estado,
+      actualizadaEn: avance.actualizadaEn,
+      tramite: { ...tramiteVacio(), ...avance.tramite },
+      expediente: { ...expedienteVacio(), ...avance.expediente },
+      historial: avance.historial ?? local.historial,
+    };
+    cambios += 1;
   }
 
-  const actualizada: SolicitudAfiliacion = {
-    ...actual,
-    estado,
-    actualizadaEn: constancia.en,
-    tramite,
-    historial: [
-      ...actual.historial,
-      {
-        en: constancia.en,
-        estado,
-        area: constancia.area,
-        responsable: constancia.responsable,
-        nota: constancia.observacion || undefined,
-      },
-    ],
-  };
-
-  lista[indice] = actualizada;
-  await guardarLista(lista);
-  return actualizada;
-}
-
-/** Sustituye una solicitud completa con la versión que devolvió el servidor. */
-export async function reemplazarSolicitud(solicitud: SolicitudAfiliacion): Promise<void> {
-  const lista = await listarSolicitudes();
-  const indice = lista.findIndex((s) => s.id === solicitud.id);
-  if (indice === -1) lista.unshift(solicitud);
-  else lista[indice] = solicitud;
-  await guardarLista(lista);
+  if (cambios > 0) await guardarLista(lista);
+  return cambios;
 }
 
 export async function actualizarExpediente(
@@ -279,19 +212,6 @@ export async function eliminarSolicitud(id: string): Promise<void> {
   const lista = await listarSolicitudes();
   await guardarLista(lista.filter((s) => s.id !== id));
   eliminarExpediente(id);
-}
-
-/** Área a la que le toca actuar, para los contadores del portal. */
-export function areasPendientes(solicitudes: SolicitudAfiliacion[]): Record<Area, number> {
-  return solicitudes.reduce(
-    (acc, solicitud) => {
-      if (solicitud.estado === "REGISTRADA") acc.CONTABILIDAD += 1;
-      if (solicitud.estado === "REVISADA") acc.GERENCIA += 1;
-      if (solicitud.estado === "OBSERVADA" || !solicitud.tramite.numeroSocio) acc.SOCIOS += 1;
-      return acc;
-    },
-    { SOCIOS: 0, CONTABILIDAD: 0, GERENCIA: 0 } as Record<Area, number>
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -322,8 +242,36 @@ export async function leerBorrador(): Promise<Borrador | null> {
   return leerJSON<Borrador | null>(CLAVES.borradorAfiliacion, null);
 }
 
+/**
+ * Cierra el borrador de una afiliación que acaba de registrarse.
+ *
+ * Solo olvida el borrador: **no toca los archivos**. La afiliación registrada
+ * y su borrador comparten identificador —y por tanto carpeta—, así que borrar
+ * aquí la carpeta se llevaba la firma del solicitante, las de sus garantes y su
+ * fotografía justo después de registrarlas. Era la causa de que el formulario
+ * generado saliera sin firma.
+ */
+export async function cerrarBorrador(): Promise<void> {
+  await escribirJSON(CLAVES.borradorAfiliacion, null);
+}
+
+/**
+ * Descarta un borrador abandonado y los archivos que alcanzó a capturar.
+ *
+ * Nunca borra la carpeta de una afiliación ya registrada: si el borrador
+ * apunta a una, es que la aplicación se cerró entre el registro y el cierre
+ * del borrador, y esos archivos son los del trámite.
+ */
 export async function descartarBorrador(): Promise<void> {
   const borrador = await leerBorrador();
   await escribirJSON(CLAVES.borradorAfiliacion, null);
-  if (borrador?.solicitudId) eliminarExpediente(borrador.solicitudId);
+  if (!borrador?.solicitudId) return;
+
+  const registrada = (await listarSolicitudes()).some((s) => s.id === borrador.solicitudId);
+  if (!registrada) eliminarExpediente(borrador.solicitudId);
+}
+
+/** Si el borrador corresponde a una afiliación que ya se registró. */
+export async function borradorYaRegistrado(borrador: Borrador): Promise<boolean> {
+  return (await listarSolicitudes()).some((s) => s.id === borrador.solicitudId);
 }

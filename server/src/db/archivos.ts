@@ -138,16 +138,42 @@ export function archivosDeSolicitud(solicitudId: string): ArchivoExpediente[] {
   return filas.map(aArchivo);
 }
 
-/** Cola de publicación en el CRM de SAFI, en orden de llegada. */
+/**
+ * Cola de publicación en el CRM de SAFI, en orden de llegada.
+ *
+ * Solo entran los documentos de trámites **aprobados**. Antes de la
+ * aprobación no se publica nada: una afiliación puede devolverse o anularse, y
+ * su expediente no debe quedar en el CRM del Club. Un documento sin trámite —un
+ * escaneo antiguo archivado por la versión anterior— tampoco se publica nunca:
+ * no hay forma segura de saber a qué Cuenta pertenece.
+ */
 export function pendientesDeSafi(limite = 20): ArchivoExpediente[] {
   const filas = db()
     .prepare(
-      `SELECT * FROM archivos
-       WHERE safi_estado IN ('PENDIENTE','ERROR') AND safi_intentos < 5
-       ORDER BY registrado_en LIMIT ?`
+      `SELECT a.* FROM archivos a
+       JOIN solicitudes s ON s.id = a.solicitud_id
+       WHERE a.safi_estado IN ('PENDIENTE','ERROR') AND a.safi_intentos < 5
+         AND s.estado = 'APROBADA'
+       ORDER BY a.registrado_en LIMIT ?`
     )
     .all(limite) as unknown as Fila[];
   return filas.map(aArchivo);
+}
+
+/**
+ * Marca como cargados a mano los documentos de un trámite. Es la constancia
+ * que deja la Jefatura cuando la integración está en modo manual y ya subió el
+ * expediente al CRM por su cuenta.
+ */
+export function marcarCargadosAMano(solicitudId: string, responsable: string): number {
+  const resultado = db()
+    .prepare(
+      `UPDATE archivos
+       SET safi_estado = 'CARGADO', safi_mensaje = ?, safi_actualizado_en = ?
+       WHERE solicitud_id = ? AND safi_estado <> 'CARGADO'`
+    )
+    .run(`Cargado a mano en SAFI por ${responsable}.`, ahora(), solicitudId);
+  return Number(resultado.changes);
 }
 
 export function marcarSafi(
@@ -169,12 +195,17 @@ export function marcarSafi(
 /* Incidencias de escaneo                                              */
 /* ------------------------------------------------------------------ */
 
+export type TipoIncidencia = "RECHAZADO" | "EN_ESPERA";
+
 export type Incidencia = {
   id: string;
   archivo: string;
   motivo: string;
   detalle: string;
   numeroSocio: string | null;
+  tipo: TipoIncidencia;
+  /** Dónde está el archivo ahora: en `_REVISAR/` o, si espera, en su sitio. */
+  ruta: string | null;
   detectadaEn: string;
   resueltaEn: string | null;
 };
@@ -185,27 +216,51 @@ type FilaIncidencia = {
   motivo: string;
   detalle: string;
   numero_socio: string | null;
+  tipo: string | null;
+  ruta: string | null;
   detectada_en: string;
   resuelta_en: string | null;
 };
 
+/**
+ * Abre la incidencia de un archivo, o actualiza la que ya tenía abierta: un
+ * archivo en espera que después resulta tener un nombre equivocado pasa a
+ * rechazado, y su detalle cambia con él.
+ */
 export function registrarIncidencia(entrada: {
   archivo: string;
   motivo: string;
   detalle: string;
+  tipo: TipoIncidencia;
+  ruta: string;
   numeroSocio?: string;
 }): void {
   const abierta = db()
     .prepare("SELECT id FROM incidencias WHERE archivo = ? AND resuelta_en IS NULL")
-    .get(entrada.archivo);
-  if (abierta) return;
+    .get(entrada.archivo) as { id: string } | undefined;
+
+  if (abierta) {
+    db()
+      .prepare("UPDATE incidencias SET motivo = ?, detalle = ?, tipo = ?, ruta = ?, numero_socio = ? WHERE id = ?")
+      .run(entrada.motivo, entrada.detalle, entrada.tipo, entrada.ruta, entrada.numeroSocio ?? null, abierta.id);
+    return;
+  }
 
   db()
     .prepare(
-      `INSERT INTO incidencias (id, archivo, motivo, detalle, numero_socio, detectada_en)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO incidencias (id, archivo, motivo, detalle, numero_socio, tipo, ruta, detectada_en)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(nuevoId(), entrada.archivo, entrada.motivo, entrada.detalle, entrada.numeroSocio ?? null, ahora());
+    .run(
+      nuevoId(),
+      entrada.archivo,
+      entrada.motivo,
+      entrada.detalle,
+      entrada.numeroSocio ?? null,
+      entrada.tipo,
+      entrada.ruta,
+      ahora()
+    );
 }
 
 export function incidenciasAbiertas(): Incidencia[] {
@@ -218,14 +273,22 @@ export function incidenciasAbiertas(): Incidencia[] {
     motivo: f.motivo,
     detalle: f.detalle,
     numeroSocio: f.numero_socio,
+    tipo: (f.tipo as TipoIncidencia | null) ?? "RECHAZADO",
+    ruta: f.ruta,
     detectadaEn: f.detectada_en,
     resueltaEn: f.resuelta_en,
   }));
 }
 
-/** Cierra la incidencia cuando el archivo desaparece o se renombra bien. */
+/** Cierra la incidencia cuando el archivo se archiva, desaparece o se renombra bien. */
 export function resolverIncidencia(archivo: string): void {
   db()
     .prepare("UPDATE incidencias SET resuelta_en = ? WHERE archivo = ? AND resuelta_en IS NULL")
     .run(ahora(), archivo);
+}
+
+export function resolverIncidenciaPorId(id: string): void {
+  db()
+    .prepare("UPDATE incidencias SET resuelta_en = ? WHERE id = ? AND resuelta_en IS NULL")
+    .run(ahora(), id);
 }

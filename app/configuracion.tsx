@@ -9,12 +9,15 @@ import { INSTRUCTIVO_ESCANEO } from "../src/domain/expediente";
 import {
   cerrarSesionServidor,
   comprobarServidor,
+  describirResumen,
   guardarConfiguracion,
   iniciarSesion,
   leerConfiguracion,
   pendientesDeEnvio,
   sesionActiva,
   sincronizar,
+  ultimoResumen,
+  type ResumenSincronizacion,
   type SesionServidor,
 } from "../src/services/servidor";
 import { colors, radius, spacing, typography } from "../src/theme";
@@ -36,17 +39,20 @@ export default function ConfiguracionScreen() {
   const [pendientes, setPendientes] = useState(0);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [estadoServidor, setEstadoServidor] = useState<string | null>(null);
+  const [resumen, setResumen] = useState<ResumenSincronizacion | null>(null);
 
   const cargar = useCallback(async () => {
-    const [nombre, config, cola] = await Promise.all([
+    const [nombre, config, cola, ultimo] = await Promise.all([
       leerOperador(),
       leerConfiguracion(),
       pendientesDeEnvio(),
+      ultimoResumen(),
     ]);
     setOperador(nombre === "ÁREA DE SOCIOS" ? "" : nombre);
     setUrl(config.url);
     setUsuario(config.usuario);
     setPendientes(cola.length);
+    setResumen(ultimo);
     if (config.url) setSesion(await sesionActiva());
   }, []);
 
@@ -83,7 +89,15 @@ export default function ConfiguracionScreen() {
       const abierta = await iniciarSesion(usuario, clave);
       setSesion(abierta);
       setClave("");
-      Alert.alert("Sesión iniciada", `Conectado como ${abierta.nombre} (${abierta.area}).`);
+      // Con la sesión abierta se entrega de inmediato lo que estaba en cola.
+      const envio = await sincronizar();
+      await cargar();
+      Alert.alert(
+        "Sesión iniciada",
+        `Conectado como ${abierta.nombre} (${abierta.area}).${
+          envio.enviadas > 0 ? `\n\nSe enviaron ${envio.enviadas} afiliaciones que estaban en cola.` : ""
+        }`
+      );
     } catch (error) {
       Alert.alert("No se pudo iniciar sesión", error instanceof Error ? error.message : "Error.");
     } finally {
@@ -101,15 +115,16 @@ export default function ConfiguracionScreen() {
   const enviar = async () => {
     setOcupado("sincronizando");
     try {
-      const resumen = await sincronizar();
+      const resultado = await sincronizar();
       await cargar();
       Alert.alert(
         "Sincronización terminada",
         [
-          `Afiliaciones enviadas: ${resumen.enviadas}`,
-          `Documentos subidos: ${resumen.documentos}`,
-          resumen.fallidas ? `Con problemas: ${resumen.fallidas}` : null,
-          resumen.detalle ? `\n${resumen.detalle}` : null,
+          `Afiliaciones enviadas: ${resultado.enviadas}`,
+          `Firmas y fotografías entregadas: ${resultado.archivos}`,
+          `Trámites con avance nuevo: ${resultado.actualizadas}`,
+          resultado.pendientes ? `Siguen pendientes: ${resultado.pendientes}` : null,
+          resultado.detalle ? `\n${resultado.detalle}` : null,
         ]
           .filter(Boolean)
           .join("\n")
@@ -118,6 +133,8 @@ export default function ConfiguracionScreen() {
       setOcupado(null);
     }
   };
+
+  const avisoEnvio = describirResumen(resumen);
 
   return (
     <ScrollView style={styles.pantalla} contentContainerStyle={styles.contenido}>
@@ -222,7 +239,7 @@ export default function ConfiguracionScreen() {
               icon="lock-closed-outline"
               value={clave}
               onChangeText={setClave}
-              helper="No se guarda en la tableta: el servidor emite una sesión que dura la jornada."
+              helper="No se guarda en la tableta: el servidor emite una sesión que dura 30 días en este dispositivo."
             />
             <Button
               label="Iniciar sesión"
@@ -237,24 +254,31 @@ export default function ConfiguracionScreen() {
 
       <Card
         title="Afiliaciones por enviar"
-        subtitle="La tableta funciona sin conexión: lo registrado se envía cuando hay red."
+        subtitle="Se envían solas: al registrarlas, al abrir la aplicación y cada dos minutos."
         icon="cloud-upload"
       >
         <Text style={styles.contador}>{pendientes}</Text>
         <Text style={styles.contadorPie}>
           {pendientes === 0
-            ? "Todo lo registrado en este dispositivo ya está en el servidor."
+            ? "Todo lo registrado en este dispositivo ya está completo en el servidor."
             : pendientes === 1
-              ? "afiliación pendiente de enviar al servidor."
-              : "afiliaciones pendientes de enviar al servidor."}
+              ? "afiliación con envío pendiente (datos, firmas o fotografía)."
+              : "afiliaciones con envío pendiente (datos, firmas o fotografía)."}
         </Text>
+        <InfoNote
+          tone={avisoEnvio.tono === "success" ? "success" : avisoEnvio.tono === "info" ? "info" : avisoEnvio.tono === "danger" ? "danger" : "warning"}
+          icon="pulse-outline"
+        >
+          {`${avisoEnvio.titulo}${resumen?.detalle && avisoEnvio.tono !== "success" ? `\n${resumen.detalle}` : ""}`}
+        </InfoNote>
         <Button
           label="Sincronizar ahora"
           icon="sync"
           onPress={enviar}
           loading={ocupado === "sincronizando"}
-          disabled={!sesion || pendientes === 0}
+          disabled={!sesion}
           fullWidth
+          style={styles.botonSincronizar}
         />
         {!sesion ? (
           <InfoNote tone="warning" icon="alert-circle-outline">
@@ -290,6 +314,7 @@ const styles = StyleSheet.create({
   },
   sesionTexto: { flex: 1, fontSize: 14, color: colors.text },
   contador: { ...typography.display, color: colors.navy, textAlign: "center" },
+  botonSincronizar: { marginTop: spacing.md },
   contadorPie: {
     textAlign: "center",
     color: colors.textMuted,

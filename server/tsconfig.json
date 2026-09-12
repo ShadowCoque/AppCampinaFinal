@@ -15,6 +15,12 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "../src/domain/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "../src/domain/**/*.ts",
+    // El generador del formulario es TypeScript puro y lo comparten la tableta
+    // y el servidor: el documento que se archiva es el mismo que se firmó.
+    "../src/services/formularios/**/*.ts"
+  ],
   "exclude": ["dist", "node_modules"]
 }

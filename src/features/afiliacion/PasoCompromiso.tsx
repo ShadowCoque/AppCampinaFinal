@@ -36,18 +36,14 @@ export function PasoCompromiso({ datos, errores, setDato }: Props) {
 
   return (
     <>
-      {carta.modelo === "DEPENDIENTE" ? (
-        <InfoNote tone="warning" icon="alert-circle-outline">
-          El Club aún no ha proporcionado el formato oficial de la carta de compromiso para socios
-          dependientes. La aplicación genera un borrador con estos datos y con la estructura de la
-          carta del socio particular; debe reemplazarse por el texto oficial antes de usarlo.
-        </InfoNote>
-      ) : (
-        <InfoNote tone="info" icon="document-text-outline">
-          Estos datos se imprimen en la carta de compromiso, que se genera firmada junto con el
-          formulario de ingreso y sus socios garantes en calidad de codeudores solidarios.
-        </InfoNote>
-      )}
+      {/* Las dos cartas están transcritas literalmente de los originales del
+          Club: la del socio dependiente (una sola para D-A, D-B y D-C) y la
+          del socio particular (src/services/formularios/cartas.ts). */}
+      <InfoNote tone="info" icon="document-text-outline">
+        {carta.modelo === "DEPENDIENTE"
+          ? "Estos datos se imprimen en la carta de compromiso del socio dependiente, que se genera firmada junto con el formulario de ingreso y con su socio garante en calidad de codeudor solidario."
+          : "Estos datos se imprimen en la carta de compromiso del socio particular, que se genera firmada junto con el formulario de ingreso y con sus socios garantes en calidad de codeudores solidarios."}
+      </InfoNote>
 
       <Card title="Datos del compromiso" icon="reader">
         <TextField

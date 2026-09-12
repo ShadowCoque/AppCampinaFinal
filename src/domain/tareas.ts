@@ -1,13 +1,15 @@
 import { nombreDocumento, type TipoDocumento } from "./documentos";
-import { MOTIVO_RECHAZO_META, type MotivoRechazo } from "./expediente";
+import { MOTIVO_RECHAZO_META, nombreArchivo, type MotivoRechazo } from "./expediente";
 import {
   AREA_META,
+  ROL_ADJUNTO_META,
+  adjuntosFaltantes,
   nombreCompleto,
   type Area,
   type SolicitudAfiliacion,
   type TonoEstado,
 } from "./solicitud";
-import { nombreTipo } from "./tiposMiembro";
+import { nombreTipo, tieneCuentaPropia } from "./tiposMiembro";
 
 /**
  * Bandeja de tareas de las tres áreas que intervienen en el trámite.
@@ -18,11 +20,16 @@ import { nombreTipo } from "./tiposMiembro";
  * que hoy tiene el reverso del formulario impreso cuando se llena de manera
  * irregular.
  *
- * Además de las dos tareas del reverso (Contabilidad REVISA, Gerencia APRUEBA),
- * el Área de Socios ve las suyas: las solicitudes a las que aún les falta
- * escanear un documento de respaldo, las que se depositaron con un nombre que
- * el repositorio no reconoce y las que están pendientes de cargarse al CRM de
- * SAFI (informe CLC-TI-010, numeral 5.2).
+ * El orden del trámite es el que fija el propio reverso, con un matiz que
+ * impone SAFI: Contabilidad REVISA comprobando el ingreso en el CRM, así que su
+ * tarea aparece cuando el Área de Socios ya creó al socio allá. Mientras tanto,
+ * Contabilidad ve la afiliación en su lista «En camino», sin acción.
+ *
+ *   Registrada ──► [Socios] Crear en SAFI ──► [Contabilidad] Revisar ──► [Gerencia] Aprobar
+ *                                                  │                          │
+ *                                                  └──── Devolver ◄───────────┘
+ *                                                         │
+ *                                               [Socios] Reenviar o anular
  */
 
 export const TIPOS_TAREA = [
@@ -30,8 +37,11 @@ export const TIPOS_TAREA = [
   "APROBAR",
   "CORREGIR_OBSERVACION",
   "CONFIRMAR_SAFI",
+  "ADJUNTOS_PENDIENTES",
   "ESCANEO_PENDIENTE",
   "ESCANEO_NO_RECONOCIDO",
+  "ESCANEO_EN_ESPERA",
+  "FORMULARIO_FINAL_PENDIENTE",
   "CARGA_SAFI_PENDIENTE",
 ] as const;
 
@@ -66,14 +76,21 @@ export const TAREA_META: Record<TipoTarea, MetaTarea> = {
     etiqueta: "Devuelta con observaciones",
     area: "SOCIOS",
     tono: "warning",
-    accion: "Corregir y volver a registrar",
-    exigeObservacion: false,
+    accion: "Atender y reenviar",
+    exigeObservacion: true,
   },
   CONFIRMAR_SAFI: {
-    etiqueta: "Falta confirmar los datos y crear el socio en SAFI",
+    etiqueta: "Falta crear al socio en SAFI",
     area: "SOCIOS",
     tono: "warning",
     accion: "Confirmar y crear en SAFI",
+    exigeObservacion: false,
+  },
+  ADJUNTOS_PENDIENTES: {
+    etiqueta: "Faltan archivos de la tableta",
+    area: "SOCIOS",
+    tono: "danger",
+    accion: null,
     exigeObservacion: false,
   },
   ESCANEO_PENDIENTE: {
@@ -88,6 +105,20 @@ export const TAREA_META: Record<TipoTarea, MetaTarea> = {
     area: "SOCIOS",
     tono: "danger",
     accion: "Renombrar en la carpeta compartida",
+    exigeObservacion: false,
+  },
+  ESCANEO_EN_ESPERA: {
+    etiqueta: "Archivo escaneado en espera de su trámite",
+    area: "SOCIOS",
+    tono: "warning",
+    accion: null,
+    exigeObservacion: false,
+  },
+  FORMULARIO_FINAL_PENDIENTE: {
+    etiqueta: "Falta archivar el formulario final",
+    area: "SOCIOS",
+    tono: "danger",
+    accion: "Generar el formulario final",
     exigeObservacion: false,
   },
   CARGA_SAFI_PENDIENTE: {
@@ -106,6 +137,13 @@ export type IncidenciaEscaneo = {
   motivo: MotivoRechazo;
   detalle: string;
   detectadaEn: string;
+  /**
+   * `RECHAZADO`: el archivo se apartó a `_REVISAR/` porque su nombre es
+   * ambiguo o no corresponde al socio registrado.
+   * `EN_ESPERA`: el nombre es correcto pero todavía no hay ningún trámite con
+   * ese número; el archivo se queda donde está hasta que lo haya.
+   */
+  tipo?: "RECHAZADO" | "EN_ESPERA";
   /** Número de socio deducido del nombre, si se pudo. */
   numeroSocio?: string;
 };
@@ -119,6 +157,8 @@ export type Tarea = {
   codigo: string;
   titulo: string;
   detalle: string;
+  /** Nombres exactos de archivo que la tarea pide, cuando aplica. */
+  archivosEsperados?: string[];
   /** Número de socio, cédula y nombre: lo que la bandeja muestra en la lista. */
   numeroSocio: string;
   cedula: string;
@@ -136,15 +176,41 @@ function baseDe(solicitud: SolicitudAfiliacion) {
   return {
     solicitudId: solicitud.id,
     codigo: solicitud.codigo,
-    numeroSocio: solicitud.tramite.numeroSocio || "—",
+    numeroSocio: numeroEnExpediente(solicitud) || "—",
     cedula: solicitud.datos.cedula,
     nombreSocio: nombreCompleto(solicitud.datos),
     tipoMiembro: nombreTipo(solicitud.datos.tipoMiembro),
   };
 }
 
+/** `280` o `280-1`: cómo aparece la persona en el repositorio, si ya tiene número. */
+export function numeroEnExpediente(solicitud: SolicitudAfiliacion): string {
+  const { numeroSocio, ordinalDependiente } = solicitud.tramite;
+  if (!numeroSocio) return "";
+  return ordinalDependiente === null || ordinalDependiente === undefined
+    ? numeroSocio
+    : `${numeroSocio}-${ordinalDependiente}`;
+}
+
+/** El socio ya existe en SAFI: o lo creó el sistema, o se registró el alta hecha a mano. */
+export function creadoEnSafi(solicitud: SolicitudAfiliacion): boolean {
+  return Boolean(solicitud.expediente.socioSafiId);
+}
+
 function listaDocumentos(tipos: TipoDocumento[]): string {
   return tipos.map(nombreDocumento).join(", ");
+}
+
+/** Nombres exactos con los que deben escanearse los documentos que faltan. */
+export function nombresDeEscaneo(solicitud: SolicitudAfiliacion, tipos: TipoDocumento[]): string[] {
+  const { numeroSocio, ordinalDependiente } = solicitud.tramite;
+  if (!numeroSocio) return [];
+  const clave = {
+    numeroSocio,
+    ordinalDependiente: ordinalDependiente ?? null,
+    apellidosNombres: nombreCompleto(solicitud.datos),
+  };
+  return tipos.map((tipo) => nombreArchivo(clave, tipo, ".pdf"));
 }
 
 /** Tareas que genera una sola solicitud, en todas las áreas. */
@@ -153,7 +219,34 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
   const base = baseDe(solicitud);
   const { tramite, expediente, estado } = solicitud;
 
-  if (estado === "REGISTRADA") {
+  // Un trámite anulado no reclama nada a nadie.
+  if (estado === "RECHAZADA" || estado === "BORRADOR") return tareas;
+
+  // El alta en SAFI es lo primero que hace el Área de Socios tras registrar la
+  // afiliación: Contabilidad revisa comprobando el ingreso en el CRM, así que
+  // para entonces la ficha ya tiene que existir. La misma tarea recoge el
+  // número de socio, sin el cual tampoco se puede nombrar la carpeta del
+  // expediente.
+  if (!creadoEnSafi(solicitud)) {
+    const falta = !tramite.numeroSocio.trim()
+      ? "Asigne el número de socio y confirme los campos de facturación y cuotas que SAFI guarda como listas cerradas."
+      : "Falta confirmar los campos que SAFI guarda como listas cerradas y crear la ficha.";
+    const cuenta = tieneCuentaPropia(solicitud.datos.tipoMiembro)
+      ? "Se creará su Cuenta y su ficha de Socio."
+      : "Es dependiente del titular: se creará solo su ficha de Socio, colgada de la Cuenta del titular.";
+
+    tareas.push({
+      ...base,
+      id: `${solicitud.id}:SAFI_ALTA`,
+      tipo: "CONFIRMAR_SAFI",
+      area: "SOCIOS",
+      titulo: `Crear en SAFI a ${base.nombreSocio}`,
+      detalle: `${expediente.altaSafiMensaje ?? falta} ${cuenta} Contabilidad podrá revisarla en cuanto exista en el CRM.`,
+      desde: tramite.registro?.en ?? solicitud.creadaEn,
+    });
+  }
+
+  if (estado === "REGISTRADA" && creadoEnSafi(solicitud)) {
     tareas.push({
       ...base,
       id: `${solicitud.id}:REVISAR`,
@@ -161,8 +254,8 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
       area: "CONTABILIDAD",
       titulo: `Revisar la afiliación ${solicitud.codigo}`,
       detalle:
-        "Compruebe en el CRM de SAFI que el ingreso del socio se haya realizado correctamente y registre el número de factura.",
-      desde: tramite.registro?.en ?? solicitud.creadaEn,
+        "El socio ya consta en el CRM de SAFI. Compruebe el ingreso y, si esta afiliación genera comprobante, registre el número de factura.",
+      desde: solicitud.actualizadaEn,
     });
   }
 
@@ -181,41 +274,41 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
   }
 
   if (estado === "OBSERVADA") {
-    const observacion =
-      tramite.aprobacion?.observacion || tramite.revision?.observacion || "Sin detalle registrado.";
+    const devolucion = tramite.devolucion;
+    const quien = devolucion ? AREA_META[devolucion.area].etiqueta : "Otra área";
     tareas.push({
       ...base,
       id: `${solicitud.id}:CORREGIR`,
       tipo: "CORREGIR_OBSERVACION",
       area: "SOCIOS",
-      titulo: `Corregir la afiliación ${solicitud.codigo}`,
-      detalle: `Observación: ${observacion}`,
-      desde: solicitud.actualizadaEn,
+      titulo: `Atender la observación de ${solicitud.codigo}`,
+      detalle: `${quien} la devolvió: «${devolucion?.observacion ?? "sin detalle registrado"}». Corrija lo necesario y reenvíela, o anule el trámite si no procede.`,
+      desde: devolucion?.en ?? solicitud.actualizadaEn,
     });
   }
 
-  // El alta en SAFI es lo primero que hace el Área de Socios tras registrar la
-  // afiliación: Contabilidad revisa comprobando el ingreso en el CRM, así que
-  // para entonces la ficha ya tiene que existir. La misma tarea recoge el
-  // número de socio, sin el cual tampoco se puede nombrar la carpeta del
-  // expediente.
-  if (estado !== "BORRADOR" && estado !== "RECHAZADA" && !expediente.socioSafiId) {
-    const falta = !tramite.numeroSocio.trim()
-      ? "Falta el número de socio y la confirmación de los campos de facturación y cuotas."
-      : "Falta confirmar los campos de facturación y cuotas que SAFI guarda como listas cerradas.";
-
+  // Sin la firma, el formulario no se puede componer; sin la fotografía, la
+  // credencial no se puede emitir. La tableta los envía sola: si no llegan, es
+  // que no pudo, y conviene saberlo aquí y no el día de la aprobación.
+  const faltantes = adjuntosFaltantes(solicitud);
+  if (faltantes.length > 0) {
     tareas.push({
       ...base,
-      id: `${solicitud.id}:SAFI_ALTA`,
-      tipo: "CONFIRMAR_SAFI",
+      id: `${solicitud.id}:ADJUNTOS`,
+      tipo: "ADJUNTOS_PENDIENTES",
       area: "SOCIOS",
-      titulo: `Crear en SAFI a ${base.nombreSocio}`,
-      detalle: expediente.altaSafiMensaje ?? falta,
+      titulo: `Faltan archivos de la tableta para ${base.nombreSocio}`,
+      detalle: `El servidor aún no recibió: ${faltantes
+        .map((rol) => ROL_ADJUNTO_META[rol].etiqueta.toLowerCase())
+        .join(", ")}. La tableta los envía sola al sincronizar; abra en ella «Configuración y envío» y pulse «Sincronizar ahora».`,
       desde: tramite.registro?.en ?? solicitud.creadaEn,
     });
   }
 
-  if (expediente.escaneosPendientes.length > 0) {
+  // La lista de escaneos solo se pide cuando ya hay número: sin él no hay
+  // nombre de archivo que la Jefatura pueda usar.
+  if (expediente.escaneosPendientes.length > 0 && tramite.numeroSocio.trim()) {
+    const nombres = nombresDeEscaneo(solicitud, expediente.escaneosPendientes);
     tareas.push({
       ...base,
       id: `${solicitud.id}:ESCANEO`,
@@ -224,12 +317,32 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
       titulo: `Falta escanear documentación de ${base.nombreSocio}`,
       detalle: `Pendiente de depositar en la carpeta compartida: ${listaDocumentos(
         expediente.escaneosPendientes
-      )}.`,
+      )}. Use exactamente estos nombres de archivo.`,
+      archivosEsperados: nombres,
       desde: tramite.registro?.en ?? solicitud.creadaEn,
     });
   }
 
-  if (expediente.safi === "ERROR" || (expediente.safi === "PENDIENTE" && estado === "APROBADA")) {
+  if (estado === "APROBADA" && !expediente.formularioFinal) {
+    tareas.push({
+      ...base,
+      id: `${solicitud.id}:FORMULARIO`,
+      tipo: "FORMULARIO_FINAL_PENDIENTE",
+      area: "SOCIOS",
+      titulo: `Falta archivar el formulario final de ${base.nombreSocio}`,
+      detalle:
+        expediente.formularioFinalMensaje ??
+        "El formulario final, con las tres constancias, todavía no se ha archivado en el expediente.",
+      desde: tramite.aprobacion?.en ?? solicitud.actualizadaEn,
+    });
+  }
+
+  // Solo tras la aprobación: antes de ella los documentos no se publican en
+  // SAFI, para no dejar allí el expediente de una afiliación que no prospere.
+  if (
+    estado === "APROBADA" &&
+    (expediente.safi === "ERROR" || (expediente.safi === "PENDIENTE" && expediente.safiMensaje))
+  ) {
     tareas.push({
       ...base,
       id: `${solicitud.id}:SAFI`,
@@ -238,7 +351,7 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
       titulo: `Expediente de ${base.nombreSocio} sin cargar en SAFI`,
       detalle:
         expediente.safiMensaje ??
-        "El expediente aún no se ha publicado en la sección Documentos del módulo Cuenta del CRM de SAFI.",
+        "El expediente aún no se ha publicado en la sección Documentos de la Cuenta en el CRM de SAFI.",
       desde: expediente.safiActualizadoEn ?? solicitud.actualizadaEn,
     });
   }
@@ -248,19 +361,24 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
 
 /** Tareas que generan los archivos que el repositorio no pudo clasificar. */
 export function tareasDeIncidencias(incidencias: IncidenciaEscaneo[]): Tarea[] {
-  return incidencias.map((incidencia) => ({
-    id: `escaneo:${incidencia.id}`,
-    tipo: "ESCANEO_NO_RECONOCIDO" as const,
-    area: "SOCIOS" as const,
-    codigo: incidencia.archivo,
-    titulo: `Archivo no reconocido: ${incidencia.archivo}`,
-    detalle: incidencia.detalle || MOTIVO_RECHAZO_META[incidencia.motivo],
-    numeroSocio: incidencia.numeroSocio ?? "—",
-    cedula: "—",
-    nombreSocio: "—",
-    tipoMiembro: "—",
-    desde: incidencia.detectadaEn,
-  }));
+  return incidencias.map((incidencia) => {
+    const enEspera = incidencia.tipo === "EN_ESPERA";
+    return {
+      id: `escaneo:${incidencia.id}`,
+      tipo: enEspera ? ("ESCANEO_EN_ESPERA" as const) : ("ESCANEO_NO_RECONOCIDO" as const),
+      area: "SOCIOS" as const,
+      codigo: incidencia.archivo,
+      titulo: enEspera
+        ? `Archivo en espera: ${incidencia.archivo}`
+        : `Archivo no reconocido: ${incidencia.archivo}`,
+      detalle: incidencia.detalle || MOTIVO_RECHAZO_META[incidencia.motivo],
+      numeroSocio: incidencia.numeroSocio ?? "—",
+      cedula: "—",
+      nombreSocio: "—",
+      tipoMiembro: "—",
+      desde: incidencia.detectadaEn,
+    };
+  });
 }
 
 /**
@@ -300,12 +418,27 @@ export function bandejaDe(
   return tareasDeArea(area, calcularTareas(solicitudes, incidencias));
 }
 
-/** Número de tareas pendientes por área, para los contadores del portal. */
-export function contadoresPorArea(
-  solicitudes: SolicitudAfiliacion[],
-  incidencias: IncidenciaEscaneo[] = []
-): Record<Area, number> {
-  return contadoresDeTareas(calcularTareas(solicitudes, incidencias));
+/**
+ * Afiliaciones que ya vienen hacia un área pero todavía no le toca actuar.
+ *
+ * Contabilidad ve las registradas que el Área de Socios aún no creó en SAFI; la
+ * Gerencia, las que Contabilidad aún no revisó. Sin esta lista, un área con la
+ * bandeja vacía no puede saber si es que no hay nada o si algo se atascó antes
+ * de llegarle, que fue exactamente lo que ocurrió en las primeras pruebas.
+ */
+export function enCaminoHacia(area: Area, solicitudes: SolicitudAfiliacion[]): SolicitudAfiliacion[] {
+  return solicitudes
+    .filter((solicitud) => {
+      switch (area) {
+        case "CONTABILIDAD":
+          return solicitud.estado === "REGISTRADA" && !creadoEnSafi(solicitud);
+        case "GERENCIA":
+          return solicitud.estado === "REGISTRADA" || solicitud.estado === "OBSERVADA";
+        case "SOCIOS":
+          return false;
+      }
+    })
+    .sort((a, b) => a.creadaEn.localeCompare(b.creadaEn));
 }
 
 /**
@@ -321,7 +454,7 @@ export function atendidasPor(area: Area, solicitudes: SolicitudAfiliacion[]): So
         case "GERENCIA":
           return solicitud.tramite.aprobacion !== null;
         case "SOCIOS":
-          return solicitud.estado === "APROBADA";
+          return creadoEnSafi(solicitud) || solicitud.estado === "RECHAZADA";
       }
     })
     .sort((a, b) => b.actualizadaEn.localeCompare(a.actualizadaEn));

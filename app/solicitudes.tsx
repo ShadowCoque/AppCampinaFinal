@@ -15,11 +15,13 @@ import { listarSolicitudes } from "../src/data/solicitudes";
 import { formatFechaHora } from "../src/domain/fechas";
 import {
   ESTADO_META,
+  adjuntosFaltantes,
   nombreCompleto,
   type EstadoSolicitud,
   type SolicitudAfiliacion,
 } from "../src/domain/solicitud";
 import { nombreTipo } from "../src/domain/tiposMiembro";
+import { idsSincronizados, sincronizar } from "../src/services/servidor";
 import { colors, radius, shadow, spacing, typography } from "../src/theme";
 import { Badge, Button, EmptyState } from "../src/ui";
 
@@ -36,12 +38,15 @@ const FINALIZADAS: EstadoSolicitud[] = ["APROBADA", "RECHAZADA"];
 export default function SolicitudesScreen() {
   const router = useRouter();
   const [solicitudes, setSolicitudes] = useState<SolicitudAfiliacion[]>([]);
+  const [enviadas, setEnviadas] = useState<string[]>([]);
   const [filtro, setFiltro] = useState<Filtro>("PENDIENTES");
   const [busqueda, setBusqueda] = useState("");
   const [refrescando, setRefrescando] = useState(false);
 
   const cargar = useCallback(async () => {
-    setSolicitudes(await listarSolicitudes());
+    const [lista, ids] = await Promise.all([listarSolicitudes(), idsSincronizados()]);
+    setSolicitudes(lista);
+    setEnviadas(ids);
   }, []);
 
   useFocusEffect(
@@ -117,6 +122,8 @@ export default function SolicitudesScreen() {
             refreshing={refrescando}
             onRefresh={async () => {
               setRefrescando(true);
+              // Deslizar hacia abajo entrega lo pendiente y trae el avance.
+              await sincronizar();
               await cargar();
               setRefrescando(false);
             }}
@@ -145,6 +152,9 @@ export default function SolicitudesScreen() {
         }
         renderItem={({ item }) => {
           const meta = ESTADO_META[item.estado];
+          const sinEnviar = !enviadas.includes(item.id);
+          const incompleta =
+            !sinEnviar && item.estado !== "RECHAZADA" && adjuntosFaltantes(item).length > 0;
           return (
             <Pressable
               onPress={() => router.push({ pathname: "/solicitud/[id]", params: { id: item.id } })}
@@ -167,6 +177,26 @@ export default function SolicitudesScreen() {
                 <Text style={styles.separador}>·</Text>
                 <Text style={styles.metaTexto}>{nombreTipo(item.datos.tipoMiembro)}</Text>
               </View>
+
+              {sinEnviar || incompleta ? (
+                <View style={styles.aviso}>
+                  <Badge
+                    label={sinEnviar ? "Sin enviar al servidor" : "Faltan firmas o fotografía en el servidor"}
+                    tone="danger"
+                    icon="cloud-offline"
+                  />
+                </View>
+              ) : item.tramite.numeroSocio ? (
+                <View style={styles.aviso}>
+                  <Badge
+                    label={`Socio N.º ${item.tramite.numeroSocio}${
+                      item.tramite.ordinalDependiente ? `-${item.tramite.ordinalDependiente}` : ""
+                    }`}
+                    tone="info"
+                    icon="barcode-outline"
+                  />
+                </View>
+              ) : null}
 
               <View style={styles.pieTarjeta}>
                 <Text style={styles.fecha}>{formatFechaHora(item.creadaEn)}</Text>
@@ -247,6 +277,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   fecha: { fontSize: 11.5, color: colors.textFaint },
+  aviso: { marginTop: spacing.sm },
   adjuntos: { flexDirection: "row", alignItems: "center", gap: 4 },
   botonVacio: { marginTop: spacing.lg },
 });

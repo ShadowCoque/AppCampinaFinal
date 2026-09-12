@@ -3,12 +3,16 @@ import { StatusBar } from "expo-status-bar";
 import React from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { useSincronizacionAutomatica } from "../src/services/sincronizacionAutomatica";
 import { colors } from "../src/theme";
 
 export default function RootLayout() {
+  // Lo registrado en la tableta se entrega solo al servidor.
+  useSincronizacionAutomatica();
+
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" backgroundColor={colors.navy} />
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.navy },

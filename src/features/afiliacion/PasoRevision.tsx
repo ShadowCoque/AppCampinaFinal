@@ -9,7 +9,7 @@ import type { EstadoFormulario } from "../../domain/formularioAfiliacion";
 import { formatFechaCorta } from "../../domain/fechas";
 import { CONSENTIMIENTOS, VERSION_AVISO } from "../../domain/privacidad";
 import { ORIGEN_IDENTIDAD_META, nombreCompleto, nombreTitular } from "../../domain/solicitud";
-import { formularioPara, nombreTipo, reglasDe } from "../../domain/tiposMiembro";
+import { documentosDelTramite, nombreTipo, reglasDe } from "../../domain/tiposMiembro";
 import { colors, radius, spacing, typography } from "../../theme";
 import { Card, DataRow, InfoNote } from "../../ui";
 
@@ -20,13 +20,14 @@ type Props = {
 export function PasoRevision({ estado }: Props) {
   const { datos, documentos, firmaUri, consentimientos, identidad } = estado;
   const reglas = reglasDe(datos.tipoMiembro);
-  const formulario = formularioPara(datos.tipoMiembro, datos.estadoCivil);
+  const generados = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
 
   return (
     <>
       <InfoNote tone="warning" icon="eye-outline">
-        Revise la información antes de enviar. Una vez enviada, cualquier corrección deberá
-        solicitarse al Área de Socios.
+        Revise la información antes de enviar. Al enviarla, la afiliación pasa al servidor del Club
+        y aparece en la bandeja del Área de Socios para crearla en SAFI; después la revisa
+        Contabilidad y la aprueba la Gerencia.
       </InfoNote>
 
       <Card title="Verificación de identidad" icon="shield-checkmark">
@@ -52,12 +53,13 @@ export function PasoRevision({ estado }: Props) {
             <DataRow label="Cédula del titular" value={datos.titularCedula} />
           </>
         ) : null}
-        {formulario ? (
+        {generados.map((documento) => (
           <DataRow
-            label="Formulario que se generará"
-            value={`${formulario.codigo} — ${formulario.titulo}`}
+            key={documento.codigo}
+            label={documento.codigo === "Carta" ? "Carta" : documento.codigo}
+            value={documento.titulo}
           />
-        ) : null}
+        ))}
         {datos.garantes.length > 0
           ? datos.garantes.map((garante, indice) => (
               <DataRow
@@ -116,14 +118,12 @@ export function PasoRevision({ estado }: Props) {
         </Card>
       ) : null}
 
-      {reglas?.requiereDatosLaborales ? (
-        <Card title="Información laboral" icon="briefcase">
-          <DataRow label="Profesión" value={datos.profesion} />
-          <DataRow label="Lugar de trabajo" value={datos.lugarTrabajo} />
-          <DataRow label="Cargo" value={datos.cargo} />
-          <DataRow label="Interés recreativo" value={datos.hobbie} />
-        </Card>
-      ) : null}
+      <Card title="Ocupación" icon="briefcase">
+        <DataRow label="Profesión" value={datos.profesion} />
+        <DataRow label="Lugar de trabajo" value={datos.lugarTrabajo} />
+        <DataRow label="Cargo" value={datos.cargo} />
+        <DataRow label="Hobbie" value={datos.hobbie} />
+      </Card>
 
       <Card
         title="Fotografía del socio"

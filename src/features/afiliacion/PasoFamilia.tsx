@@ -8,25 +8,20 @@ import {
   ESTADO_CIVIL_HIJO_META,
   type DatosAfiliacion,
   type DatosHijo,
-  type DependienteACargo,
   type EstadoCivilHijo,
 } from "../../domain/solicitud";
 import { normalizarNombre, normalizarTextoInstitucional } from "../../domain/texto";
-import {
-  SEXOS,
-  VINCULOS_DEPENDIENTE,
-  bloquesPara,
-  type Sexo,
-  type VinculoDependiente,
-} from "../../domain/tiposMiembro";
+import { SEXOS, bloquesPara, type Sexo } from "../../domain/tiposMiembro";
 import { normalizarCorreo, soloDigitos } from "../../domain/validaciones";
 import { colors, radius, spacing, typography } from "../../theme";
-import { Card, DateField, InfoNote, OptionGroup, TextField } from "../../ui";
+import { Card, DateField, OptionGroup, TextField } from "../../ui";
 
 /**
- * Recuadros «DATOS DEL CÓNYUGE», «DATOS HIJOS» y «Dependientes a su cargo» del
- * formulario impreso. Solo se muestran los que el formulario del tipo de socio
- * seleccionado contiene.
+ * Recuadros «DATOS DEL CÓNYUGE» y «DATOS HIJOS» de la hoja de solicitud. Solo
+ * se muestran los que la hoja del tipo de socio seleccionado contiene.
+ *
+ * El listado «Dependientes a su cargo» del R-PGS1-1 se retiró: cada
+ * dependiente se afilia con su propio trámite, en su propia categoría.
  */
 
 type Props = {
@@ -51,12 +46,6 @@ export function PasoFamilia({ datos, errores, setDato }: Props) {
     setDato(
       "hijos",
       datos.hijos.map((hijo, i) => (i === indice ? { ...hijo, ...cambios } : hijo))
-    );
-
-  const setDependiente = (indice: number, cambios: Partial<DependienteACargo>) =>
-    setDato(
-      "dependientesACargo",
-      datos.dependientesACargo.map((d, i) => (i === indice ? { ...d, ...cambios } : d))
     );
 
   return (
@@ -236,78 +225,6 @@ export function PasoFamilia({ datos, errores, setDato }: Props) {
             <Ionicons name="add-circle-outline" size={18} color={colors.navy} />
             <Text style={styles.agregarTexto}>Añadir hijo</Text>
           </Pressable>
-        </Card>
-      ) : null}
-
-      {bloques.dependientesACargo ? (
-        <Card
-          title="Dependientes a su cargo"
-          subtitle="Listado del formulario del socio activo: padres, cónyuge e hijos menores de 21 años."
-          icon="people"
-        >
-          <InfoNote tone="info" icon="information-circle-outline">
-            Cada dependiente que se registre aquí deberá llenar después su propio formulario de
-            ingreso (PGS1-11) para obtener su credencial.
-          </InfoNote>
-
-          {datos.dependientesACargo.map((dependiente, indice) => (
-            <View key={dependiente.id} style={styles.fila}>
-              <View style={styles.filaCabecera}>
-                <Text style={styles.filaTitulo}>{`Dependiente ${indice + 1}`}</Text>
-                <Pressable
-                  onPress={() =>
-                    setDato(
-                      "dependientesACargo",
-                      datos.dependientesACargo.filter((_, i) => i !== indice)
-                    )
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Quitar dependiente ${indice + 1}`}
-                  hitSlop={8}
-                >
-                  <Ionicons name="close-circle" size={20} color={colors.danger} />
-                </Pressable>
-              </View>
-
-              <TextField
-                label="Apellidos y nombres"
-                autoCapitalize="characters"
-                value={dependiente.apellidosNombres}
-                onChangeText={(v) =>
-                  setDependiente(indice, { apellidosNombres: normalizarNombre(v) })
-                }
-                error={errores[`dependiente-${indice}-nombre`]}
-                placeholder="APELLIDOS NOMBRES"
-              />
-              <OptionGroup<VinculoDependiente>
-                label="Vínculo"
-                options={VINCULOS_DEPENDIENTE.map((v) => ({ value: v, label: v }))}
-                value={dependiente.vinculo}
-                onChange={(v) => setDependiente(indice, { vinculo: v })}
-                error={errores[`dependiente-${indice}-vinculo`]}
-              />
-            </View>
-          ))}
-
-          {datos.dependientesACargo.length < 6 ? (
-            <Pressable
-              onPress={() =>
-                setDato("dependientesACargo", [
-                  ...datos.dependientesACargo,
-                  { id: nuevaFilaId(), apellidosNombres: "", vinculo: null },
-                ])
-              }
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.agregar, pressed && styles.agregarPulsado]}
-            >
-              <Ionicons name="add-circle-outline" size={18} color={colors.navy} />
-              <Text style={styles.agregarTexto}>Añadir dependiente</Text>
-            </Pressable>
-          ) : (
-            <InfoNote tone="warning" icon="alert-circle-outline">
-              El formulario impreso admite hasta seis dependientes.
-            </InfoNote>
-          )}
         </Card>
       ) : null}
     </>

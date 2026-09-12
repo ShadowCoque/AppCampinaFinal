@@ -52,6 +52,12 @@ export type RequisitoDocumental = {
    * la cámara de la tableta durante la afiliación.
    */
   llegaPorEscaneo: boolean;
+  /**
+   * Lo genera el propio sistema con los datos y las firmas capturadas: no se
+   * escanea ni se fotografía. Es el caso del formulario de ingreso y de la
+   * carta de compromiso, que viajan juntos en un solo documento.
+   */
+  generadoPorElSistema: boolean;
 };
 
 const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">> = {
@@ -59,23 +65,25 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     tipo: "FORMULARIO_FIRMADO",
     nombre: "Formulario de ingreso firmado",
     descripcion:
-      "Formulario de ingreso del tipo de socio, con la carta de compromiso cuando corresponde. Lo genera la aplicación; el escaneo del original firmado lo deposita la Jefatura de Socios.",
+      "R-PGS1-1, hoja de solicitud de la categoría, carta de compromiso cuando corresponde y reverso con las tres constancias. Lo genera el sistema con las firmas capturadas en la tableta y lo archiva solo al aprobarse el ingreso.",
     multiple: false,
     preferirCamara: false,
     etiquetaEscaneo: "",
     aliasEscaneo: ["FORMULARIO", "SOLICITUD"],
-    llegaPorEscaneo: true,
+    llegaPorEscaneo: false,
+    generadoPorElSistema: true,
   },
   CARTA_COMPROMISO: {
     tipo: "CARTA_COMPROMISO",
     nombre: "Carta de compromiso",
     descripcion:
-      "Carta de compromiso firmada por el socio y sus garantes. Aplica a socios particulares y dependientes.",
+      "Carta de compromiso firmada por el socio y sus garantes. Va incluida en el formulario de ingreso que genera el sistema.",
     multiple: false,
     preferirCamara: false,
     etiquetaEscaneo: "CARTA DE COMPROMISO",
     aliasEscaneo: ["CARTA COMPROMISO", "CARTA"],
-    llegaPorEscaneo: true,
+    llegaPorEscaneo: false,
+    generadoPorElSistema: true,
   },
   CEDULA_SOLICITANTE: {
     tipo: "CEDULA_SOLICITANTE",
@@ -86,6 +94,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "CEDULA",
     aliasEscaneo: ["CEDULA DE CIUDADANIA", "CI"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   FOTO_CARNET: {
     tipo: "FOTO_CARNET",
@@ -97,6 +106,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "FOTO",
     aliasEscaneo: ["FOTOGRAFIA"],
     llegaPorEscaneo: false,
+    generadoPorElSistema: false,
   },
   CEDULA_TITULAR: {
     tipo: "CEDULA_TITULAR",
@@ -108,6 +118,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "CEDULA TITULAR",
     aliasEscaneo: ["CEDULA DEL TITULAR", "CEDULA OFICIAL"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   TARJETA_MILITAR: {
     tipo: "TARJETA_MILITAR",
@@ -118,6 +129,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "TARJETA MILITAR",
     aliasEscaneo: ["CREDENCIAL MILITAR", "CERTIFICADO MILITAR"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   PARTIDA_MATRIMONIO: {
     tipo: "PARTIDA_MATRIMONIO",
@@ -128,6 +140,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "ACTA DE MATRIMONIO",
     aliasEscaneo: ["PARTIDA DE MATRIMONIO", "MATRIMONIO", "UNION DE HECHO"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   PARTIDA_NACIMIENTO: {
     tipo: "PARTIDA_NACIMIENTO",
@@ -138,6 +151,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "PARTIDA DE NACIMIENTO",
     aliasEscaneo: ["PARTIDA NACIMIENTO", "NACIMIENTO"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   CREDENCIAL_ANTERIOR: {
     tipo: "CREDENCIAL_ANTERIOR",
@@ -148,6 +162,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "CREDENCIAL ANTERIOR",
     aliasEscaneo: ["CREDENCIAL"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   FACTURA_CREDENCIAL: {
     tipo: "FACTURA_CREDENCIAL",
@@ -158,6 +173,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "FACTURA",
     aliasEscaneo: ["FACTURA CREDENCIAL"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
   OTRO: {
     tipo: "OTRO",
@@ -168,6 +184,7 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "OTROS",
     aliasEscaneo: ["ANEXO", "ADICIONAL"],
     llegaPorEscaneo: true,
+    generadoPorElSistema: false,
   },
 };
 
@@ -214,6 +231,10 @@ export function requisitosPara(tipo: TipoMiembro | null): RequisitoDocumental[] 
  * Documentos que deben llegar escaneados desde la Jefatura de Socios. Son los
  * que el sistema vigila en la carpeta compartida para avisar, en la bandeja del
  * Área de Socios, cuáles faltan por depositar.
+ *
+ * El formulario y la carta de compromiso no están aquí: los genera el sistema
+ * con las firmas capturadas en la tableta, así que no hay que imprimirlos,
+ * firmarlos ni escanearlos.
  */
 export function escaneosEsperados(tipo: TipoMiembro | null): TipoDocumento[] {
   return requisitosPara(tipo)
@@ -226,15 +247,12 @@ export function escaneosEsperados(tipo: TipoMiembro | null): TipoDocumento[] {
  *
  * Es únicamente **la fotografía del socio**, que el informe CLC-TI-010 versión 6
  * sitúa en el módulo Afiliación: «la fotografía del socio, que puede ser la
- * oficial (de su cédula) o una nueva tomada en el momento». Todo lo demás
- * —cédulas, partidas, tarjeta militar, el propio formulario firmado— llega
- * escaneado a la carpeta compartida desde el equipo de la Jefatura, y el
- * vigilante lo archiva solo.
- *
- * La distinción no hace falta inventarla: es exactamente `llegaPorEscaneo`.
+ * oficial (de su cédula) o una nueva tomada en el momento». Las cédulas, las
+ * partidas y la tarjeta militar llegan escaneadas a la carpeta compartida desde
+ * el equipo de la Jefatura; el formulario y la carta los genera el sistema.
  */
 export function requisitosCapturables(tipo: TipoMiembro | null): RequisitoDocumental[] {
-  return requisitosPara(tipo).filter((r) => !r.llegaPorEscaneo);
+  return requisitosPara(tipo).filter((r) => !r.llegaPorEscaneo && !r.generadoPorElSistema);
 }
 
 export function requisitoDe(tipo: TipoDocumento): Omit<RequisitoDocumental, "obligatorio"> {

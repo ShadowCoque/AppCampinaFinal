@@ -5,7 +5,11 @@ import {
   nombreCompleto,
   type SolicitudAfiliacion,
 } from "../../domain/solicitud";
-import type { BloquesFormulario, VarianteFormulario } from "../../domain/tiposMiembro";
+import {
+  bloquesPara,
+  type BloquesFormulario,
+  type HojaSolicitud,
+} from "../../domain/tiposMiembro";
 import {
   encabezado,
   escapar,
@@ -22,13 +26,14 @@ import {
 import type { RecursosFormulario } from "./tipos";
 
 /**
- * Maqueta «SOLICITUD»: la carta dirigida al Gerente del Club que usan los
- * socios dependientes (D-A, D-B, D-C), los particulares (P-A, P-B), los
- * corresponsales (C-A, C-B, C-C) y los suscriptores de tenis y gimnasio.
+ * Maqueta «SOLICITUD»: la hoja de solicitud de ingreso, en forma de carta
+ * dirigida al Gerente del Club, que acompaña al R-PGS1-1 de los socios
+ * dependientes (D-A, D-B, D-C), los particulares (P-A, P-B), los corresponsales
+ * (C-A, C-B, C-C) y los suscriptores de tenis y gimnasio.
  *
- * El orden y la redacción reproducen el formulario impreso. Los recuadros de
- * cónyuge, hijos y garantes aparecen únicamente cuando el formulario de ese
- * tipo de socio los contiene.
+ * El orden y la redacción reproducen la hoja impresa. Los recuadros de
+ * cónyuge, hijos y garantes aparecen únicamente cuando la hoja de ese tipo de
+ * socio los contiene.
  */
 
 /** Opciones de estado civil tal como están impresas en el formulario. */
@@ -57,7 +62,7 @@ function bloqueDatosPersonales(solicitud: SolicitudAfiliacion, bloques: BloquesF
 
   const encabezadoCasillas = `<tr><td colspan="4" class="libre">
     ${opciones("ESTADO CIVIL", ESTADO_CIVIL_IMPRESO, estadoCivilImpreso(datos.estadoCivil))}
-    ${bloques.sexo ? opciones("SEXO", ["Masculino", "Femenino"], datos.sexo) : ""}
+    ${opciones("SEXO", ["Masculino", "Femenino"], datos.sexo)}
   </td></tr>`;
 
   const filas = [
@@ -199,16 +204,17 @@ function bloqueGarantes(solicitud: SolicitudAfiliacion, recursos: RecursosFormul
  */
 export function paginasSolicitud(
   solicitud: SolicitudAfiliacion,
-  variante: VarianteFormulario,
+  hoja: HojaSolicitud,
   recursos: RecursosFormulario
 ): string[] {
   const { datos } = solicitud;
-  const bloques = variante.bloques;
+  const bloques = bloquesPara(datos.tipoMiembro, datos.estadoCivil);
+  if (!bloques) return [];
   const fechaSolicitud = fecha(solicitud.creadaEn.slice(0, 10));
 
   const cabecera = `
-    ${encabezado(recursos.logo, variante.codigo, "Solicitud de ingreso")}
-    <h1 class="titulo">${escapar(variante.titulo)}</h1>
+    ${encabezado(recursos.logo, hoja.codigo, "Solicitud de ingreso")}
+    <h1 class="titulo">${escapar(hoja.titulo)}</h1>
     <p class="parrafo">Fecha: ${valor(fechaSolicitud)}</p>
     <div class="destinatario">
       Señor<br/>
@@ -244,7 +250,7 @@ export function paginasSolicitud(
 
   if (bloques.garantes > 0) {
     paginas.push(
-      `${encabezado(recursos.logo, variante.codigo, "Solicitud de ingreso")}
+      `${encabezado(recursos.logo, hoja.codigo, "Solicitud de ingreso")}
        ${bloqueGarantes(solicitud, recursos)}`
     );
   }

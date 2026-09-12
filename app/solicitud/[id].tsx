@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { formatearTamano } from "../../src/data/archivos";
-import { eliminarSolicitud, obtenerSolicitud, registrarNumeros } from "../../src/data/solicitudes";
+import { eliminarSolicitud, obtenerSolicitud } from "../../src/data/solicitudes";
 import { FORMA_PAGO_META } from "../../src/domain/facturacion";
 import { formatFechaCorta, formatFechaHora } from "../../src/domain/fechas";
 import { CONSENTIMIENTOS } from "../../src/domain/privacidad";
@@ -14,6 +14,8 @@ import {
   AREA_META,
   ESTADO_META,
   ORIGEN_IDENTIDAD_META,
+  ROL_ADJUNTO_META,
+  adjuntosFaltantes,
   nombreCompleto,
   nombreTitular,
   type Area,
@@ -21,9 +23,10 @@ import {
   type SolicitudAfiliacion,
 } from "../../src/domain/solicitud";
 import { nombreDocumento } from "../../src/domain/documentos";
-import { formularioPara, nombreTipo, reglasDe } from "../../src/domain/tiposMiembro";
-import { normalizarNumeroSocio } from "../../src/domain/texto";
+import { numeroEnExpediente } from "../../src/domain/tareas";
+import { documentosDelTramite, nombreTipo, reglasDe } from "../../src/domain/tiposMiembro";
 import { exportarSolicitudAfiliacion } from "../../src/services/pdf";
+import { estaSincronizada, sincronizar } from "../../src/services/servidor";
 import { colors, radius, spacing, typography } from "../../src/theme";
 import { Badge, Button, Card, DataRow, InfoNote } from "../../src/ui";
 
@@ -75,18 +78,26 @@ export default function DetalleSolicitudScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [solicitud, setSolicitud] = useState<SolicitudAfiliacion | null>(null);
+  const [enServidor, setEnServidor] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [exportando, setExportando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!id) return;
-    setSolicitud(await obtenerSolicitud(id));
+    const [local, entregada] = await Promise.all([obtenerSolicitud(id), estaSincronizada(id)]);
+    setSolicitud(local);
+    setEnServidor(entregada);
     setCargando(false);
   }, [id]);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  // Al volver a esta pantalla se relee: el avance del trámite pudo cambiar en
+  // el servidor mientras tanto.
+  useFocusEffect(
+    useCallback(() => {
+      void cargar();
+    }, [cargar])
+  );
 
   if (cargando) {
     return (
@@ -109,55 +120,10 @@ export default function DetalleSolicitudScreen() {
   const { datos } = solicitud;
   const meta = ESTADO_META[solicitud.estado];
   const reglas = reglasDe(datos.tipoMiembro);
-  const formulario = formularioPara(datos.tipoMiembro, datos.estadoCivil);
+  const documentosTramite = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
   const { tramite, expediente } = solicitud;
-
-  /**
-   * Sin número de socio no puede nombrarse la carpeta del expediente ni
-   * cargarse a la Cuenta del CRM de SAFI, así que el Área de Socios lo registra
-   * en cuanto el CRM se lo asigna.
-   */
-  const pedirNumeros = () => {
-    Alert.prompt(
-      "Número de socio",
-      "Número que el CRM de SAFI asignó a este socio. Bajo él se archiva su expediente digital.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Guardar",
-          onPress: async (valor?: string) => {
-            const numero = normalizarNumeroSocio(valor ?? "");
-            if (!numero) return;
-            await registrarNumeros(solicitud.id, { numeroSocio: numero });
-            await cargar();
-          },
-        },
-      ],
-      "plain-text",
-      tramite.numeroSocio,
-      "number-pad"
-    );
-  };
-
-  const pedirTarjeta = () => {
-    Alert.prompt(
-      "Número de tarjeta",
-      "Número impreso en la credencial de acceso del socio.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Guardar",
-          onPress: async (valor?: string) => {
-            await registrarNumeros(solicitud.id, { numeroTarjeta: (valor ?? "").trim() });
-            await cargar();
-          },
-        },
-      ],
-      "plain-text",
-      tramite.numeroTarjeta,
-      "number-pad"
-    );
-  };
+  const faltantes = solicitud.estado === "RECHAZADA" ? [] : adjuntosFaltantes(solicitud);
+  const numero = numeroEnExpediente(solicitud);
 
   const exportar = async () => {
     setExportando(true);
@@ -165,10 +131,26 @@ export default function DetalleSolicitudScreen() {
     setExportando(false);
   };
 
+  /** Entrega lo pendiente y trae el avance que registró el servidor. */
+  const enviarAhora = async () => {
+    setEnviando(true);
+    try {
+      const resumen = await sincronizar();
+      await cargar();
+      if (resumen.detalle && resumen.estado !== "AL_DIA") {
+        Alert.alert("Envío al servidor", resumen.detalle);
+      }
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   const borrar = () => {
     Alert.alert(
-      "Eliminar solicitud",
-      "Se eliminarán la solicitud y todos los documentos del expediente en este dispositivo. Esta acción no se puede deshacer.",
+      "Eliminar solicitud de la tableta",
+      enServidor
+        ? "Se eliminará la copia de esta tableta. El trámite y su expediente siguen en el servidor del Club."
+        : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con la firma y la fotografía. Esta acción no se puede deshacer.",
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -206,35 +188,76 @@ export default function DetalleSolicitudScreen() {
           loading={exportando}
           fullWidth
         />
-        {!tramite.numeroSocio ? (
-          <Button
-            label="Registrar número de socio"
-            icon="barcode-outline"
-            onPress={pedirNumeros}
-            fullWidth
-          />
-        ) : null}
       </View>
 
-      {!tramite.numeroSocio ? (
-        <InfoNote tone="warning" icon="alert-circle-outline">
-          Falta registrar el número de socio asignado en el CRM de SAFI. El expediente digital no
-          puede archivarse ni cargarse a SAFI hasta que se registre.
-        </InfoNote>
-      ) : null}
+      <Card title="Envío al servidor del Club" icon="cloud-upload">
+        {!enServidor ? (
+          <InfoNote tone="danger" icon="cloud-offline">
+            Esta afiliación todavía no llegó al servidor, así que no aparece en ninguna bandeja. Se
+            envía sola en cuanto hay conexión y sesión; también puede enviarla ahora.
+          </InfoNote>
+        ) : faltantes.length > 0 ? (
+          <InfoNote tone="warning" icon="alert-circle-outline">
+            {`El servidor tiene el trámite pero le falta: ${faltantes
+              .map((rol) => ROL_ADJUNTO_META[rol].etiqueta.toLowerCase())
+              .join(", ")}. Sin la firma no se puede componer el formulario.`}
+          </InfoNote>
+        ) : (
+          <InfoNote tone="success" icon="cloud-done">
+            El servidor tiene el trámite completo: datos, firmas y fotografía.
+          </InfoNote>
+        )}
+        {!enServidor || faltantes.length > 0 ? (
+          <Button
+            label="Enviar ahora"
+            icon="sync"
+            onPress={enviarAhora}
+            loading={enviando}
+            fullWidth
+            style={styles.botonEnviar}
+          />
+        ) : (
+          <Button
+            label="Actualizar el avance"
+            icon="refresh"
+            variant="secondary"
+            onPress={enviarAhora}
+            loading={enviando}
+            fullWidth
+            style={styles.botonEnviar}
+          />
+        )}
+      </Card>
 
       <Card title="Información interna del Club" icon="clipboard" subtitle="Reverso del formulario">
         <DataRow
           label="Fecha de registro"
           value={tramite.fechaRegistro ? formatFechaCorta(tramite.fechaRegistro) : null}
         />
-        <DataRow label="Número de socio" value={tramite.numeroSocio} />
+        <DataRow label="Número de socio" value={numero || "Lo asigna el Área de Socios en la bandeja"} />
         <DataRow label="Número de tarjeta" value={tramite.numeroTarjeta} />
         {reglas?.requiereNumeroSocioActivo ? (
           <DataRow label="Número de socio activo" value={datos.numeroSocioActivo} />
         ) : null}
-        {formulario ? (
-          <DataRow label="Formulario" value={`${formulario.codigo} — ${formulario.titulo}`} />
+        {documentosTramite.map((documento) => (
+          <DataRow
+            key={documento.codigo}
+            label={documento.codigo === "Carta" ? "Carta" : documento.codigo}
+            value={documento.titulo}
+          />
+        ))}
+
+        {tramite.devolucion && solicitud.estado === "OBSERVADA" ? (
+          <InfoNote tone="warning" icon="return-down-back">
+            {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió el ${formatFechaHora(
+              tramite.devolucion.en
+            )}: «${tramite.devolucion.observacion}». Se atiende desde la bandeja web del Área de Socios.`}
+          </InfoNote>
+        ) : null}
+        {tramite.anulacion ? (
+          <InfoNote tone="danger" icon="close-circle">
+            {`Anulada el ${formatFechaHora(tramite.anulacion.en)} por ${tramite.anulacion.responsable}: «${tramite.anulacion.observacion}».`}
+          </InfoNote>
         ) : null}
 
         <View style={styles.constancias}>
@@ -246,31 +269,27 @@ export default function DetalleSolicitudScreen() {
           />
           <ConstanciaFila area="GERENCIA" constancia={tramite.aprobacion} />
         </View>
-
-        <Button
-          label={tramite.numeroTarjeta ? "Cambiar número de tarjeta" : "Registrar número de tarjeta"}
-          icon="card-outline"
-          variant="secondary"
-          onPress={pedirTarjeta}
-          fullWidth
-        />
       </Card>
 
       <Card title="Expediente digital" icon="folder-open">
         <DataRow
           label="Carpeta del repositorio"
-          value={
-            tramite.numeroSocio ? `${tramite.numeroSocio} ${nombreCompleto(datos)}` : "Sin asignar"
-          }
+          value={tramite.numeroSocio ? `${tramite.numeroSocio} ${nombreCompleto(datos)}` : "Sin asignar"}
         />
         <DataRow
-          label="Carga en el CRM de SAFI"
+          label="Creado en SAFI"
+          value={expediente.socioSafiId ? `Sí (ficha ${expediente.socioSafiId})` : "Todavía no"}
+        />
+        <DataRow
+          label="Documentos en SAFI"
           value={
             expediente.safi === "CARGADO"
-              ? "Publicado"
+              ? "Publicados"
               : expediente.safi === "ERROR"
                 ? `Con error: ${expediente.safiMensaje ?? "sin detalle"}`
-                : "Pendiente"
+                : solicitud.estado === "APROBADA"
+                  ? "Pendientes"
+                  : "Se publican al aprobarse"
           }
         />
         {expediente.escaneosPendientes.length > 0 ? (
@@ -281,7 +300,7 @@ export default function DetalleSolicitudScreen() {
           </InfoNote>
         ) : (
           <InfoNote tone="success" icon="checkmark-circle-outline">
-            Toda la documentación esperada fue recibida.
+            Toda la documentación escaneada esperada fue recibida.
           </InfoNote>
         )}
       </Card>
@@ -289,7 +308,13 @@ export default function DetalleSolicitudScreen() {
       <Card title="Forma de pago" icon="card">
         <DataRow
           label="Modalidad"
-          value={datos.formaPago ? FORMA_PAGO_META[datos.formaPago].etiqueta : null}
+          value={
+            datos.formaPago
+              ? FORMA_PAGO_META[datos.formaPago].etiqueta
+              : reglas?.requiereSocioTitular
+                ? "La cubre la cuenta del titular"
+                : null
+          }
         />
         {/* La factura la emite Contabilidad en el CRM; aquí solo consta el
             número que anotó al revisar, como en el reverso del formulario. */}
@@ -383,14 +408,16 @@ export default function DetalleSolicitudScreen() {
         </Card>
       ) : null}
 
-      {reglas?.requiereDatosLaborales ? (
-        <Card title="Información laboral" icon="briefcase">
-          <DataRow label="Profesión" value={datos.profesion} />
-          <DataRow label="Lugar de trabajo" value={datos.lugarTrabajo} />
-          <DataRow label="Cargo" value={datos.cargo} />
-          <DataRow label="Interés recreativo" value={datos.hobbie} />
-        </Card>
-      ) : null}
+      <Card title="Ocupación" icon="briefcase">
+        <DataRow label="Profesión" value={datos.profesion} />
+        <DataRow label="Lugar de trabajo" value={datos.lugarTrabajo} />
+        <DataRow label="Cargo" value={datos.cargo} />
+        <DataRow label="Hobbie" value={datos.hobbie} />
+        <DataRow
+          label="Fecha de ingreso al Club"
+          value={datos.fechaIngresoClub ? formatFechaCorta(datos.fechaIngresoClub) : null}
+        />
+      </Card>
 
       <Card title={`Expediente digital (${solicitud.documentos.length})`} icon="folder-open">
         {solicitud.documentos.length === 0 ? (
@@ -571,6 +598,7 @@ const styles = StyleSheet.create({
 
   acciones: { gap: spacing.sm, marginTop: spacing.lg },
   accionesSecundarias: { gap: spacing.sm, marginTop: spacing.xl },
+  botonEnviar: { marginTop: spacing.md },
 
   vacio: { ...typography.caption },
   galeria: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },

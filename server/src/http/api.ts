@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 
-import { analizarNombreArchivo } from "../../../src/domain/expediente";
-import { INSTRUCTIVO_ESCANEO } from "../../../src/domain/expediente";
+import { nombreDocumento } from "../../../src/domain/documentos";
+import { INSTRUCTIVO_ESCANEO, analizarNombreArchivo } from "../../../src/domain/expediente";
 import {
   AREA_META,
+  ROL_ADJUNTO_META,
+  adjuntosFaltantes,
   nombreCompleto,
   nombreTitular,
   type Area,
@@ -16,38 +18,59 @@ import {
   atendidasPor,
   calcularTareas,
   contadoresDeTareas,
+  creadoEnSafi,
+  enCaminoHacia,
+  numeroEnExpediente,
   tareasDeArea,
+  tareasDeSolicitud,
 } from "../../../src/domain/tareas";
 import {
   TIPOS_DISPONIBLES,
+  documentosDelTramite,
   nombreTipo,
   tieneCuentaPropia,
 } from "../../../src/domain/tiposMiembro";
 import { periodicidadesDe } from "../../../src/domain/cuotas";
 import { config } from "../config";
 import {
+  adjuntoDe,
+  adjuntosDe,
+  guardarAdjunto,
+  rolesRecibidos,
+} from "../db/adjuntos";
+import {
   archivosDeSolicitud,
   incidenciasAbiertas,
+  marcarCargadosAMano,
   porId,
   resolverIncidencia,
 } from "../db/archivos";
 import { registrarBitacora } from "../db/indice";
 import {
-  SolicitudYaRegistrada,
-  avanzarTramite,
+  actualizarExpediente,
+  anular,
+  aprobar,
   cuentaSafiDelTitular,
+  devolver,
   guardarAltaSafi,
   listarSolicitudes,
   obtenerSolicitud,
+  personaEnExpediente,
+  registrarAdjuntosRecibidos,
   registrarSolicitud,
+  registrarTarjeta,
+  reenviar,
+  revisar,
   siguienteOrdinalDependiente,
   solicitudesConTareas,
   solicitudesRecientes,
 } from "../db/solicitudes";
 import { abrirSesion, autenticar, cerrarSesion, usuarioDeSesion } from "../db/usuarios";
-import { archivarContenido, rutaSegura } from "../expediente/repositorio";
-import { recorrer } from "../expediente/vigilante";
-import { adaptadorSafi, type ListasSafi } from "../safi/adaptador";
+import { archivarFormularioFinal, htmlDeSolicitud, pdfDeSolicitud } from "../formularios/expediente";
+import { pdfDisponible } from "../formularios/pdf";
+import { rutaSegura } from "../expediente/repositorio";
+import { recorrer, vigilanciaActiva } from "../expediente/vigilante";
+import { adaptadorSafi, type ListasSafi, type VerificacionSafi } from "../safi/adaptador";
 import {
   CUOTAS_ANUALES_SAFI,
   CUOTAS_MENSUALES_SAFI,
@@ -64,6 +87,7 @@ import {
   avisosDeConfirmacion,
   faltantesDeConfirmacion,
   sugerirConfirmacion,
+  type AvisoSafi,
 } from "../safi/registro";
 import { anotarExito, anotarFallo, puedeIntentar } from "./intentos";
 import { COOKIE_SESION, OPCIONES_COOKIE, exigirArea, exigirSesion, usuarioDe } from "./sesion";
@@ -73,17 +97,19 @@ import {
   validarConfirmacionSafi,
   validarContenido,
   validarExtension,
-  validarOrdinal,
+  validarFirmas,
+  validarObservacion,
+  validarRolAdjunto,
   validarSolicitudEntrante,
-  validarTipoDocumento,
 } from "./validacion";
 
 /**
  * API del servidor.
  *
  * La consumen dos clientes: la aplicación móvil del Área de Socios, que
- * registra las afiliaciones y sube los documentos capturados, y la bandeja de
- * tareas web, desde la que Contabilidad revisa y la Gerencia aprueba.
+ * registra las afiliaciones con sus firmas y su fotografía, y la bandeja de
+ * tareas web, desde la que el Área de Socios crea el socio en SAFI,
+ * Contabilidad revisa y la Gerencia aprueba.
  */
 
 function incidenciasParaBandeja() {
@@ -93,6 +119,7 @@ function incidenciasParaBandeja() {
     motivo: i.motivo as never,
     detalle: i.detalle,
     detectadaEn: i.detectadaEn,
+    tipo: i.tipo,
     numeroSocio: i.numeroSocio ?? undefined,
   }));
 }
@@ -128,9 +155,6 @@ function listasParaPanel(delCrm: ListasSafi | null) {
  * maneras (`7000` y `7000,00`). Se siguen aceptando si una ficha antigua los
  * trae —por eso están en el catálogo de `campos.ts`— pero ofrecerlos en un
  * desplegable sería invitar a repetir el error.
- *
- * De cada importe duplicado se conserva la primera forma, que en el CRM es
- * siempre la escrita sin decimales.
  */
 function depurar(valores: string[]): string[] {
   const vistos = new Set<string>();
@@ -156,14 +180,47 @@ function resumir(solicitud: SolicitudAfiliacion) {
     id: solicitud.id,
     codigo: solicitud.codigo,
     estado: solicitud.estado,
-    numeroSocio: solicitud.tramite.numeroSocio,
+    numeroSocio: numeroEnExpediente(solicitud),
     cedula: solicitud.datos.cedula,
-    nombre: `${solicitud.datos.apellidos} ${solicitud.datos.nombres}`.replace(/\s+/g, " ").trim(),
-    tipoMiembro: solicitud.datos.tipoMiembro,
+    nombre: nombreCompleto(solicitud.datos),
+    tipoMiembro: nombreTipo(solicitud.datos.tipoMiembro),
     creadaEn: solicitud.creadaEn,
     actualizadaEn: solicitud.actualizadaEn,
     revision: solicitud.tramite.revision,
     aprobacion: solicitud.tramite.aprobacion,
+    creadoEnSafi: creadoEnSafi(solicitud),
+  };
+}
+
+/** Lo que la tableta necesita saber de un trámite que ya envió. */
+function avanceParaTableta(solicitud: SolicitudAfiliacion) {
+  return {
+    id: solicitud.id,
+    codigo: solicitud.codigo,
+    estado: solicitud.estado,
+    actualizadaEn: solicitud.actualizadaEn,
+    tramite: solicitud.tramite,
+    expediente: solicitud.expediente,
+    historial: solicitud.historial,
+  };
+}
+
+/**
+ * Lo que se asume cuando no se pudo consultar el CRM: ninguna comprobación
+ * hecha y ningún aviso. El panel lo advierte con `consultadoEnSafi`.
+ */
+function sinVerificar(): VerificacionSafi {
+  return { consultado: false, avisos: [], cuentaTitular: null, ordinalSugerido: null, fichas: [] };
+}
+
+/** Estado del sistema que la bandeja muestra en su pie. */
+function estadoDelSistema() {
+  const adaptador = adaptadorSafi();
+  return {
+    safiModo: adaptador.modo,
+    safiEscritura: adaptador.escritura,
+    pdfDisponible: pdfDisponible(),
+    vigilanciaActiva: vigilanciaActiva(),
   };
 }
 
@@ -173,7 +230,9 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
   /* ---------------------------------------------------------------- */
 
   app.post("/api/sesion", async (peticion, respuesta) => {
-    const cuerpo = peticion.body as { usuario?: string; clave?: string } | undefined;
+    const cuerpo = peticion.body as
+      | { usuario?: string; clave?: string; dispositivo?: string }
+      | undefined;
     if (!cuerpo?.usuario || !cuerpo?.clave) {
       return respuesta.code(400).send({ error: "Indique usuario y contraseña." });
     }
@@ -197,11 +256,21 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     }
 
     anotarExito(cuerpo.usuario, peticion.ip);
-    const sesion = abrirSesion(usuario.id, config.horasSesion);
-    registrarBitacora({ usuario: usuario.usuario, area: usuario.area, accion: "SESION_INICIADA" });
+
+    // La tableta del Área de Socios recibe una sesión larga: envía sola lo que
+    // registra, y con una sesión de jornada dejaba de hacerlo cada mañana.
+    const esTableta = cuerpo.dispositivo === "tableta" && usuario.area === "SOCIOS";
+    const horas = esTableta ? config.horasSesionTableta : config.horasSesion;
+    const sesion = abrirSesion(usuario.id, horas);
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "SESION_INICIADA",
+      detalle: esTableta ? "tableta" : undefined,
+    });
 
     return respuesta
-      .setCookie(COOKIE_SESION, sesion, OPCIONES_COOKIE)
+      .setCookie(COOKIE_SESION, sesion, { ...OPCIONES_COOKIE, maxAge: horas * 3600 })
       .send({ usuario: usuario.usuario, nombre: usuario.nombre, area: usuario.area });
   });
 
@@ -236,16 +305,22 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     // Solo se recorren las solicitudes que aún generan tareas y las últimas
     // actualizadas: el coste depende de lo pendiente, no del histórico.
     const incidencias = incidenciasParaBandeja();
-    const tareas = calcularTareas(solicitudesConTareas(), incidencias);
+    const pendientesConTareas = solicitudesConTareas();
+    const tareas = calcularTareas(pendientesConTareas, incidencias);
 
     return respuesta.send({
       area: usuario.area,
       etiquetaArea: AREA_META[usuario.area].etiqueta,
       accion: AREA_META[usuario.area].accion,
       pendientes: tareasDeArea(usuario.area, tareas),
+      // Lo que viene hacia esta área pero todavía está en manos de otra: sin
+      // esta lista, una bandeja vacía no distingue «no hay nada» de «algo se
+      // quedó atascado antes de llegarme».
+      enCamino: enCaminoHacia(usuario.area, pendientesConTareas).map(resumir),
       atendidas: atendidasPor(usuario.area, solicitudesRecientes()).slice(0, 100).map(resumir),
       contadores: contadoresDeTareas(tareas),
       instructivoEscaneo: usuario.area === "SOCIOS" ? INSTRUCTIVO_ESCANEO : [],
+      sistema: estadoDelSistema(),
     });
   });
 
@@ -258,7 +333,9 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     if (!usuario) return respuesta;
 
     const filtro = peticion.query as { estado?: EstadoSolicitud } | undefined;
-    return respuesta.send(listarSolicitudes(filtro?.estado ? { estado: filtro.estado } : undefined).map(resumir));
+    return respuesta.send(
+      listarSolicitudes(filtro?.estado ? { estado: filtro.estado } : undefined).map(resumir)
+    );
   });
 
   app.get("/api/solicitudes/:id", async (peticion, respuesta) => {
@@ -278,19 +355,44 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
 
     return respuesta.send({
       solicitud,
+      documentosDelTramite: documentosDelTramite(
+        solicitud.datos.tipoMiembro,
+        solicitud.datos.estadoCivil
+      ),
+      tareas: tareasDeSolicitud(solicitud),
+      adjuntosFaltantes: adjuntosFaltantes(solicitud).map((rol) => ({
+        rol,
+        etiqueta: ROL_ADJUNTO_META[rol].etiqueta,
+      })),
+      adjuntos: adjuntosDe(solicitud.id).map((a) => ({
+        rol: a.rol,
+        etiqueta: ROL_ADJUNTO_META[a.rol].etiqueta,
+        bytes: a.bytes,
+        tipoContenido: a.tipoContenido,
+        recibidoEn: a.recibidoEn,
+      })),
       archivos: archivosDeSolicitud(solicitud.id).map((a) => ({
         id: a.id,
         tipoDocumento: a.tipoDocumento,
+        nombre: nombreDocumento(a.tipoDocumento),
         nombreArchivo: a.nombreArchivo,
         bytes: a.bytes,
         origen: a.origen,
         registradoEn: a.registradoEn,
         safiEstado: a.safiEstado,
       })),
+      sistema: estadoDelSistema(),
     });
   });
 
-  /** Registro de una afiliación desde la aplicación móvil. */
+  /**
+   * Registro de una afiliación desde la aplicación móvil, con sus firmas.
+   *
+   * Es idempotente y también repara: si el trámite ya existe, se devuelve tal
+   * como está y se guardan las firmas que aún faltaran. La tableta reintenta
+   * cuando pierde una respuesta, y sin esto un trámite podía quedarse para
+   * siempre sin la firma con la que se compone el formulario.
+   */
   app.post("/api/solicitudes", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
     if (!usuario) return respuesta;
@@ -298,27 +400,242 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const comprobacion = validarSolicitudEntrante(peticion.body);
     if (!comprobacion.ok) return respuesta.code(400).send({ error: comprobacion.error });
 
-    try {
-      const registrada = registrarSolicitud(
-        (peticion.body as { solicitud: SolicitudAfiliacion }).solicitud,
-        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
-      );
-      return respuesta.code(201).send(registrada);
-    } catch (error) {
-      // La tableta reintenta cuando pierde la respuesta. No es un fallo: se le
-      // devuelve lo que ya está almacenado para que deje de reintentar.
-      if (error instanceof SolicitudYaRegistrada) {
-        return respuesta.code(200).send(error.existente);
-      }
-      throw error;
+    const firmas = validarFirmas((peticion.body as { firmas?: unknown }).firmas);
+    if (!firmas.ok) return respuesta.code(400).send({ error: firmas.error });
+
+    const entrante = (peticion.body as { solicitud: SolicitudAfiliacion }).solicitud;
+    const { solicitud, nueva } = registrarSolicitud(entrante, {
+      usuario: usuario.usuario,
+      area: usuario.area,
+      nombre: usuario.nombre,
+    });
+
+    // Las firmas que falten se guardan siempre, sea el primer envío o un
+    // reintento.
+    const recibidos = new Set(rolesRecibidos(solicitud.id));
+    const guardar = (rol: Parameters<typeof guardarAdjunto>[0]["rol"], contenido: Buffer | null) => {
+      if (!contenido || recibidos.has(rol)) return;
+      guardarAdjunto({
+        solicitudId: solicitud.id,
+        rol,
+        contenido,
+        extension: ".png",
+        tipoContenido: "image/png",
+      });
+      recibidos.add(rol);
+    };
+
+    guardar("FIRMA_SOLICITANTE", firmas.valor.solicitante);
+    guardar("FIRMA_GARANTE_1", firmas.valor.garantes[0] ?? null);
+    guardar("FIRMA_GARANTE_2", firmas.valor.garantes[1] ?? null);
+
+    const actualizada = registrarAdjuntosRecibidos(solicitud.id, [...recibidos]) ?? solicitud;
+    return respuesta.code(nueva ? 201 : 200).send(actualizada);
+  });
+
+  /**
+   * Fotografía (o una firma que se reintenta) que envía la tableta.
+   *
+   * Se guarda aparte del expediente: en este momento el trámite todavía no
+   * tiene número de socio, y sin número no hay carpeta donde archivarla. Al
+   * aprobarse el ingreso, la fotografía entra al expediente con el nombre que
+   * le corresponde.
+   */
+  app.post("/api/solicitudes/:id/adjuntos", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const parte = await peticion.file();
+    if (!parte) return respuesta.code(400).send({ error: "No se recibió ningún archivo." });
+
+    const campos = parte.fields as Record<string, { value?: string } | undefined>;
+    const rol = validarRolAdjunto(campos.rol?.value);
+    if (!rol.ok) return respuesta.code(400).send({ error: rol.error });
+
+    const extension = validarExtension(parte.filename ?? "");
+    if (!extension.ok) return respuesta.code(415).send({ error: extension.error });
+
+    const contenido = await parte.toBuffer();
+    const formato = validarContenido(contenido, extension.valor);
+    if (!formato.ok) return respuesta.code(415).send({ error: formato.error });
+
+    guardarAdjunto({
+      solicitudId: solicitud.id,
+      rol: rol.valor,
+      contenido,
+      extension: extension.valor,
+      tipoContenido: formato.valor,
+    });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "RECIBIR_ADJUNTO",
+      entidad: solicitud.codigo,
+      detalle: ROL_ADJUNTO_META[rol.valor].etiqueta,
+    });
+
+    const actualizada = registrarAdjuntosRecibidos(solicitud.id, rolesRecibidos(solicitud.id));
+    return respuesta.code(201).send(actualizada ?? solicitud);
+  });
+
+  /** Firma o fotografía, para verlas en la bandeja. */
+  app.get("/api/solicitudes/:id/adjuntos/:rol", async (peticion, respuesta) => {
+    const usuario = exigirSesion(peticion, respuesta);
+    if (!usuario) return respuesta;
+
+    const { id, rol } = peticion.params as { id: string; rol: string };
+    const comprobado = validarRolAdjunto(rol);
+    if (!comprobado.ok) return respuesta.code(400).send({ error: comprobado.error });
+
+    const adjunto = adjuntoDe(id, comprobado.valor);
+    if (!adjunto) return respuesta.code(404).send({ error: "Ese archivo no se ha recibido." });
+
+    const ruta = rutaSegura(adjunto.ruta, config.tramitesDir);
+    if (!ruta) return respuesta.code(404).send({ error: "El archivo ya no está en el servidor." });
+
+    return respuesta
+      .header("Content-Type", adjunto.tipoContenido)
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Cache-Control", "private, max-age=60")
+      .send(fs.createReadStream(ruta));
+  });
+
+  /**
+   * Avance de los trámites que la tableta ya envió: su estado, las constancias
+   * y el número de socio que se les asignó. Es lo que permite que la tableta
+   * muestre lo mismo que la bandeja.
+   */
+  app.post("/api/tableta/avance", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const cuerpo = (peticion.body ?? {}) as { ids?: unknown };
+    const ids = Array.isArray(cuerpo.ids)
+      ? cuerpo.ids.filter((id): id is string => typeof id === "string").slice(0, 300)
+      : [];
+
+    const avances = [];
+    const desconocidos: string[] = [];
+    for (const id of ids) {
+      const solicitud = obtenerSolicitud(id);
+      if (solicitud) avances.push(avanceParaTableta(solicitud));
+      else desconocidos.push(id);
     }
+
+    return respuesta.send({ avances, desconocidos });
   });
 
   /* ---------------------------------------------------------------- */
-  /* Constancias del reverso: revisar, aprobar, observar                */
+  /* El formulario del trámite                                         */
   /* ---------------------------------------------------------------- */
 
-  type CuerpoAccion = { observacion?: string; numeroFactura?: string; numeroSocio?: string; numeroTarjeta?: string };
+  /**
+   * Formulario completo en pantalla: R-PGS1-1, hoja de solicitud, carta y
+   * reverso con las constancias que haya hasta ahora, con las firmas de la
+   * tableta. Contabilidad y la Gerencia revisan y aprueban con el documento
+   * delante; antes solo veían el nombre y la cédula.
+   */
+  app.get("/api/solicitudes/:id/formulario", async (peticion, respuesta) => {
+    const usuario = exigirSesion(peticion, respuesta);
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const html = htmlDeSolicitud(solicitud);
+    if (!html) {
+      return respuesta.code(409).send({ error: "El trámite no tiene tipo de socio." });
+    }
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "VER_FORMULARIO",
+      entidad: solicitud.codigo,
+    });
+
+    // El formulario lleva su hoja de estilos y sus imágenes incrustadas: se
+    // permite el estilo en línea, y nada más que eso.
+    return respuesta
+      .header("Content-Type", "text/html; charset=utf-8")
+      .header(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+      )
+      .send(html);
+  });
+
+  /** El mismo formulario, impreso en PDF por el servidor. */
+  app.get("/api/solicitudes/:id/formulario.pdf", async (peticion, respuesta) => {
+    const usuario = exigirSesion(peticion, respuesta);
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    if (!pdfDisponible()) {
+      return respuesta.code(503).send({
+        error:
+          "Este servidor no tiene navegador para imprimir el PDF. Abra el formulario en pantalla y guárdelo como PDF desde su navegador.",
+      });
+    }
+
+    try {
+      const pdf = await pdfDeSolicitud(solicitud);
+      registrarBitacora({
+        usuario: usuario.usuario,
+        area: usuario.area,
+        accion: "DESCARGAR_FORMULARIO",
+        entidad: solicitud.codigo,
+      });
+      return respuesta
+        .header("Content-Type", "application/pdf")
+        .header("X-Content-Type-Options", "nosniff")
+        .header(
+          "Content-Disposition",
+          `inline; filename="${encodeURIComponent(`${solicitud.codigo}.pdf`)}"`
+        )
+        .send(pdf);
+    } catch (error) {
+      return respuesta
+        .code(500)
+        .send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** Reintento del archivado del formulario final, si falló al aprobarse. */
+  app.post("/api/solicitudes/:id/formulario-final", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const resultado = await archivarFormularioFinal(id);
+    if (!resultado.ok) return respuesta.code(409).send({ error: resultado.mensaje });
+
+    void procesarCola();
+    return respuesta.send({
+      ok: true,
+      mensaje: `Formulario archivado como «${resultado.nombreArchivo}».`,
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Constancias del reverso: revisar, aprobar, devolver, reenviar      */
+  /* ---------------------------------------------------------------- */
+
+  type CuerpoAccion = { observacion?: string; numeroFactura?: string; numeroTarjeta?: string };
+
+  const responderAvance = (
+    respuesta: FastifyReply,
+    resultado: { ok: true; solicitud: SolicitudAfiliacion } | { ok: false; codigo: number; error: string }
+  ) => (resultado.ok ? respuesta.send(resultado.solicitud) : respuesta.code(resultado.codigo).send({ error: resultado.error }));
 
   /** Contabilidad marca REVISADO y registra la casilla FC del formulario. */
   app.post("/api/solicitudes/:id/revisar", async (peticion, respuesta) => {
@@ -328,33 +645,23 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const { id } = peticion.params as { id: string };
     const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
 
-    const actual = obtenerSolicitud(id);
-    if (!actual) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-    if (actual.estado !== "REGISTRADA") {
-      return respuesta
-        .code(409)
-        .send({ error: `La solicitud está en estado ${actual.estado}; solo se revisa lo registrado.` });
-    }
-
-    const actualizada = avanzarTramite(
-      id,
-      {
-        estado: "REVISADA",
-        constancia: {
-          area: "CONTABILIDAD",
-          responsable: usuario.nombre,
-          en: new Date().toISOString(),
+    return responderAvance(
+      respuesta,
+      revisar(
+        id,
+        {
           observacion: recortarObservacion(cuerpo.observacion),
           numeroFactura: recortarObservacion(cuerpo.numeroFactura, 60),
         },
-      },
-      { usuario: usuario.usuario, area: usuario.area }
+        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+      )
     );
-
-    return respuesta.send(actualizada);
   });
 
-  /** La Gerencia aprueba el ingreso. */
+  /**
+   * La Gerencia aprueba el ingreso. Al aprobarse se archiva el formulario
+   * final en el expediente y, con él, el expediente pasa a publicarse en SAFI.
+   */
   app.post("/api/solicitudes/:id/aprobar", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "GERENCIA");
     if (!usuario) return respuesta;
@@ -362,92 +669,102 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const { id } = peticion.params as { id: string };
     const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
 
-    const actual = obtenerSolicitud(id);
-    if (!actual) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-    if (actual.estado !== "REVISADA") {
-      return respuesta.code(409).send({
-        error: "La Gerencia aprueba con la revisión previa de Contabilidad. Esta solicitud aún no ha sido revisada.",
-      });
-    }
-
-    const actualizada = avanzarTramite(
+    const resultado = aprobar(
       id,
-      {
-        estado: "APROBADA",
-        constancia: {
-          area: "GERENCIA",
-          responsable: usuario.nombre,
-          en: new Date().toISOString(),
-          observacion: recortarObservacion(cuerpo.observacion),
-        },
-      },
-      { usuario: usuario.usuario, area: usuario.area }
+      { observacion: recortarObservacion(cuerpo.observacion) },
+      { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
     );
+    if (!resultado.ok) return respuesta.code(resultado.codigo).send({ error: resultado.error });
 
-    return respuesta.send(actualizada);
+    // Imprimir el formulario lleva unos segundos: no se hace esperar a la
+    // Gerencia. Si falla, queda la tarea «Falta archivar el formulario final»
+    // con el motivo escrito.
+    void archivarFormularioFinal(id)
+      .then((archivado) => {
+        if (archivado.ok) void procesarCola();
+        else console.warn(`[formulario] ${archivado.mensaje}`);
+      })
+      .catch((error) => console.warn("[formulario] Error archivando el formulario final:", error));
+
+    return respuesta.send(resultado.solicitud);
   });
 
-  /** Contabilidad o Gerencia devuelven el trámite con observaciones. */
+  /** Contabilidad o la Gerencia devuelven el trámite con observaciones. */
   app.post("/api/solicitudes/:id/observar", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "CONTABILIDAD", "GERENCIA");
     if (!usuario) return respuesta;
 
     const { id } = peticion.params as { id: string };
     const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
-    const observacion = recortarObservacion(cuerpo.observacion);
+    const observacion = validarObservacion(cuerpo.observacion);
+    if (!observacion.ok) return respuesta.code(400).send({ error: observacion.error });
 
-    if (observacion.length < 10) {
-      return respuesta
-        .code(400)
-        .send({ error: "Escriba la observación: es lo que el Área de Socios debe corregir." });
-    }
-
-    const actualizada = avanzarTramite(
-      id,
-      {
-        estado: "OBSERVADA",
-        constancia: {
-          area: usuario.area,
-          responsable: usuario.nombre,
-          en: new Date().toISOString(),
-          observacion,
-        },
-      },
-      { usuario: usuario.usuario, area: usuario.area }
+    return responderAvance(
+      respuesta,
+      devolver(
+        id,
+        { observacion: observacion.valor },
+        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+      )
     );
-
-    if (!actualizada) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-    return respuesta.send(actualizada);
   });
 
-  /** El Área de Socios registra los números que asignó el CRM. */
-  app.post("/api/solicitudes/:id/numeros", async (peticion, respuesta) => {
+  /** El Área de Socios atiende la observación y reenvía el trámite. */
+  app.post("/api/solicitudes/:id/reenviar", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
+    const observacion = validarObservacion(cuerpo.observacion);
+    if (!observacion.ok) return respuesta.code(400).send({ error: observacion.error });
+
+    return responderAvance(
+      respuesta,
+      reenviar(
+        id,
+        { observacion: observacion.valor },
+        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+      )
+    );
+  });
+
+  /** El Área de Socios anula un trámite que no procede. */
+  app.post("/api/solicitudes/:id/anular", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
+    const observacion = validarObservacion(cuerpo.observacion);
+    if (!observacion.ok) return respuesta.code(400).send({ error: observacion.error });
+
+    return responderAvance(
+      respuesta,
+      anular(
+        id,
+        { observacion: observacion.valor },
+        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+      )
+    );
+  });
+
+  /** «Número de tarjeta» del reverso: la credencial que imprime Card Five. */
+  app.post("/api/solicitudes/:id/tarjeta", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
     if (!usuario) return respuesta;
 
     const { id } = peticion.params as { id: string };
     const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
 
-    const actual = obtenerSolicitud(id);
-    if (!actual) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-
-    const actualizada = avanzarTramite(
-      id,
-      {
-        estado: actual.estado,
-        numeroSocio: cuerpo.numeroSocio,
-        numeroTarjeta: cuerpo.numeroTarjeta,
-        constancia: {
-          area: "SOCIOS",
-          responsable: actual.tramite.registro?.responsable ?? usuario.nombre,
-          en: actual.tramite.registro?.en ?? new Date().toISOString(),
-          observacion: actual.tramite.registro?.observacion ?? "",
-        },
-      },
-      { usuario: usuario.usuario, area: usuario.area }
+    return responderAvance(
+      respuesta,
+      registrarTarjeta(id, recortarObservacion(cuerpo.numeroTarjeta, 40), {
+        usuario: usuario.usuario,
+        area: usuario.area,
+        nombre: usuario.nombre,
+      })
     );
-
-    return respuesta.send(actualizada);
   });
 
   /* ---------------------------------------------------------------- */
@@ -456,8 +773,8 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
 
   /**
    * Lo que el Área de Socios necesita para confirmar el alta: la propuesta del
-   * sistema, las listas de valores que SAFI admite y los avisos de lo que el
-   * CRM todavía no puede guardar.
+   * sistema, las listas de valores que SAFI admite, lo que el CRM ya tiene con
+   * ese número o esa cédula, y los avisos de lo que no podrá guardar.
    */
   app.get("/api/solicitudes/:id/safi", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
@@ -470,11 +787,32 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const adaptador = adaptadorSafi();
     // Las listas vivas del CRM mandan sobre el catálogo de respaldo: si el Club
     // añadió un valor esta semana, debe aparecer aquí sin tocar el código.
-    const delCrm = await adaptador.listas();
+    const delCrm = await adaptador.listas().catch(() => null);
 
     const propuesta = solicitud.expediente.confirmacionSafi ?? sugerirConfirmacion(solicitud);
     const esTitular = tieneCuentaPropia(solicitud.datos.tipoMiembro);
     const numeroTitular = solicitud.datos.titularNumeroSocio;
+    const numeroSocio = esTitular ? solicitud.tramite.numeroSocio : numeroTitular;
+
+    const ordinalLocal = esTitular
+      ? null
+      : solicitud.tramite.ordinalDependiente ?? siguienteOrdinalDependiente(numeroTitular);
+
+    // Comprobación de solo lectura en el CRM: números y cédulas ya usados, y la
+    // Cuenta del titular de un dependiente.
+    const verificacion = numeroSocio
+      ? await adaptador
+          .verificar({ solicitud, numeroSocio, ordinalDependiente: ordinalLocal })
+          .catch(sinVerificar)
+      : sinVerificar();
+
+    const ordinalDependiente = esTitular
+      ? null
+      : solicitud.tramite.ordinalDependiente ?? verificacion.ordinalSugerido ?? ordinalLocal;
+
+    const cuentaTitular = esTitular
+      ? null
+      : verificacion.cuentaTitular?.id ?? cuentaSafiDelTitular(numeroTitular);
 
     return respuesta.send({
       codigo: solicitud.codigo,
@@ -482,14 +820,15 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       cedula: solicitud.datos.cedula,
       tipoMiembro: nombreTipo(solicitud.datos.tipoMiembro),
       modo: adaptador.modo,
+      escritura: adaptador.escritura,
+      /** Con la escritura apagada, el alta la hace una persona en el CRM. */
+      altaManual: !adaptador.escritura,
       esTitular,
       // En un dependiente el número y la Cuenta son los del titular: no se
       // piden de nuevo ni se pueden cambiar aquí.
-      numeroSocio: esTitular ? solicitud.tramite.numeroSocio : numeroTitular,
-      ordinalDependiente: esTitular
-        ? null
-        : solicitud.tramite.ordinalDependiente ?? siguienteOrdinalDependiente(numeroTitular),
-      cuentaTitular: esTitular ? null : cuentaSafiDelTitular(numeroTitular),
+      numeroSocio,
+      ordinalDependiente,
+      cuentaTitular,
       nombreTitular: nombreTitular(solicitud.datos),
       // El cónyuge, los padres y el juvenil no pagan cuota propia: quedan
       // cubiertos por la del titular, y el panel no debe pedírsela.
@@ -498,8 +837,13 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       propuesta,
       listas: listasParaPanel(delCrm),
       listasEnVivo: delCrm !== null,
-      avisos: avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
-      yaCreado: Boolean(solicitud.expediente.socioSafiId),
+      consultadoEnSafi: verificacion.consultado,
+      fichasEnSafi: verificacion.fichas ?? [],
+      avisos: [
+        ...verificacion.avisos,
+        ...avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
+      ],
+      yaCreado: creadoEnSafi(solicitud),
     });
   });
 
@@ -511,10 +855,13 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const { id } = peticion.params as { id: string };
     const solicitud = obtenerSolicitud(id);
     if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-    if (solicitud.expediente.socioSafiId) {
+    if (creadoEnSafi(solicitud)) {
       return respuesta
         .code(409)
         .send({ error: "Esta persona ya fue creada en SAFI. No se vuelve a crear." });
+    }
+    if (solicitud.estado === "RECHAZADA") {
+      return respuesta.code(409).send({ error: "El trámite está anulado: no se crea nada en SAFI." });
     }
 
     const comprobacion = validarConfirmacionSafi(peticion.body);
@@ -534,6 +881,19 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         .send({ error: `Complete antes de crear en SAFI: ${faltan.join(", ")}.` });
     }
 
+    const esTitular = tieneCuentaPropia(solicitud.datos.tipoMiembro);
+
+    // Dos personas no pueden ocupar el mismo sitio del repositorio: el mismo
+    // número con la misma secuencia sería el mismo nombre de archivo.
+    const ocupante = personaEnExpediente(numeroSocio, esTitular ? null : ordinalDependiente);
+    if (ocupante && ocupante.id !== solicitud.id) {
+      return respuesta.code(409).send({
+        error: `El número ${numeroSocio}${
+          esTitular ? "" : `-${ordinalDependiente}`
+        } ya lo ocupa el trámite ${ocupante.codigo} (${nombreCompleto(ocupante.datos)}). Use otro número o anule ese trámite.`,
+      });
+    }
+
     // La solicitud debe llevar ya el número de socio para poder componer los
     // campos del CRM y el nombre de la carpeta del expediente.
     const conNumeros = {
@@ -542,24 +902,27 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     };
 
     const adaptador = adaptadorSafi();
-    const esTitular = tieneCuentaPropia(solicitud.datos.tipoMiembro);
+    const verificacion = await adaptador
+      .verificar({ solicitud: conNumeros, numeroSocio, ordinalDependiente })
+      .catch(sinVerificar);
+
+    const cuentaTitularSafi = verificacion.cuentaTitular?.id ?? null;
     const cuentaId = esTitular
       ? solicitud.expediente.cuentaSafiId ?? null
-      : cuentaSafiDelTitular(solicitud.datos.titularNumeroSocio);
+      : cuentaTitularSafi ?? cuentaSafiDelTitular(solicitud.datos.titularNumeroSocio);
 
     // Un valor que SAFI no puede guardar hace fallar el alta, así que se detiene
-    // antes de intentarla. En modo manual quien escribe en el CRM es una
-    // persona, que puede haber añadido ya el valor: ahí ese aviso informa y no
+    // antes de intentarla. Con el alta manual escribe una persona, que puede
+    // haber añadido ya el valor en el CRM: ahí un aviso de catálogo informa y no
     // detiene. Los de coherencia detienen siempre, porque una ficha con dos
-    // cuotas a la vez es igual de falsa se escriba a mano o por la API.
-    const avisos = avisosDeConfirmacion(
-      conNumeros,
-      confirmacion,
-      (await adaptador.listas()) ?? undefined
-    );
+    // cuotas a la vez, o un número de socio ya usado, es igual de falso se
+    // escriba a mano o por la API.
+    const avisos = [
+      ...verificacion.avisos,
+      ...avisosDeConfirmacion(conNumeros, confirmacion, (await adaptador.listas().catch(() => null)) ?? undefined),
+    ];
     const bloqueantes = avisos.filter(
-      (aviso) =>
-        aviso.bloquea && (aviso.origen === "COHERENCIA" || adaptador.modo !== "MANUAL")
+      (aviso) => aviso.bloquea && (aviso.origen === "COHERENCIA" || adaptador.escritura)
     );
 
     if (bloqueantes.length > 0) {
@@ -571,11 +934,29 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
 
     const alta = await adaptador.darDeAlta({ solicitud: conNumeros, confirmacion, cuentaId });
 
-    // Con la integración deshabilitada el alta la hace una persona en el CRM y
-    // transcribe aquí los identificadores que SAFI le asignó. Sin ellos el
-    // expediente no puede publicar después sus documentos contra la Cuenta.
-    const manual = adaptador.modo === "MANUAL";
-    const cuentaFinal = alta.ok ? alta.cuentaId : comprobacion.cuentaSafiId ?? cuentaId;
+    // Con el alta manual, quien escribe en el CRM es una persona y transcribe
+    // aquí los identificadores que SAFI le asignó. Sin ellos el expediente no
+    // puede publicar después sus documentos contra la Cuenta correcta.
+    const manual = !alta.ok && Boolean(alta.requiereAltaManual);
+    if (manual) {
+      const problemas = await adaptador.comprobarIdentificadores({
+        solicitud: conNumeros,
+        numeroSocio,
+        cuentaSafiId: comprobacion.cuentaSafiId,
+        socioSafiId: comprobacion.socioSafiId,
+      });
+      const graves = problemas.filter((aviso) => aviso.bloquea);
+      if (graves.length > 0) {
+        return respuesta
+          .code(409)
+          .send({ error: graves.map((aviso) => aviso.mensaje).join(" "), avisos: graves });
+      }
+      avisos.push(...problemas);
+    }
+
+    const cuentaFinal = alta.ok
+      ? alta.cuentaId
+      : (manual ? comprobacion.cuentaSafiId : null) ?? alta.cuentaId ?? cuentaId;
     const socioFinal = alta.ok ? alta.socioId : manual ? comprobacion.socioSafiId : null;
 
     const actualizada = guardarAltaSafi(
@@ -595,9 +976,9 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     return respuesta.code(creado ? 200 : 202).send({
       creado,
       mensaje: alta.ok
-        ? `Creado en SAFI: Cuenta ${alta.cuentaId}, Socio ${alta.socioId}.`
+        ? `Creado en SAFI: Cuenta ${alta.cuentaId}, Socio ${alta.socioId}. Contabilidad ya puede revisarlo.`
         : socioFinal
-          ? `Registrado el alta hecha a mano en SAFI: Cuenta ${cuentaFinal}, Socio ${socioFinal}.`
+          ? `Registrado el alta hecha a mano en SAFI: Cuenta ${cuentaFinal ?? "—"}, Socio ${socioFinal}. Contabilidad ya puede revisarlo.`
           : alta.mensaje,
       avisos,
       solicitud: actualizada,
@@ -620,73 +1001,49 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       accion: "SAFI_DIAGNOSTICO",
     });
 
-    return respuesta.send({ modo: config.safiModo, pasos: await diagnosticarSafi() });
+    return respuesta.send({
+      modo: config.safiModo,
+      escritura: config.safiEscritura,
+      pasos: await diagnosticarSafi(),
+    });
   });
 
-  /* ---------------------------------------------------------------- */
-  /* Expediente digital                                                */
-  /* ---------------------------------------------------------------- */
+  /** Reintenta la publicación de los expedientes aprobados en el CRM. */
+  app.post("/api/safi/reintentar", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+    return respuesta.send(await procesarCola());
+  });
 
-  /** Subida de un documento capturado con la tableta. */
-  app.post("/api/expediente/:id/documentos", async (peticion, respuesta) => {
+  /** Constancia de que el expediente se cargó a mano en el CRM. */
+  app.post("/api/solicitudes/:id/safi/documentos-a-mano", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
     if (!usuario) return respuesta;
 
     const { id } = peticion.params as { id: string };
     const solicitud = obtenerSolicitud(id);
     if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
-    if (!solicitud.tramite.numeroSocio) {
-      return respuesta.code(409).send({
-        error: "Registre primero el número de socio: el expediente se archiva bajo ese número.",
-      });
-    }
 
-    const parte = await peticion.file();
-    if (!parte) return respuesta.code(400).send({ error: "No se recibió ningún archivo." });
-
-    // Los campos del formulario deben viajar ANTES del archivo: es la única
-    // forma de conocerlos sin acumular el archivo entero en memoria primero.
-    const campos = parte.fields as Record<string, { value?: string } | undefined>;
-
-    const tipo = validarTipoDocumento(campos.tipoDocumento?.value);
-    if (!tipo.ok) return respuesta.code(400).send({ error: tipo.error });
-
-    const ordinal = validarOrdinal(campos.ordinalDependiente?.value);
-    if (!ordinal.ok) return respuesta.code(400).send({ error: ordinal.error });
-
-    const extension = validarExtension(parte.filename ?? "");
-    if (!extension.ok) return respuesta.code(415).send({ error: extension.error });
-
-    const contenido = await parte.toBuffer();
-    const formato = validarContenido(contenido, extension.valor);
-    if (!formato.ok) return respuesta.code(415).send({ error: formato.error });
-
-    const resultado = archivarContenido({
-      contenido,
-      extension: extension.valor,
-      clave: {
-        numeroSocio: solicitud.tramite.numeroSocio,
-        ordinalDependiente: ordinal.valor,
-        apellidosNombres: `${solicitud.datos.apellidos} ${solicitud.datos.nombres}`,
-      },
-      tipoDocumento: tipo.valor,
+    const marcados = marcarCargadosAMano(id, usuario.nombre);
+    actualizarExpediente(id, {
+      safi: "CARGADO",
+      safiMensaje: `Cargado a mano en SAFI por ${usuario.nombre}.`,
+      safiActualizadoEn: new Date().toISOString(),
     });
-
     registrarBitacora({
       usuario: usuario.usuario,
       area: usuario.area,
-      accion: "SUBIR_DOCUMENTO",
+      accion: "SAFI_DOCUMENTOS_A_MANO",
       entidad: solicitud.codigo,
-      detalle: resultado.archivo.nombreArchivo,
+      detalle: `${marcados} documento(s)`,
     });
 
-    return respuesta.code(201).send({
-      id: resultado.archivo.id,
-      nombreArchivo: resultado.archivo.nombreArchivo,
-      bytes: resultado.archivo.bytes,
-      reemplazado: resultado.reemplazado,
-    });
+    return respuesta.send({ ok: true, documentos: marcados });
   });
+
+  /* ---------------------------------------------------------------- */
+  /* Expediente digital                                                */
+  /* ---------------------------------------------------------------- */
 
   /** Descarga de un documento del expediente. */
   app.get("/api/expediente/documentos/:archivoId", async (peticion, respuesta) => {
@@ -738,7 +1095,27 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const { nombre } = peticion.query as { nombre?: string };
     if (!nombre) return respuesta.code(400).send({ error: "Indique el nombre del archivo." });
 
-    return respuesta.send(analizarNombreArchivo(nombre));
+    const analisis = analizarNombreArchivo(nombre);
+    if (!analisis.ok) return respuesta.send(analisis);
+
+    // Además de la forma del nombre se dice a quién corresponde: es lo que
+    // evita descubrir en el archivado que el número era de otra persona.
+    const persona = personaEnExpediente(
+      analisis.clave.numeroSocio,
+      analisis.clave.ordinalDependiente
+    );
+    return respuesta.send({
+      ...analisis,
+      persona: persona
+        ? {
+            codigo: persona.codigo,
+            nombre: nombreCompleto(persona.datos),
+            coincide:
+              nombreCompleto(persona.datos).toLocaleLowerCase("es") ===
+              analisis.clave.apellidosNombres.toLocaleLowerCase("es"),
+          }
+        : null,
+    });
   });
 
   /** Cierra manualmente una incidencia de escaneo ya corregida. */
@@ -757,13 +1134,6 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     return respuesta.send({ ok: true });
   });
 
-  /** Reintenta la publicación en el CRM de SAFI. */
-  app.post("/api/safi/reintentar", async (peticion, respuesta) => {
-    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
-    if (!usuario) return respuesta;
-    return respuesta.send(await procesarCola());
-  });
-
   /* ---------------------------------------------------------------- */
   /* Catálogos y estado                                                */
   /* ---------------------------------------------------------------- */
@@ -779,7 +1149,7 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         nombre: tipo.nombre,
         categoria: tipo.categoria,
         descripcion: tipo.descripcion,
-        formularios: tipo.formularios.map((f) => ({ codigo: f.codigo, titulo: f.titulo })),
+        hojasSolicitud: tipo.hojasSolicitud.map((h) => ({ codigo: h.codigo, titulo: h.titulo })),
         cartaCompromiso: tipo.cartaCompromiso,
       }))
     )
@@ -788,10 +1158,9 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
   app.get("/api/salud", async (_peticion, respuesta) =>
     respuesta.send({
       ok: true,
-      version: 1,
-      safiModo: config.safiModo,
+      version: 2,
+      ...estadoDelSistema(),
       escaneosDir: config.escaneosDir,
-      vigilanciaActiva: fs.existsSync(config.escaneosDir),
       en: new Date().toISOString(),
     })
   );

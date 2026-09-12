@@ -1,6 +1,7 @@
 import { formatFechaHora } from "../../domain/fechas";
 import {
   AREA_META,
+  observacionesDeArea,
   type Area,
   type ConstanciaTramite,
   type SolicitudAfiliacion,
@@ -22,10 +23,15 @@ import type { RecursosFormulario } from "./tipos";
  * y con la leyenda «Pendiente», igual que el formulario en papel.
  */
 
+/**
+ * Requisitos para carnetización: la lista del reverso del PGS1-11, completada
+ * con la fotografía que pide el reverso del R-PGS1-1.
+ */
 const REQUISITOS_CARNETIZACION = [
   "Cédula de ciudadanía",
-  "Tarjeta militar (de ser el caso)",
+  "Tarjeta o credencial militar (de ser el caso)",
   "Formulario de información del socio, lleno y firmado",
+  "Foto tamaño carnet con fondo blanco",
   "Credencial anterior (opcional)",
   "Factura de pago de la credencial (USD 5,00 c/u)",
   "Copia de la cédula del Oficial de FAE en caso de ser socio D-A o D-B",
@@ -69,10 +75,11 @@ function capitalizar(accion: string): string {
   }
 }
 
-function observacion(rotulo: string, texto: string | undefined): string {
+function observacion(rotulo: string, textos: string[]): string {
+  const cuerpo = textos.map((texto) => `<div>${escapar(texto)}</div>`).join("");
   return `<div class="observacion">
     <div class="rotulo">${escapar(rotulo)}</div>
-    <div class="texto">${escapar((texto ?? "").trim()) || "&nbsp;"}</div>
+    <div class="texto">${cuerpo || "&nbsp;"}</div>
   </div>`;
 }
 
@@ -100,9 +107,17 @@ export function paginaReverso(
     )}
   </table>`;
 
+  const anulado =
+    solicitud.estado === "RECHAZADA"
+      ? `<div class="interna-cabecera" style="border-color:#B3261E;color:#B3261E;background:#FCEBEA">Trámite anulado${
+          tramite.anulacion ? ` el ${escapar(formatFechaHora(tramite.anulacion.en))}` : ""
+        }</div>`
+      : "";
+
   return `
     ${encabezado(recursos.logo, codigoRegistro, "Información interna del Club")}
     <div class="interna-cabecera">Información interna del Club</div>
+    ${anulado}
     ${numeros}
 
     <div class="constancias">
@@ -115,9 +130,9 @@ export function paginaReverso(
       ${constancia("GERENCIA", tramite.aprobacion)}
     </div>
 
-    ${observacion("Observación Control de Socios", tramite.registro?.observacion)}
-    ${observacion("Observación Contabilidad", tramite.revision?.observacion)}
-    ${observacion("Observación Gerencia", tramite.aprobacion?.observacion)}
+    ${observacion("Observación Control de Socios", observacionesDeArea(tramite, "SOCIOS"))}
+    ${observacion("Observación Contabilidad", observacionesDeArea(tramite, "CONTABILIDAD"))}
+    ${observacion("Observación Gerencia", observacionesDeArea(tramite, "GERENCIA"))}
 
     <div class="requisitos">
       <strong>Requisitos para carnetización</strong>

@@ -1,17 +1,21 @@
 import { escaneosEsperados, type TipoDocumento } from "../../../src/domain/documentos";
 import {
+  AREA_META,
   ESQUEMA_SOLICITUD,
+  datosVacios,
   expedienteVacio,
   identidadVacia,
+  migrarSolicitud,
   nombreCompleto,
   tramiteVacio,
   type Area,
   type ConfirmacionSafi,
   type ConstanciaTramite,
   type EstadoSolicitud,
+  type RolAdjunto,
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
-import { tareasDeSolicitud } from "../../../src/domain/tareas";
+import { creadoEnSafi, tareasDeSolicitud } from "../../../src/domain/tareas";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
 import { ahora, db, nuevoId, registrarBitacora } from "./indice";
 
@@ -26,40 +30,13 @@ import { ahora, db, nuevoId, registrarBitacora } from "./indice";
 type FilaSolicitud = { documento: string };
 
 /**
- * Lee el documento almacenado y lo pone al día con el esquema vigente.
- *
- * Los trámites guardados por una versión anterior conservan la forma que tenían
- * al escribirse, y aquí se completa lo que falte. Sin esto, un expediente
- * antiguo abierto con el código nuevo mostraría campos en blanco en lugar de su
- * contenido, que es peor que un error: parece un dato que nunca se capturó.
- *
- *   Esquema 5 → 6  El nombre del socio titular pasó a guardarse en dos campos,
- *                  apellidos y nombres, porque SAFI los usa en dos órdenes
- *                  distintos. El valor antiguo se conserva entero en el de
- *                  apellidos: partirlo por la mitad escribiría un nombre
- *                  equivocado en el CRM.
- *
- * No reescribe la fila: la normalización se persiste sola la próxima vez que el
- * trámite se guarde por cualquier otro motivo.
+ * Lee el documento almacenado y lo pone al día con el esquema vigente, con el
+ * mismo código que usa la tableta (`migrarSolicitud`). No reescribe la fila: la
+ * normalización se persiste sola la próxima vez que el trámite se guarde.
  */
 function aSolicitud(fila: FilaSolicitud): SolicitudAfiliacion {
   const guardada = JSON.parse(fila.documento) as SolicitudAfiliacion;
-  if (guardada.esquema >= ESQUEMA_SOLICITUD) return guardada;
-
-  const datos = guardada.datos as typeof guardada.datos & { titularNombre?: string };
-
-  return {
-    ...guardada,
-    esquema: ESQUEMA_SOLICITUD,
-    datos: {
-      ...datos,
-      titularApellidos: datos.titularApellidos ?? datos.titularNombre ?? "",
-      titularNombres: datos.titularNombres ?? "",
-      provincia: datos.provincia ?? "",
-    },
-    tramite: { ...tramiteVacio(), ...guardada.tramite },
-    expediente: { ...expedienteVacio(), ...guardada.expediente },
-  };
+  return migrarSolicitud(guardada);
 }
 
 function guardarDocumento(solicitud: SolicitudAfiliacion): void {
@@ -70,13 +47,14 @@ function guardarDocumento(solicitud: SolicitudAfiliacion): void {
   db()
     .prepare(
       `INSERT INTO solicitudes
-         (id, codigo, estado, numero_socio, cedula, nombre, tipo_miembro, creada_en,
-          actualizada_en, documento, requiere_atencion)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (id, codigo, estado, numero_socio, ordinal_dependiente, cedula, nombre, tipo_miembro,
+          creada_en, actualizada_en, documento, requiere_atencion)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          codigo = excluded.codigo,
          estado = excluded.estado,
          numero_socio = excluded.numero_socio,
+         ordinal_dependiente = excluded.ordinal_dependiente,
          cedula = excluded.cedula,
          nombre = excluded.nombre,
          tipo_miembro = excluded.tipo_miembro,
@@ -89,6 +67,7 @@ function guardarDocumento(solicitud: SolicitudAfiliacion): void {
       solicitud.codigo,
       solicitud.estado,
       solicitud.tramite.numeroSocio || null,
+      solicitud.tramite.ordinalDependiente ?? null,
       solicitud.datos.cedula,
       nombreCompleto(solicitud.datos),
       solicitud.datos.tipoMiembro,
@@ -143,17 +122,25 @@ export function solicitudesRecientes(limite = 300): SolicitudAfiliacion[] {
 }
 
 /**
- * Recalcula la marca de atención de todas las solicitudes. Se ejecuta al
- * arrancar tras una migración, cuando la columna aún trae el valor por defecto.
+ * Recalcula la marca de atención y las columnas de consulta de todas las
+ * solicitudes. Se ejecuta al arrancar: deja coherente una base recién migrada
+ * —las columnas nuevas nacen vacías— o tocada a mano.
  */
 export function recalcularAtencion(): number {
   const filas = db().prepare("SELECT documento FROM solicitudes").all() as unknown as FilaSolicitud[];
-  const sentencia = db().prepare("UPDATE solicitudes SET requiere_atencion = ? WHERE id = ?");
+  const sentencia = db().prepare(
+    "UPDATE solicitudes SET requiere_atencion = ?, numero_socio = ?, ordinal_dependiente = ? WHERE id = ?"
+  );
 
   let cambiadas = 0;
   for (const fila of filas) {
     const solicitud = aSolicitud(fila);
-    sentencia.run(tareasDeSolicitud(solicitud).length > 0 ? 1 : 0, solicitud.id);
+    sentencia.run(
+      tareasDeSolicitud(solicitud).length > 0 ? 1 : 0,
+      solicitud.tramite.numeroSocio || null,
+      solicitud.tramite.ordinalDependiente ?? null,
+      solicitud.id
+    );
     cambiadas += 1;
   }
   return cambiadas;
@@ -166,12 +153,68 @@ export function obtenerSolicitud(id: string): SolicitudAfiliacion | null {
   return fila ? aSolicitud(fila) : null;
 }
 
-/** Busca la solicitud de un socio por su número, para clasificar un escaneo. */
-export function solicitudPorNumeroSocio(numeroSocio: string): SolicitudAfiliacion | null {
-  const fila = db()
-    .prepare("SELECT documento FROM solicitudes WHERE numero_socio = ? ORDER BY creada_en DESC LIMIT 1")
-    .get(normalizarNumeroSocio(numeroSocio)) as unknown as FilaSolicitud | undefined;
+/* ------------------------------------------------------------------ */
+/* Búsquedas por número de socio                                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * El número de socio es el mismo para toda la familia: la Cuenta de SAFI y la
+ * carpeta del expediente son una por titular. Lo que distingue a cada persona
+ * es el ordinal (`280` el titular, `280-1`, `280-2` sus dependientes). Buscar
+ * solo por número devolvía «el último trámite con ese número», que podía ser el
+ * de un dependiente: el vigilante comparaba entonces el nombre del titular con
+ * el del hijo y apartaba un documento correcto, y la carpeta del expediente se
+ * nombraba con el nombre equivocado. Por eso las búsquedas son por persona.
+ *
+ * Los trámites anulados no cuentan: su número queda libre.
+ */
+
+/** La persona que ocupa `numero` / `numero-ordinal` en el repositorio. */
+export function personaEnExpediente(
+  numeroSocio: string,
+  ordinalDependiente: number | null
+): SolicitudAfiliacion | null {
+  const numero = normalizarNumeroSocio(numeroSocio);
+  if (!numero) return null;
+
+  const fila = (
+    ordinalDependiente === null
+      ? db()
+          .prepare(
+            `SELECT documento FROM solicitudes
+             WHERE numero_socio = ? AND ordinal_dependiente IS NULL AND estado <> 'RECHAZADA'
+             ORDER BY creada_en DESC LIMIT 1`
+          )
+          .get(numero)
+      : db()
+          .prepare(
+            `SELECT documento FROM solicitudes
+             WHERE numero_socio = ? AND ordinal_dependiente = ? AND estado <> 'RECHAZADA'
+             ORDER BY creada_en DESC LIMIT 1`
+          )
+          .get(numero, ordinalDependiente)
+  ) as unknown as FilaSolicitud | undefined;
+
   return fila ? aSolicitud(fila) : null;
+}
+
+/** El trámite del socio titular de una cuenta, si se registró por este sistema. */
+export function titularPorNumero(numeroSocio: string): SolicitudAfiliacion | null {
+  return personaEnExpediente(numeroSocio, null);
+}
+
+/** Todos los trámites vigentes de una cuenta: el titular y sus dependientes. */
+export function familiaDe(numeroSocio: string): SolicitudAfiliacion[] {
+  const numero = normalizarNumeroSocio(numeroSocio);
+  if (!numero) return [];
+  const filas = db()
+    .prepare(
+      `SELECT documento FROM solicitudes
+       WHERE numero_socio = ? AND estado <> 'RECHAZADA'
+       ORDER BY ordinal_dependiente NULLS FIRST, creada_en`
+    )
+    .all(numero) as unknown as FilaSolicitud[];
+  return filas.map(aSolicitud);
 }
 
 /** Código legible del trámite: `AF-2026-0007`. */
@@ -188,7 +231,7 @@ export function siguienteCodigo(): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Registro y avance del trámite                                       */
+/* Registro                                                            */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -196,21 +239,28 @@ export function siguienteCodigo(): string {
  * tableta.
  *
  * De la petición se acepta ÚNICAMENTE lo que el solicitante llenó: sus datos,
- * su firma, su consentimiento y la trazabilidad de la identidad. Todo lo demás
- * —el estado, el código del trámite y, sobre todo, las constancias del reverso—
- * lo construye el servidor.
+ * su consentimiento y la trazabilidad de la identidad. Todo lo demás —el
+ * estado, el código del trámite y, sobre todo, las constancias del reverso— lo
+ * construye el servidor.
  *
  * El motivo es directo: si se aceptara el `tramite` que manda el cliente, una
  * afiliación podría llegar declarando que Contabilidad ya la revisó y que la
  * Gerencia ya la aprobó, y el formulario se imprimiría con el nombre de esas
  * personas sin que hubieran intervenido. La constancia de quién revisó y quién
  * aprobó es justamente lo que el sistema existe para acreditar.
+ *
+ * Las rutas de archivo que trae la solicitud son las del almacenamiento de la
+ * tableta y aquí no significan nada: se descartan. Las firmas y la fotografía
+ * viajan aparte (ver `db/adjuntos.ts`).
  */
 function depurarEntrante(
   entrante: SolicitudAfiliacion,
   actor: { nombre: string },
   momento: string
 ): SolicitudAfiliacion {
+  const datos = { ...datosVacios(), ...entrante.datos };
+  const hoy = momento.slice(0, 10);
+
   return {
     id: entrante.id,
     codigo: "",
@@ -218,47 +268,42 @@ function depurarEntrante(
     estado: "REGISTRADA",
     creadaEn: entrante.creadaEn || momento,
     actualizadaEn: momento,
-    datos: entrante.datos,
-    documentos: entrante.documentos ?? [],
-    firmaUri: entrante.firmaUri ?? null,
+    datos: {
+      ...datos,
+      garantes: datos.garantes.map((g) => ({ ...g, firmaUri: null })),
+      fechaIngresoClub: datos.fechaIngresoClub || hoy,
+    },
+    documentos: (entrante.documentos ?? []).map((d) => ({ ...d, uri: "" })),
+    firmaUri: null,
     modoFirma: entrante.modoFirma ?? "MANUSCRITA_EN_PANTALLA",
-    identidad: entrante.identidad ?? identidadVacia(),
+    identidad: { ...identidadVacia(), ...(entrante.identidad ?? {}), fotoRegistroCivilUri: null },
     consentimiento: entrante.consentimiento ?? null,
     tramite: {
       ...tramiteVacio(),
-      fechaRegistro: momento.slice(0, 10),
+      fechaRegistro: hoy,
       registro: { area: "SOCIOS", responsable: actor.nombre, en: momento, observacion: "" },
     },
     expediente: {
       ...expedienteVacio(),
-      escaneosPendientes: escaneosEsperados(entrante.datos.tipoMiembro),
+      escaneosPendientes: escaneosEsperados(datos.tipoMiembro),
     },
     historial: [],
   };
 }
 
-/** Se lanza cuando la tableta reenvía una afiliación que el servidor ya tiene. */
-export class SolicitudYaRegistrada extends Error {
-  constructor(readonly existente: SolicitudAfiliacion) {
-    super(`La solicitud ${existente.codigo} ya estaba registrada.`);
-    this.name = "SolicitudYaRegistrada";
-  }
-}
-
 export function registrarSolicitud(
   solicitud: SolicitudAfiliacion,
   actor: { usuario: string; area: Area; nombre: string }
-): SolicitudAfiliacion {
-  const momento = ahora();
-
+): { solicitud: SolicitudAfiliacion; nueva: boolean } {
   // Idempotencia: la tableta reintenta cuando una respuesta se pierde. Si el
   // identificador ya existe, se devuelve lo almacenado en lugar de sobrescribir
   // un expediente que quizá ya fue revisado y aprobado.
   if (solicitud.id) {
     const existente = obtenerSolicitud(solicitud.id);
-    if (existente) throw new SolicitudYaRegistrada(existente);
+    if (existente) return { solicitud: existente, nueva: false };
   }
 
+  const momento = ahora();
   const base = depurarEntrante(solicitud, actor, momento);
 
   const registrada: SolicitudAfiliacion = {
@@ -285,81 +330,43 @@ export function registrarSolicitud(
     detalle: `${nombreCompleto(registrada.datos)} · ${registrada.datos.cedula}`,
   });
 
-  return registrada;
+  return { solicitud: registrada, nueva: true };
 }
 
-export type AvanceTramite = {
-  estado: EstadoSolicitud;
-  constancia: ConstanciaTramite & { numeroFactura?: string };
-  /** Números que el Área de Socios asigna al crear el socio en el CRM. */
-  numeroSocio?: string;
-  numeroTarjeta?: string;
-};
+/* ------------------------------------------------------------------ */
+/* Avance del trámite: las constancias del reverso                     */
+/* ------------------------------------------------------------------ */
 
-/**
- * Aplica una constancia del reverso del formulario (REVISADO por Contabilidad,
- * APROBADO por la Gerencia, u observación que devuelve el trámite) y devuelve
- * la solicitud actualizada.
- */
-export function avanzarTramite(
-  id: string,
-  avance: AvanceTramite,
-  actor: { usuario: string; area: Area }
-): SolicitudAfiliacion | null {
-  const actual = obtenerSolicitud(id);
-  if (!actual) return null;
+export type ResultadoAvance =
+  | { ok: true; solicitud: SolicitudAfiliacion }
+  | { ok: false; codigo: number; error: string };
 
-  const momento = avance.constancia.en || ahora();
-  const tramite = { ...actual.tramite };
+type Actor = { usuario: string; area: Area; nombre: string };
 
-  if (avance.numeroSocio !== undefined) {
-    tramite.numeroSocio = normalizarNumeroSocio(avance.numeroSocio);
-  }
-  if (avance.numeroTarjeta !== undefined) {
-    tramite.numeroTarjeta = avance.numeroTarjeta.trim();
-  }
+function fallo(codigo: number, error: string): ResultadoAvance {
+  return { ok: false, codigo, error };
+}
 
-  switch (avance.constancia.area) {
-    case "CONTABILIDAD":
-      tramite.revision = {
-        area: "CONTABILIDAD",
-        responsable: avance.constancia.responsable,
-        en: momento,
-        observacion: avance.constancia.observacion,
-        numeroFactura: avance.constancia.numeroFactura ?? "",
-      };
-      break;
-    case "GERENCIA":
-      tramite.aprobacion = {
-        area: "GERENCIA",
-        responsable: avance.constancia.responsable,
-        en: momento,
-        observacion: avance.constancia.observacion,
-      };
-      break;
-    case "SOCIOS":
-      tramite.registro = {
-        area: "SOCIOS",
-        responsable: avance.constancia.responsable,
-        en: momento,
-        observacion: avance.constancia.observacion,
-      };
-      break;
-  }
-
+/** Guarda el cambio, lo anota en el historial y en la bitácora. */
+function aplicar(
+  actual: SolicitudAfiliacion,
+  cambio: Partial<SolicitudAfiliacion>,
+  evento: { estado: EstadoSolicitud; nota?: string; accion: string },
+  actor: Actor
+): ResultadoAvance {
+  const momento = ahora();
   const actualizada: SolicitudAfiliacion = {
     ...actual,
-    estado: avance.estado,
+    ...cambio,
     actualizadaEn: momento,
-    tramite,
     historial: [
       ...actual.historial,
       {
         en: momento,
-        estado: avance.estado,
-        area: avance.constancia.area,
-        responsable: avance.constancia.responsable,
-        nota: avance.constancia.observacion || undefined,
+        estado: evento.estado,
+        area: actor.area,
+        responsable: actor.nombre,
+        nota: evento.nota || undefined,
       },
     ],
   };
@@ -368,23 +375,216 @@ export function avanzarTramite(
   registrarBitacora({
     usuario: actor.usuario,
     area: actor.area,
-    accion: `TRAMITE_${avance.estado}`,
+    accion: evento.accion,
     entidad: actualizada.codigo,
-    detalle: avance.constancia.observacion || undefined,
+    detalle: evento.nota || undefined,
   });
 
-  return actualizada;
+  return { ok: true, solicitud: actualizada };
 }
+
+function constancia(actor: Actor, observacion: string): ConstanciaTramite {
+  return { area: actor.area, responsable: actor.nombre, en: ahora(), observacion };
+}
+
+/**
+ * Contabilidad marca REVISADO, con la casilla «FC:» del formulario.
+ *
+ * Solo sobre lo registrado y ya creado en SAFI: Contabilidad revisa
+ * comprobando el ingreso en el CRM, y antes de que exista allí no hay nada que
+ * comprobar.
+ */
+export function revisar(
+  id: string,
+  entrada: { observacion: string; numeroFactura: string },
+  actor: Actor
+): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+  if (actual.estado !== "REGISTRADA") {
+    return fallo(409, `La solicitud está en estado ${actual.estado}; solo se revisa lo registrado.`);
+  }
+  if (!creadoEnSafi(actual)) {
+    return fallo(
+      409,
+      "El Área de Socios todavía no ha creado a esta persona en SAFI. Contabilidad la revisa comprobando el ingreso en el CRM, así que primero debe existir allí."
+    );
+  }
+
+  return aplicar(
+    actual,
+    {
+      estado: "REVISADA",
+      tramite: {
+        ...actual.tramite,
+        revision: { ...constancia(actor, entrada.observacion), numeroFactura: entrada.numeroFactura },
+        devolucion: null,
+      },
+    },
+    { estado: "REVISADA", nota: entrada.observacion, accion: "TRAMITE_REVISADA" },
+    actor
+  );
+}
+
+/** La Gerencia marca APROBADO. */
+export function aprobar(id: string, entrada: { observacion: string }, actor: Actor): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+  if (actual.estado !== "REVISADA") {
+    return fallo(
+      409,
+      "La Gerencia aprueba con la revisión previa de Contabilidad. Esta solicitud aún no ha sido revisada."
+    );
+  }
+
+  return aplicar(
+    actual,
+    {
+      estado: "APROBADA",
+      tramite: {
+        ...actual.tramite,
+        aprobacion: constancia(actor, entrada.observacion),
+        devolucion: null,
+      },
+    },
+    { estado: "APROBADA", nota: entrada.observacion, accion: "TRAMITE_APROBADA" },
+    actor
+  );
+}
+
+/**
+ * Contabilidad o la Gerencia devuelven el trámite al Área de Socios.
+ *
+ * La devolución se guarda aparte de las constancias: no es una revisión ni una
+ * aprobación, y escribirla sobre ellas hacía que el reverso imprimiera
+ * «Revisado» con el nombre de quien en realidad había devuelto el trámite.
+ */
+export function devolver(id: string, entrada: { observacion: string }, actor: Actor): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+
+  const esperado: EstadoSolicitud = actor.area === "CONTABILIDAD" ? "REGISTRADA" : "REVISADA";
+  if (actual.estado !== esperado) {
+    return fallo(
+      409,
+      `${AREA_META[actor.area].etiqueta} devuelve trámites en estado ${esperado}; este está en ${actual.estado}.`
+    );
+  }
+
+  const nota = constancia(actor, entrada.observacion);
+  return aplicar(
+    actual,
+    {
+      estado: "OBSERVADA",
+      tramite: {
+        ...actual.tramite,
+        devolucion: nota,
+        observaciones: [...(actual.tramite.observaciones ?? []), nota],
+      },
+    },
+    { estado: "OBSERVADA", nota: entrada.observacion, accion: "TRAMITE_OBSERVADA" },
+    actor
+  );
+}
+
+/**
+ * El Área de Socios atiende la observación y reenvía el trámite a quien lo
+ * devolvió: a Contabilidad si fue ella, a la Gerencia si fue la Gerencia —la
+ * revisión de Contabilidad sigue en pie—.
+ */
+export function reenviar(id: string, entrada: { observacion: string }, actor: Actor): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+  if (actual.estado !== "OBSERVADA") {
+    return fallo(409, "Solo se reenvía un trámite devuelto con observaciones.");
+  }
+
+  const deGerencia = actual.tramite.devolucion?.area === "GERENCIA" && actual.tramite.revision;
+  const destino: EstadoSolicitud = deGerencia ? "REVISADA" : "REGISTRADA";
+  const nota = constancia(actor, entrada.observacion);
+
+  return aplicar(
+    actual,
+    {
+      estado: destino,
+      tramite: {
+        ...actual.tramite,
+        devolucion: null,
+        observaciones: [...(actual.tramite.observaciones ?? []), nota],
+      },
+    },
+    {
+      estado: destino,
+      nota: `Reenviado a ${deGerencia ? "la Gerencia" : "Contabilidad"}: ${entrada.observacion}`,
+      accion: "TRAMITE_REENVIADO",
+    },
+    actor
+  );
+}
+
+/**
+ * El Área de Socios anula un trámite que no procede: duplicado, registrado con
+ * un error que no admite corrección, o desistido. El número de socio y el
+ * ordinal quedan libres.
+ *
+ * Un trámite aprobado no se anula: es un socio del Club, y su baja es otro
+ * procedimiento.
+ */
+export function anular(id: string, entrada: { observacion: string }, actor: Actor): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+  if (actual.estado === "APROBADA") {
+    return fallo(409, "Un ingreso ya aprobado no se anula desde aquí: la baja de un socio es otro trámite.");
+  }
+  if (actual.estado === "RECHAZADA") return fallo(409, "El trámite ya estaba anulado.");
+
+  const aviso = creadoEnSafi(actual)
+    ? " La ficha ya existe en SAFI: desactívela allá, el sistema no borra nada del CRM."
+    : "";
+
+  return aplicar(
+    actual,
+    {
+      estado: "RECHAZADA",
+      tramite: {
+        ...actual.tramite,
+        devolucion: null,
+        anulacion: constancia(actor, entrada.observacion),
+      },
+    },
+    { estado: "RECHAZADA", nota: `${entrada.observacion}${aviso}`, accion: "TRAMITE_ANULADO" },
+    actor
+  );
+}
+
+/** «Número de tarjeta» del reverso: el de la credencial impresa por Card Five. */
+export function registrarTarjeta(id: string, numeroTarjeta: string, actor: Actor): ResultadoAvance {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+
+  return aplicar(
+    actual,
+    { tramite: { ...actual.tramite, numeroTarjeta } },
+    { estado: actual.estado, nota: `Número de tarjeta: ${numeroTarjeta || "(vacío)"}`, accion: "TRAMITE_TARJETA" },
+    actor
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Alta en SAFI                                                        */
+/* ------------------------------------------------------------------ */
 
 /**
  * Guarda lo que la Jefatura de Socios confirmó y el resultado del alta en SAFI.
  *
- * Va en una sola escritura porque los tres datos son inseparables: el número de
+ * Va en una sola escritura porque los datos son inseparables: el número de
  * socio da nombre a la carpeta del expediente, la confirmación deja constancia
  * de qué valores se acordaron, y los identificadores de SAFI son los que
- * permiten colgar después los documentos de la Cuenta correcta. Guardarlos por
- * separado abriría la puerta a un expediente con número pero sin Cuenta, que es
- * justo el estado en el que nada se puede archivar.
+ * permiten colgar después los documentos de la Cuenta correcta.
+ *
+ * El identificador de la Cuenta se guarda aunque el alta haya fallado después
+ * de crearla: así el reintento la reutiliza en lugar de crear una segunda
+ * Cuenta para el mismo socio.
  */
 export function guardarAltaSafi(
   id: string,
@@ -426,7 +626,7 @@ export function guardarAltaSafi(
         area: "SOCIOS",
         responsable: alta.confirmacion.confirmadaPor,
         nota: alta.socioSafiId
-          ? `Socio creado en SAFI (Cuenta ${alta.cuentaSafiId}, Socio ${alta.socioSafiId}).`
+          ? `Socio en SAFI (Cuenta ${alta.cuentaSafiId ?? actual.expediente.cuentaSafiId}, Socio ${alta.socioSafiId}).`
           : alta.mensaje ?? "Datos de SAFI confirmados.",
       },
     ],
@@ -439,7 +639,7 @@ export function guardarAltaSafi(
     accion: alta.socioSafiId ? "SAFI_ALTA_CREADA" : "SAFI_ALTA_CONFIRMADA",
     entidad: actualizada.codigo,
     detalle: alta.socioSafiId
-      ? `Cuenta ${alta.cuentaSafiId} · Socio ${alta.socioSafiId}`
+      ? `Cuenta ${alta.cuentaSafiId ?? "—"} · Socio ${alta.socioSafiId}`
       : alta.mensaje,
   });
 
@@ -447,32 +647,34 @@ export function guardarAltaSafi(
 }
 
 /**
- * Cuenta de SAFI del socio titular al que se cuelga un dependiente. La comparte
- * toda la familia, igual que la carpeta del repositorio digital.
+ * Cuenta de SAFI del socio titular al que se cuelga un dependiente, si el
+ * titular se dio de alta por este sistema. Para los titulares antiguos la
+ * busca el adaptador en el propio CRM.
  */
 export function cuentaSafiDelTitular(numeroSocioTitular: string): string | null {
-  const titular = solicitudPorNumeroSocio(numeroSocioTitular);
-  return titular?.expediente.cuentaSafiId ?? null;
+  for (const persona of familiaDe(numeroSocioTitular)) {
+    if (persona.expediente.cuentaSafiId) return persona.expediente.cuentaSafiId;
+  }
+  return null;
 }
 
 /**
- * Siguiente ordinal libre dentro de la cuenta de un titular.
- *
- * El titular es siempre el `00`, así que sus dependientes empiezan en 1. Se
- * mira lo ya registrado para no repetir un número que dejaría dos fichas
- * distintas con la misma Secuencia en SAFI.
+ * Siguiente ordinal libre dentro de la cuenta de un titular, según lo
+ * registrado en este sistema. El titular es siempre el `00`, así que sus
+ * dependientes empiezan en 1. El adaptador de SAFI lo contrasta además con las
+ * fichas que ya existen en el CRM, que para una familia antigua son la mayoría.
  */
 export function siguienteOrdinalDependiente(numeroSocioTitular: string): number {
-  const filas = db()
-    .prepare("SELECT documento FROM solicitudes WHERE numero_socio = ?")
-    .all(normalizarNumeroSocio(numeroSocioTitular)) as unknown as FilaSolicitud[];
-
-  const usados = filas
-    .map((fila) => aSolicitud(fila).tramite.ordinalDependiente)
+  const usados = familiaDe(numeroSocioTitular)
+    .map((persona) => persona.tramite.ordinalDependiente)
     .filter((ordinal): ordinal is number => typeof ordinal === "number");
 
   return usados.length === 0 ? 1 : Math.max(...usados) + 1;
 }
+
+/* ------------------------------------------------------------------ */
+/* Expediente                                                          */
+/* ------------------------------------------------------------------ */
 
 /** Actualiza el estado del expediente tras archivar o publicar documentos. */
 export function actualizarExpediente(
@@ -490,6 +692,21 @@ export function actualizarExpediente(
 
   guardarDocumento(actualizada);
   return actualizada;
+}
+
+/** Refleja en el expediente qué firmas y fotografía tiene ya el servidor. */
+export function registrarAdjuntosRecibidos(
+  id: string,
+  recibidos: RolAdjunto[]
+): SolicitudAfiliacion | null {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return null;
+
+  const previos = [...(actual.expediente.adjuntosRecibidos ?? [])].sort().join(",");
+  const nuevos = [...recibidos].sort().join(",");
+  if (previos === nuevos) return actual;
+
+  return actualizarExpediente(id, { adjuntosRecibidos: recibidos });
 }
 
 /**

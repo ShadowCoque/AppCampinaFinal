@@ -8,7 +8,6 @@ import {
   ESTADOS_CIVILES,
   SEXOS,
   TIPOS_SANGRE,
-  bloquesPara,
   reglasDe,
   type Sexo,
 } from "../../domain/tiposMiembro";
@@ -35,7 +34,6 @@ export function PasoPersonales({ datos, identidad, errores, setDato }: Props) {
   const hoy = useMemo(() => new Date(), []);
   const edad = datos.fechaNacimiento ? calcularEdad(datos.fechaNacimiento) : null;
   const reglas = reglasDe(datos.tipoMiembro);
-  const bloques = bloquesPara(datos.tipoMiembro, datos.estadoCivil);
 
   const desdeRegistro = (campo: string) => identidad.camposVerificados.includes(campo);
   const ayuda = (campo: string, alternativa?: string) =>
@@ -81,16 +79,14 @@ export function PasoPersonales({ datos, identidad, errores, setDato }: Props) {
           placeholder="JUAN CARLOS"
         />
 
-        {bloques?.sexo ? (
-          <OptionGroup<Sexo>
-            label="Sexo"
-            required
-            options={SEXOS.map((s) => ({ value: s, label: s }))}
-            value={datos.sexo}
-            onChange={(v) => setDato("sexo", v)}
-            error={errores.sexo}
-          />
-        ) : null}
+        <OptionGroup<Sexo>
+          label="Sexo"
+          required
+          options={SEXOS.map((s) => ({ value: s, label: s }))}
+          value={datos.sexo}
+          onChange={(v) => setDato("sexo", v)}
+          error={errores.sexo}
+        />
 
         <TextField
           label="Lugar de nacimiento"
@@ -145,19 +141,17 @@ export function PasoPersonales({ datos, identidad, errores, setDato }: Props) {
           )}
         />
 
-        {bloques?.tipoSangre ? (
-          <SelectField
-            label="Tipo de sangre"
-            required
-            title="Tipo de sangre"
-            icon="water-outline"
-            value={datos.tipoSangre || null}
-            options={TIPOS_SANGRE.map((t) => ({ value: t, label: t }))}
-            onChange={(v) => setDato("tipoSangre", v)}
-            error={errores.tipoSangre}
-            helper="Consta en el formulario impreso de este tipo de socio."
-          />
-        ) : null}
+        <SelectField
+          label="Tipo de sangre"
+          required
+          title="Tipo de sangre"
+          icon="water-outline"
+          value={datos.tipoSangre || null}
+          options={TIPOS_SANGRE.map((t) => ({ value: t, label: t }))}
+          onChange={(v) => setDato("tipoSangre", v)}
+          error={errores.tipoSangre}
+          helper="Consta en el formulario R-PGS1-1, común a todos los tipos de socio."
+        />
       </Card>
     </>
   );

@@ -9,18 +9,15 @@ import {
   GRADOS_OFRECIDOS,
   SITUACIONES_MILITARES,
   TIPOS_DISPONIBLES,
-  VINCULOS_DEPENDIENTE,
   VINCULO_POR_TIPO,
-  formularioPara,
-  getTipo,
+  documentosDelTramite,
   reglasDe,
   type SituacionMilitar,
   type TipoMiembro,
-  type VinculoDependiente,
 } from "../../domain/tiposMiembro";
 import { soloDigitos } from "../../domain/validaciones";
 import { colors, radius, spacing } from "../../theme";
-import { Card, InfoNote, OptionGroup, SelectField, TextField, type SelectOption } from "../../ui";
+import { Card, DataRow, InfoNote, OptionGroup, SelectField, TextField, type SelectOption } from "../../ui";
 
 type Props = {
   datos: DatosAfiliacion;
@@ -41,15 +38,14 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
   );
 
   const reglas = reglasDe(datos.tipoMiembro);
-  const definicion = datos.tipoMiembro ? getTipo(datos.tipoMiembro) : null;
   const requisitos = requisitosPara(datos.tipoMiembro);
-  const formulario = formularioPara(datos.tipoMiembro, datos.estadoCivil);
+  const documentos = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
 
   return (
     <>
       <Card
         title="Tipo de socio"
-        subtitle="El formulario se adapta al que seleccione y se genera con ese mismo formato."
+        subtitle="Todos llenan el formulario R-PGS1-1; cada categoría añade su hoja de solicitud."
         icon="people"
       >
         <SelectField
@@ -65,13 +61,15 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
           placeholder="Seleccionar tipo de socio…"
         />
 
-        {formulario ? (
+        {documentos.length > 0 ? (
           <InfoNote tone="info" icon="document-text-outline">
-            {`Se generará el formulario ${formulario.codigo} — ${formulario.titulo}${
-              definicion?.cartaCompromiso
-                ? ", con su carta de compromiso"
+            {`Se generarán: ${documentos
+              .map((d) => (d.codigo === "Carta" ? d.titulo : `${d.codigo} (${d.titulo})`))
+              .join(" · ")}.${
+              datos.tipoMiembro === "DB"
+                ? " La hoja del Dependiente B depende del estado civil, que se indica en el paso siguiente."
                 : ""
-            }.`}
+            }`}
           </InfoNote>
         ) : null}
       </Card>
@@ -95,9 +93,9 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
             ))}
           </View>
           <InfoNote tone="info" icon="time-outline">
-            El formulario y la carta de compromiso los genera la aplicación. Los demás documentos se
-            adjuntan en el paso “Documentos” o los deposita la Jefatura de Socios en la carpeta
-            compartida de escaneos.
+            El formulario y la carta de compromiso los genera el sistema con las firmas que se tracen
+            en la tableta. La fotografía se toma en el paso «Fotografía». Las cédulas y partidas las
+            escanea la Jefatura de Socios a la carpeta compartida.
           </InfoNote>
         </Card>
       ) : null}
@@ -108,13 +106,11 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
           subtitle="La afiliación se vincula a la cuenta de este socio."
           icon="person"
         >
-          <OptionGroup<VinculoDependiente>
+          {/* El vínculo lo fija el tipo elegido: pedirlo aparte permitiría
+              declarar a una cónyuge como «Hijo/a». */}
+          <DataRow
             label="Vínculo con el socio titular"
-            required
-            options={VINCULOS_DEPENDIENTE.map((v) => ({ value: v, label: v }))}
-            value={datos.vinculoConTitular ?? VINCULO_POR_TIPO[datos.tipoMiembro ?? "CONYUGE"] ?? null}
-            onChange={(valor) => setDato("vinculoConTitular", valor)}
-            error={errores.vinculoConTitular}
+            value={datos.tipoMiembro ? VINCULO_POR_TIPO[datos.tipoMiembro] ?? null : null}
           />
 
           <TextField

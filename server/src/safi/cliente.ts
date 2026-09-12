@@ -38,13 +38,26 @@ function urlBase(): string {
 export class ClienteFormulario {
   private cookies: string | null = null;
 
-  /** Inicia sesión en la pantalla clásica del CRM y guarda la cookie. */
+  /**
+   * Inicia sesión en la pantalla clásica del CRM y guarda la cookie.
+   *
+   * En modo HTTP la contraseña es `SAFI_CLAVE`. En modo API esta clase solo se
+   * usa como plan B para los documentos, y ahí `SAFI_CLAVE` es la clave de
+   * acceso de la API —que la pantalla de acceso no acepta—, así que se usa
+   * `SAFI_CLAVE_WEB`.
+   */
   private async autenticar(): Promise<void> {
+    const clave = config.safiModo === "HTTP" ? config.safiClave : config.safiClaveWeb;
+    if (!clave) {
+      throw new Error(
+        "Falta la contraseña del usuario de la integración para usar el formulario del CRM (SAFI_CLAVE_WEB)."
+      );
+    }
     const cuerpo = new URLSearchParams({
       module: "Users",
       action: "Login",
       username: config.safiUsuario,
-      password: config.safiClave,
+      password: clave,
     });
 
     const respuesta = await fetch(`${urlBase()}/index.php`, {
@@ -52,6 +65,7 @@ export class ClienteFormulario {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: cuerpo.toString(),
       redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
     });
 
     const galletas = respuesta.headers.getSetCookie?.() ?? [];
@@ -79,7 +93,7 @@ export class ClienteFormulario {
   private async token(modulo: string, extraUrl = ""): Promise<{ token: string; usuario: string }> {
     const respuesta = await fetch(
       `${urlBase()}/index.php?module=${modulo}&view=Edit${extraUrl}`,
-      { headers: this.cabeceras() }
+      { headers: this.cabeceras(), signal: AbortSignal.timeout(30_000) }
     );
     const html = await respuesta.text();
 
@@ -112,6 +126,7 @@ export class ClienteFormulario {
         method: "POST",
         headers: this.cabeceras({ "Content-Type": "application/x-www-form-urlencoded" }),
         body: cuerpo.toString(),
+        signal: AbortSignal.timeout(60_000),
       });
 
       return this.leerRespuesta(respuesta);
@@ -161,6 +176,7 @@ export class ClienteFormulario {
         method: "POST",
         headers: this.cabeceras(),
         body: formulario,
+        signal: AbortSignal.timeout(120_000),
       });
 
       // En una operación relacionada vTiger devuelve al registro de origen, así
@@ -209,7 +225,7 @@ export class ClienteFormulario {
  * Cliente de `webservice.php`, la API REST de vTiger. Es el modo de trabajo
  * elegido para la integración.
  *
- * Tres detalles del protocolo que no se ven en la documentación y que cuestan
+ * Cinco detalles del protocolo que no se ven en la documentación y que cuestan
  * una tarde si se descubren por ensayo y error:
  *
  * 1. **La dirección lleva puerto.** El CRM del Club escucha en el 8080, así que
@@ -220,10 +236,18 @@ export class ClienteFormulario {
  *    concatenado con la *clave de acceso* del usuario, la que está en el CRM
  *    bajo Mis Preferencias → Detalles del usuario → Access Key.
  *
- * 3. **`assigned_user_id` viaja como identificador de servicio web** con la
- *    forma `19x1`, no como el número suelto que usa el formulario HTML. El
- *    propio `login` lo devuelve en `userId`, así que se guarda de ahí en lugar
- *    de construirlo a mano.
+ * 3. **Toda referencia viaja como identificador de servicio web**: el usuario
+ *    asignado (`19x1`), la Cuenta de la ficha del Socio (`11x13352`) y la
+ *    carpeta del documento. El número suelto que usa el formulario HTML aquí
+ *    no sirve: vTiger rechaza la referencia. El prefijo de cada módulo lo da
+ *    `describe` (`idPrefix`) y el del usuario lo devuelve el propio `login`.
+ *
+ * 4. **Las fechas van en ISO** (`2026-09-11`). Es el formulario HTML el que usa
+ *    el formato del usuario (`11-09-2026`); la API lo convierte ella misma, y
+ *    si recibe el del usuario lo interpreta mal.
+ *
+ * 5. **El usuario asignado se conoce después del login.** Hay que abrir la
+ *    sesión antes de componer los campos, no al enviarlos.
  */
 
 /** Un campo de un módulo, tal como lo describe `operation=describe`. */
@@ -231,8 +255,17 @@ export type CampoDescrito = {
   name: string;
   label: string;
   mandatory: boolean;
+  /** Tipo de vTiger: `picklist`, `reference`, `date`, `string`… */
+  tipo: string;
   /** Valores admitidos, cuando el campo es una lista cerrada. */
   opciones: string[];
+};
+
+export type DescripcionModulo = {
+  /** Prefijo de los identificadores de servicio web del módulo (`11` en `11x13352`). */
+  prefijo: string;
+  campos: CampoDescrito[];
+  creable: boolean;
 };
 
 type RespuestaApi<T> = {
@@ -241,14 +274,28 @@ type RespuestaApi<T> = {
   error?: { code: string; message: string };
 };
 
+/** Resultado de crear un registro por la API. */
+export type RegistroCreado =
+  | { ok: true; id: string; wsId: string }
+  | { ok: false; mensaje: string; reintentable: boolean };
+
+/** Error de la API que conviene distinguir: el CRM no conoce esa operación. */
+export class OperacionNoDisponible extends Error {}
+
 export class ClienteApi {
   private sesion: string | null = null;
   /** Identificador de servicio web del usuario de la integración (`19x1`). */
   private usuarioId: string | null = null;
+  private readonly descripciones = new Map<string, DescripcionModulo>();
 
   /** Identificador con el que asignar los registros que se creen. */
   get asignadoA(): string | null {
     return this.usuarioId;
+  }
+
+  /** Abre la sesión si no lo está. Hace falta antes de componer cualquier registro. */
+  async asegurarSesion(): Promise<void> {
+    if (!this.sesion) await this.abrirSesion();
   }
 
   private async pedir<T>(cuerpo: Record<string, string>): Promise<RespuestaApi<T>> {
@@ -256,7 +303,16 @@ export class ClienteApi {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(cuerpo).toString(),
+      signal: AbortSignal.timeout(30_000),
     });
+    return leerJson<T>(respuesta);
+  }
+
+  private async pedirGet<T>(parametros: Record<string, string>): Promise<RespuestaApi<T>> {
+    const respuesta = await fetch(
+      `${urlBase()}/webservice.php?${new URLSearchParams(parametros).toString()}`,
+      { signal: AbortSignal.timeout(30_000) }
+    );
     return leerJson<T>(respuesta);
   }
 
@@ -264,7 +320,8 @@ export class ClienteApi {
     const saludo = await fetch(
       `${urlBase()}/webservice.php?operation=getchallenge&username=${encodeURIComponent(
         config.safiUsuario
-      )}`
+      )}`,
+      { signal: AbortSignal.timeout(30_000) }
     );
     const datosSaludo = await leerJson<{ token: string }>(saludo);
     if (!datosSaludo.success || !datosSaludo.result?.token) {
@@ -311,16 +368,22 @@ export class ClienteApi {
   }
 
   /**
-   * Campos de un módulo con sus listas de valores, tal como los tiene el CRM
-   * ahora mismo.
+   * Descripción de un módulo: sus campos con sus listas de valores y el prefijo
+   * de sus identificadores, tal como los tiene el CRM ahora mismo.
    *
    * Es lo que evita mantener a mano un catálogo que solo vive en SAFI: el panel
    * del Área de Socios ofrece las opciones que el CRM admite hoy, no las que
-   * admitía el día del levantamiento.
+   * admitía el día del levantamiento. Se guarda en memoria unos minutos: el
+   * panel la pide en cada apertura y no hace falta preguntarle al CRM cada vez.
    */
-  async describir(modulo: string): Promise<CampoDescrito[] | null> {
+  async describirModulo(modulo: string): Promise<DescripcionModulo | null> {
+    const enMemoria = this.descripciones.get(modulo);
+    if (enMemoria) return enMemoria;
+
     try {
       const datos = await this.conSesion<{
+        idPrefix?: string;
+        createable?: boolean;
         fields?: {
           name: string;
           label: string;
@@ -328,26 +391,75 @@ export class ClienteApi {
           type?: { name?: string; picklistValues?: { label?: string; value?: string }[] };
         }[];
       }>(() =>
-        this.pedir({ operation: "describe", sessionName: this.sesion!, elementType: modulo })
+        this.pedirGet({ operation: "describe", sessionName: this.sesion!, elementType: modulo })
       );
 
       if (!datos.success || !datos.result?.fields) return null;
 
-      return datos.result.fields.map((campo) => ({
-        name: campo.name,
-        label: campo.label,
-        mandatory: Boolean(campo.mandatory),
-        opciones: (campo.type?.picklistValues ?? [])
-          .map((opcion) => opcion.value ?? opcion.label ?? "")
-          .filter(Boolean),
-      }));
+      const descripcion: DescripcionModulo = {
+        prefijo: String(datos.result.idPrefix ?? ""),
+        creable: datos.result.createable !== false,
+        campos: datos.result.fields.map((campo) => ({
+          name: campo.name,
+          label: campo.label,
+          mandatory: Boolean(campo.mandatory),
+          tipo: campo.type?.name ?? "",
+          opciones: (campo.type?.picklistValues ?? [])
+            .map((opcion) => opcion.value ?? opcion.label ?? "")
+            .filter(Boolean),
+        })),
+      };
+
+      this.descripciones.set(modulo, descripcion);
+      setTimeout(() => this.descripciones.delete(modulo), 5 * 60_000).unref();
+      return descripcion;
     } catch {
       // Sin conexión al CRM el panel usa su catálogo de respaldo.
       return null;
     }
   }
 
-  async crear(modulo: string, campos: Record<string, string>): Promise<ResultadoCreacion> {
+  /** Solo los campos, para quien no necesita el prefijo. */
+  async describir(modulo: string): Promise<CampoDescrito[] | null> {
+    return (await this.describirModulo(modulo))?.campos ?? null;
+  }
+
+  /** `11x13352` a partir de `Accounts` y `13352`. */
+  async idServicio(modulo: string, crmId: string): Promise<string> {
+    if (crmId.includes("x")) return crmId;
+    const descripcion = await this.describirModulo(modulo);
+    if (!descripcion?.prefijo) {
+      throw new Error(`SAFI no informó el prefijo de identificadores del módulo ${modulo}.`);
+    }
+    return `${descripcion.prefijo}x${crmId}`;
+  }
+
+  /**
+   * Consulta de solo lectura con el lenguaje de consultas de vTiger.
+   *
+   * Quien arma la consulta es responsable de que los valores que interpola
+   * sean seguros: aquí solo se admiten números de socio y cédulas, que se
+   * validan como dígitos antes de llegar (ver `adaptador.ts`).
+   */
+  async consultar<T extends Record<string, unknown>>(sentencia: string): Promise<T[]> {
+    const datos = await this.conSesion<T[]>(() =>
+      this.pedirGet({ operation: "query", sessionName: this.sesion!, query: sentencia })
+    );
+    if (!datos.success) {
+      throw new Error(datos.error?.message ?? "SAFI rechazó la consulta.");
+    }
+    return datos.result ?? [];
+  }
+
+  /** Lee un registro por su identificador de servicio web. */
+  async recuperar<T extends Record<string, unknown>>(wsId: string): Promise<T | null> {
+    const datos = await this.conSesion<T>(() =>
+      this.pedirGet({ operation: "retrieve", sessionName: this.sesion!, id: wsId })
+    );
+    return datos.success ? datos.result ?? null : null;
+  }
+
+  async crear(modulo: string, campos: Record<string, string>): Promise<RegistroCreado> {
     try {
       const datos = await this.conSesion<{ id: string }>(() =>
         this.pedir({
@@ -368,15 +480,124 @@ export class ClienteApi {
         };
       }
 
-      // vTiger devuelve el id como `moduloId x registroId`; interesa el segundo.
-      const id = (datos.result?.id ?? "").split("x").pop() ?? "";
-      return { ok: true, id };
+      // vTiger devuelve el id como `moduloId x registroId`: se guardan los dos.
+      const wsId = datos.result?.id ?? "";
+      const id = wsId.split("x").pop() ?? "";
+      if (!id) return { ok: false, mensaje: "SAFI no devolvió el identificador del registro.", reintentable: false };
+      return { ok: true, id, wsId };
     } catch (error) {
       return {
         ok: false,
         mensaje: error instanceof Error ? error.message : String(error),
         reintentable: true,
       };
+    }
+  }
+
+  /** Elimina un registro. Se usa solo para deshacer un documento que quedó a medias. */
+  async eliminar(wsId: string): Promise<boolean> {
+    try {
+      const datos = await this.conSesion<unknown>(() =>
+        this.pedir({ operation: "delete", sessionName: this.sesion!, id: wsId })
+      );
+      return datos.success;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Crea un Documento con su archivo adjunto.
+   *
+   * vTiger no tiene una operación propia para subir archivos: el `create` de
+   * Documentos toma el archivo del campo `filename` de un envío
+   * `multipart/form-data`, igual que la pantalla del CRM. Quien llama debe
+   * comprobar después, con `recuperar`, que el archivo quedó guardado.
+   */
+  async crearDocumento(entrada: {
+    elemento: Record<string, string>;
+    nombreArchivo: string;
+    contenido: Buffer;
+    tipoContenido: string;
+  }): Promise<RegistroCreado> {
+    try {
+      const enviar = async () => {
+        const formulario = new FormData();
+        formulario.append("operation", "create");
+        formulario.append("sessionName", this.sesion!);
+        formulario.append("elementType", "Documents");
+        formulario.append("element", JSON.stringify(entrada.elemento));
+        formulario.append(
+          "filename",
+          new Blob([new Uint8Array(entrada.contenido)], { type: entrada.tipoContenido }),
+          entrada.nombreArchivo
+        );
+        const respuesta = await fetch(`${urlBase()}/webservice.php`, {
+          method: "POST",
+          body: formulario,
+          signal: AbortSignal.timeout(120_000),
+        });
+        return leerJson<{ id: string }>(respuesta);
+      };
+
+      const datos = await this.conSesion(enviar);
+      if (!datos.success) {
+        return {
+          ok: false,
+          mensaje: datos.error?.message ?? "SAFI rechazó el documento.",
+          reintentable: datos.error?.code === "INVALID_SESSIONID",
+        };
+      }
+      const wsId = datos.result?.id ?? "";
+      const id = wsId.split("x").pop() ?? "";
+      return id
+        ? { ok: true, id, wsId }
+        : { ok: false, mensaje: "SAFI no devolvió el identificador del documento.", reintentable: false };
+    } catch (error) {
+      return {
+        ok: false,
+        mensaje: error instanceof Error ? error.message : String(error),
+        reintentable: true,
+      };
+    }
+  }
+
+  /**
+   * Relaciona dos registros (`add_related`): el documento con la Cuenta.
+   *
+   * Lanza `OperacionNoDisponible` si la instalación no tiene esa operación, que
+   * llegó a vTiger en la serie 7 y no a todas las instalaciones.
+   */
+  async relacionar(origenWsId: string, relacionadoWsId: string): Promise<void> {
+    const datos = await this.conSesion<unknown>(() =>
+      this.pedir({
+        operation: "add_related",
+        sessionName: this.sesion!,
+        sourceRecordId: origenWsId,
+        relatedRecordId: relacionadoWsId,
+      })
+    );
+    if (datos.success) return;
+    if (datos.error?.code === "UNKNOWN_OPERATION") {
+      throw new OperacionNoDisponible(
+        "La API de este SAFI no tiene la operación add_related para relacionar documentos."
+      );
+    }
+    throw new Error(datos.error?.message ?? "SAFI no relacionó el documento con la Cuenta.");
+  }
+
+  /**
+   * Si la instalación tiene `add_related`, comprobado sin crear nada: se pide
+   * relacionar dos identificadores inexistentes. Si la operación no existe,
+   * vTiger responde `UNKNOWN_OPERATION`; si existe, se queja de los
+   * identificadores.
+   */
+  async admiteRelacionar(): Promise<boolean> {
+    try {
+      await this.relacionar("0x0", "0x0");
+      return true;
+    } catch (error) {
+      return !(error instanceof OperacionNoDisponible);
     }
   }
 }
@@ -482,7 +703,8 @@ export async function diagnosticarSafi(): Promise<PasoDiagnostico[]> {
   let token = "";
   try {
     const saludo = await fetch(
-      `${base}/webservice.php?operation=getchallenge&username=${encodeURIComponent(config.safiUsuario)}`
+      `${base}/webservice.php?operation=getchallenge&username=${encodeURIComponent(config.safiUsuario)}`,
+      { signal: AbortSignal.timeout(20_000) }
     );
     const datos = await leerJson<{ token: string }>(saludo);
     token = datos.result?.token ?? "";
@@ -514,6 +736,7 @@ export async function diagnosticarSafi(): Promise<PasoDiagnostico[]> {
         username: config.safiUsuario,
         accessKey: firma,
       }).toString(),
+      signal: AbortSignal.timeout(20_000),
     });
     const datos = await leerJson<{ sessionName: string; userId: string }>(acceso);
     pasos.push({
@@ -524,13 +747,70 @@ export async function diagnosticarSafi(): Promise<PasoDiagnostico[]> {
         : datos.error?.message ??
           "SAFI rechazó la clave. Recuerde que es la Access Key del usuario, no su contraseña.",
     });
+    if (!datos.result?.sessionName) return pasos;
   } catch (error) {
     pasos.push({
       paso: "Acceso (login)",
       ok: false,
       detalle: error instanceof Error ? error.message : String(error),
     });
+    return pasos;
   }
+
+  // Lectura de los tres módulos: listas de valores, prefijo de identificadores
+  // y permiso de creación. Nada de esto escribe en el CRM.
+  const cliente = new ClienteApi();
+  for (const [modulo, etiqueta] of [
+    [MODULOS.cuenta, "Cuentas"],
+    [MODULOS.socio, "Socios"],
+    [MODULOS.documento, "Documentos"],
+  ] as const) {
+    try {
+      const descripcion = await cliente.describirModulo(modulo);
+      pasos.push({
+        paso: `Lectura del módulo ${etiqueta}`,
+        ok: Boolean(descripcion),
+        detalle: descripcion
+          ? `${descripcion.campos.length} campos leídos · prefijo ${descripcion.prefijo || "—"} · ${
+              descripcion.creable ? "el usuario puede crear registros" : "EL USUARIO NO PUEDE CREAR REGISTROS"
+            }.`
+          : "SAFI no devolvió la descripción del módulo: revise los permisos del usuario de la integración.",
+      });
+    } catch (error) {
+      pasos.push({
+        paso: `Lectura del módulo ${etiqueta}`,
+        ok: false,
+        detalle: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  try {
+    const admite = await cliente.admiteRelacionar();
+    pasos.push({
+      paso: "Relacionar documentos (add_related)",
+      ok: admite || Boolean(config.safiClaveWeb),
+      detalle: admite
+        ? "La API permite relacionar los documentos con la Cuenta."
+        : config.safiClaveWeb
+          ? "La API no tiene add_related: los documentos se subirán por el plan B (formulario del CRM con SAFI_CLAVE_WEB)."
+          : "La API no tiene add_related y no hay SAFI_CLAVE_WEB: los documentos quedarán pendientes de carga manual.",
+    });
+  } catch (error) {
+    pasos.push({
+      paso: "Relacionar documentos (add_related)",
+      ok: false,
+      detalle: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  pasos.push({
+    paso: "Escritura en SAFI",
+    ok: true,
+    detalle: config.safiEscritura
+      ? "HABILITADA (SAFI_ESCRITURA=true): el panel crea la Cuenta y la ficha del Socio, y el expediente aprobado se publica en Documentos."
+      : "Deshabilitada (SAFI_ESCRITURA=false): el sistema lee del CRM y comprueba duplicados, pero el alta la hace la Jefatura a mano y registra los identificadores.",
+  });
 
   return pasos;
 }

@@ -11,8 +11,10 @@ import { cerrar, db } from "./db/indice";
 import { recalcularAtencion } from "./db/solicitudes";
 import { hayUsuarios, purgarSesiones } from "./db/usuarios";
 import { iniciarVigilante, detenerVigilante } from "./expediente/vigilante";
+import { pdfDisponible } from "./formularios/pdf";
 import { registrarApi } from "./http/api";
 import { detenerColaSafi, iniciarColaSafi } from "./safi/cola";
+import { localizarWeb } from "./web";
 
 /**
  * Servidor de afiliación de socios del Club La Campiña.
@@ -22,24 +24,6 @@ import { detenerColaSafi, iniciarColaSafi } from "./safi/cola";
  * tareas web de Contabilidad y Gerencia, y el repositorio digital de
  * expedientes con su vigilante de la carpeta compartida de escaneos.
  */
-
-/**
- * Localiza la carpeta de la bandeja de tareas.
- *
- * La profundidad relativa cambia entre el contenedor (`/app/dist/server/src` →
- * `/app/web`) y la ejecución local desde el repositorio
- * (`<proyecto>/server/dist/server/src` → `<proyecto>/web`), así que se prueban
- * ambas en lugar de fijar una.
- */
-function localizarWeb(): string | null {
-  const candidatas = [
-    process.env.WEB_DIR,
-    path.resolve(__dirname, "../../../web"),
-    path.resolve(__dirname, "../../../../web"),
-  ].filter((ruta): ruta is string => Boolean(ruta));
-
-  return candidatas.find((ruta) => fs.existsSync(path.join(ruta, "index.html"))) ?? null;
-}
 
 async function arrancar(): Promise<void> {
   const problemas = validarConfig();
@@ -52,6 +36,10 @@ async function arrancar(): Promise<void> {
   // Abrir la base de datos antes de escuchar: si el volumen no está montado,
   // es mejor fallar aquí que aceptar una afiliación y perderla.
   db();
+
+  // Firmas y fotografías que entrega la tableta, antes de que el trámite tenga
+  // número de socio y por tanto carpeta en el repositorio.
+  fs.mkdirSync(config.tramitesDir, { recursive: true });
 
   // Recalcular al arrancar deja la marca de atención coherente tras una
   // migración o tras cualquier intervención manual sobre la base. Es una única
@@ -96,23 +84,30 @@ async function arrancar(): Promise<void> {
    */
   app.addHook("onSend", async (_peticion, respuesta) => {
     respuesta.header("X-Content-Type-Options", "nosniff");
-    respuesta.header("X-Frame-Options", "DENY");
     respuesta.header("Referrer-Policy", "same-origin");
     respuesta.header("Cross-Origin-Opener-Policy", "same-origin");
     respuesta.header("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
-    respuesta.header(
-      "Content-Security-Policy",
-      [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self'",
-        "img-src 'self' data:",
-        "object-src 'self'", // los PDF del expediente se abren en el visor
-        "frame-ancestors 'none'",
-        "base-uri 'none'",
-        "form-action 'self'",
-      ].join("; ")
-    );
+    // El formulario del trámite se muestra dentro de la bandeja, en un marco
+    // del propio servidor: se permite solo el mismo origen.
+    respuesta.header("X-Frame-Options", "SAMEORIGIN");
+    // Una ruta puede fijar su propia política —el formulario lleva su hoja de
+    // estilos incrustada— y entonces no se sobrescribe.
+    if (!respuesta.hasHeader("Content-Security-Policy")) {
+      respuesta.header(
+        "Content-Security-Policy",
+        [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self'",
+          "img-src 'self' data:",
+          "object-src 'self'", // los PDF del expediente se abren en el visor
+          "frame-src 'self'",
+          "frame-ancestors 'self'",
+          "base-uri 'none'",
+          "form-action 'self'",
+        ].join("; ")
+      );
+    }
     // HSTS solo tiene sentido, y solo lo respeta el navegador, cuando la
     // conexión ya es TLS: enviarlo sobre HTTP plano no hace nada, pero es una
     // cabecera que promete algo que el servidor no cumple.
@@ -139,6 +134,19 @@ async function arrancar(): Promise<void> {
 
   iniciarVigilante();
   iniciarColaSafi();
+
+  app.log.info(
+    pdfDisponible()
+      ? `Formulario final en PDF: se imprimirá con ${config.pdfNavegador}.`
+      : "Sin navegador para imprimir el formulario final: la bandeja lo mostrará en pantalla y la tarea pedirá archivarlo a mano (defina PDF_NAVEGADOR o instale Chromium)."
+  );
+  app.log.info(
+    config.safiModo === "MANUAL"
+      ? "Integración con SAFI en modo MANUAL."
+      : `Integración con SAFI en modo ${config.safiModo}, escritura ${
+          config.safiEscritura ? "HABILITADA" : "deshabilitada (SAFI_ESCRITURA=false)"
+        }.`
+  );
 
   // Limpieza periódica de sesiones vencidas.
   const limpieza = setInterval(() => {

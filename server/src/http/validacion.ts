@@ -1,7 +1,13 @@
 import { TIPOS_DOCUMENTO, type TipoDocumento } from "../../../src/domain/documentos";
 import { EXTENSIONES_ACEPTADAS } from "../../../src/domain/expediente";
-import { confirmacionVacia, type ConfirmacionSafi } from "../../../src/domain/solicitud";
+import {
+  ROLES_ADJUNTO,
+  confirmacionVacia,
+  type ConfirmacionSafi,
+  type RolAdjunto,
+} from "../../../src/domain/solicitud";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
+import { esTipoMiembro } from "../../../src/domain/tiposMiembro";
 
 /**
  * Validación de lo que llega por la API.
@@ -93,6 +99,88 @@ export function validarTipoDocumento(valor: unknown): ResultadoValidacion<TipoDo
   return { ok: true, valor: valor as TipoDocumento };
 }
 
+/** Papel del adjunto que envía la tableta: una firma o la fotografía. */
+export function validarRolAdjunto(valor: unknown): ResultadoValidacion<RolAdjunto> {
+  if (typeof valor !== "string" || !(ROLES_ADJUNTO as readonly string[]).includes(valor)) {
+    return {
+      ok: false,
+      error: `No se reconoce qué es este archivo («${String(valor)}»). Valores válidos: ${ROLES_ADJUNTO.join(", ")}.`,
+    };
+  }
+  return { ok: true, valor: valor as RolAdjunto };
+}
+
+/**
+ * Tamaño máximo de una firma. El lienzo produce un PNG de unos 20 KB; medio
+ * megabyte deja margen de sobra y descarta que llegue otra cosa por ese campo.
+ */
+const MAXIMO_FIRMA_BYTES = 512 * 1024;
+
+/**
+ * Firmas que acompañan al registro de una afiliación: la del solicitante y la
+ * de cada socio garante, en PNG y codificadas en base64.
+ *
+ * Se comprueban los primeros bytes, no solo que el texto sea base64: lo que
+ * llega por aquí se incrusta en el formulario que firma el socio, y ahí no
+ * puede colarse un archivo de otro tipo.
+ */
+export function validarFirmas(valor: unknown): ResultadoValidacion<{
+  solicitante: Buffer | null;
+  garantes: (Buffer | null)[];
+}> {
+  const entrada = (valor ?? {}) as { solicitante?: unknown; garantes?: unknown };
+
+  const aBuffer = (dato: unknown, quien: string): Buffer | null | string => {
+    if (dato === null || dato === undefined || dato === "") return null;
+    if (typeof dato !== "string") return `La firma ${quien} no llegó en el formato esperado.`;
+
+    const limpio = dato.replace(/^data:[^;]+;base64,/, "");
+    if (limpio.length > MAXIMO_FIRMA_BYTES * 2) return `La firma ${quien} es demasiado grande.`;
+
+    let contenido: Buffer;
+    try {
+      contenido = Buffer.from(limpio, "base64");
+    } catch {
+      return `La firma ${quien} no se pudo leer.`;
+    }
+    if (contenido.length === 0) return null;
+    if (contenido.length > MAXIMO_FIRMA_BYTES) return `La firma ${quien} es demasiado grande.`;
+
+    const comprobacion = validarContenido(contenido, ".png");
+    if (!comprobacion.ok) return `La firma ${quien} no es una imagen PNG.`;
+    return contenido;
+  };
+
+  const solicitante = aBuffer(entrada.solicitante, "del solicitante");
+  if (typeof solicitante === "string") return { ok: false, error: solicitante };
+
+  const recibidas = Array.isArray(entrada.garantes) ? entrada.garantes.slice(0, 2) : [];
+  const garantes: (Buffer | null)[] = [];
+  for (const [indice, dato] of recibidas.entries()) {
+    const firma = aBuffer(dato, `del socio garante ${indice + 1}`);
+    if (typeof firma === "string") return { ok: false, error: firma };
+    garantes.push(firma);
+  }
+
+  return { ok: true, valor: { solicitante, garantes } };
+}
+
+/**
+ * Observación obligatoria: es lo que el Área de Socios tendrá que corregir, o
+ * el motivo por el que un trámite se anula. Sin texto no se puede devolver ni
+ * anular nada.
+ */
+export function validarObservacion(valor: unknown, minimo = 10): ResultadoValidacion<string> {
+  const texto = recortarObservacion(valor);
+  if (texto.length < minimo) {
+    return {
+      ok: false,
+      error: `Escriba la observación con algo de detalle (al menos ${minimo} caracteres): es lo que verá quien deba actuar.`,
+    };
+  }
+  return { ok: true, valor: texto };
+}
+
 /** Ordinal del dependiente dentro de la cuenta del titular: 1, 2, 3… o ninguno. */
 export function validarOrdinal(valor: unknown): ResultadoValidacion<number | null> {
   if (valor === undefined || valor === null || valor === "") return { ok: true, valor: null };
@@ -105,8 +193,11 @@ export function validarOrdinal(valor: unknown): ResultadoValidacion<number | nul
 }
 
 /**
- * Comprobación mínima de que el cuerpo recibido es una solicitud de afiliación
- * y no cualquier otro objeto. La validación de negocio la hace el dominio.
+ * Comprobación de que el cuerpo recibido es una solicitud de afiliación y no
+ * cualquier otro objeto. La validación completa del formulario la hace la
+ * tableta con el dominio compartido; aquí se comprueba lo que, si viniera mal,
+ * dejaría el expediente inservible: la identidad del solicitante y su tipo de
+ * socio, del que dependen la carpeta, los documentos y la ficha de SAFI.
  */
 export function validarSolicitudEntrante(cuerpo: unknown): ResultadoValidacion<{
   datos: { cedula: string; apellidos: string; nombres: string };
@@ -116,7 +207,16 @@ export function validarSolicitudEntrante(cuerpo: unknown): ResultadoValidacion<{
     return { ok: false, error: "Falta el cuerpo de la solicitud." };
   }
 
-  const datos = solicitud.datos as { cedula?: unknown; apellidos?: unknown; nombres?: unknown };
+  if (typeof solicitud.id !== "string" || !/^[a-zA-Z0-9_-]{6,64}$/.test(solicitud.id)) {
+    return { ok: false, error: "El identificador del trámite no es válido." };
+  }
+
+  const datos = solicitud.datos as {
+    cedula?: unknown;
+    apellidos?: unknown;
+    nombres?: unknown;
+    tipoMiembro?: unknown;
+  };
   if (!datos || typeof datos !== "object") {
     return { ok: false, error: "La solicitud no trae los datos del solicitante." };
   }
@@ -129,6 +229,12 @@ export function validarSolicitudEntrante(cuerpo: unknown): ResultadoValidacion<{
   }
   if (typeof datos.nombres !== "string" || !datos.nombres.trim()) {
     return { ok: false, error: "Falta el nombre del solicitante." };
+  }
+  if (!esTipoMiembro(datos.tipoMiembro)) {
+    return {
+      ok: false,
+      error: "La solicitud no indica un tipo de socio del catálogo del Club.",
+    };
   }
 
   return {

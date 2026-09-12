@@ -1,31 +1,44 @@
 /**
  * Catálogo de tipos de socio del Club La Campiña.
  *
- * Este archivo es la traducción literal de los formularios físicos vigentes
- * que reposan en `FORMULARIOS_TIPO_DE_SOCIOS/`. Cada tipo declara qué
- * formulario le corresponde (con su código de registro de calidad, tal como
- * está impreso en el pie del documento) y qué bloques de información contiene
- * ese formulario.
+ * **El formulario principal es uno solo para todos: el R-PGS1-1.** Es el que
+ * recoge la información del socio —datos personales, contacto, ocupación y,
+ * cuando aplica, datos militares—, sea cual sea su categoría. La Jefatura de
+ * Socios lo precisó el 11 de septiembre de 2026: la información no varía por
+ * tipo de socio.
  *
- * La aplicación no inventa campos: muestra exactamente los bloques que declara
- * el tipo seleccionado, y el PDF que genera reproduce ese mismo formulario. Si
+ * Lo que sí varía es lo que se adjunta al R-PGS1-1:
+ *
+ *   · La **hoja de solicitud de ingreso** de su categoría. Todos la tienen
+ *     salvo el Socio Activo, cuyo R-PGS1-1 ya es su solicitud. Es la hoja que
+ *     añade los recuadros propios de cada categoría: cónyuge, hijos y socios
+ *     garantes.
+ *   · La **carta de compromiso**, en los socios dependientes y particulares.
+ *
+ * La aplicación no inventa campos: pide lo que llevan el R-PGS1-1 y la hoja de
+ * la categoría elegida, y el PDF que genera reproduce esos mismos documentos. Si
  * el Club modifica un formulario impreso, se ajusta aquí y tanto el asistente
  * como el documento generado se alinean solos.
  *
- * Fuente de cada definición:
- *   R-PGS1-1   Solicitud de Ingreso Socios Cadetes ......... Socio Activo
- *   PGS1-11    Formulario Ingreso Socios ................... Fundador y dependientes del titular
- *   R-PGS1-22  Solicitud de Ingreso Socios D-A ............. Dependiente A
- *   R-PGS1-23  Solicitud de Ingreso Socios DS .............. Dependiente B (soltero)
- *   R-PGS1-24  Solicitud de Ingreso Socios BC .............. Dependiente B (casado)
- *   R-PGS1-25  Solicitud de Ingreso Socios DC .............. Dependiente C
- *   R-PGS1-8   Solicitud de Ingreso Socios PA-PB ........... Particular A
- *   R-PGS1-9   Solicitud de Ingreso Socios PB .............. Particular B
- *   R-PGS1-26  Solicitud de Ingreso Socios CA .............. Corresponsal A
- *   R-PGS01-6  Solicitud de Ingreso Socios CB .............. Corresponsal B
- *   R-PGS01-7  Solicitud de Ingreso Socios CC .............. Corresponsal C
- *   R-PGS1-12  Formulario Suscriptor Tenis ................. Suscriptor de tenis
- *   R-PGS1-13  Formulario Suscriptor GYM ................... Suscriptor de gimnasio
+ * Fuente de cada hoja de solicitud:
+ *   (ninguna)  El R-PGS1-1 es su solicitud ..................... Socio Activo
+ *   PGS1-11    Formulario Ingreso Socios ....................... Fundador y dependientes del titular
+ *   R-PGS1-22  Solicitud de Ingreso Socios D-A ................. Dependiente A
+ *   R-PGS1-23  Solicitud de Ingreso Socios DS .................. Dependiente B (soltero)
+ *   R-PGS1-24  Solicitud de Ingreso Socios BC .................. Dependiente B (casado)
+ *   R-PGS1-25  Solicitud de Ingreso Socios DC .................. Dependiente C
+ *   R-PGS1-8   Solicitud de Ingreso Socios PA-PB ............... Particular A
+ *   R-PGS1-9   Solicitud de Ingreso Socios PB .................. Particular B
+ *   R-PGS1-26  Solicitud de Ingreso Socios CA .................. Corresponsal A
+ *   R-PGS01-6  Solicitud de Ingreso Socios CB .................. Corresponsal B
+ *   R-PGS01-7  Solicitud de Ingreso Socios CC .................. Corresponsal C
+ *   R-PGS1-12  Formulario Suscriptor Tenis ..................... Suscriptor de tenis
+ *   R-PGS1-13  Formulario Suscriptor GYM ....................... Suscriptor de gimnasio
+ *
+ * Para los dependientes del titular (cónyuge, padres, juvenil) y para el socio
+ * fundador, la hoja es el PGS1-11: es el único formulario del Club que los
+ * contempla, el que reposa en `DEPENDIENTES DE SOCIOS TITULARES/`, y el que
+ * declara de qué socio principal depende la persona.
  */
 
 export const TIPOS_MIEMBRO = [
@@ -57,88 +70,78 @@ export type CategoriaMiembro =
   | "Suscriptores";
 
 /* ------------------------------------------------------------------ */
-/* Anatomía de los formularios físicos                                 */
+/* Anatomía de los documentos                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * Los catorce formularios del Club responden a dos maquetas:
+ * El formulario principal, común a todas las categorías.
+ *
+ * Su título impreso dice «como SOCIO ACTIVO» porque nació para los cadetes; al
+ * servir ahora a todas las categorías, el documento generado nombra en ese
+ * lugar la categoría del solicitante (ver `ingresoComo`).
+ */
+export const FORMULARIO_PRINCIPAL = {
+  codigo: "R-PGS1-1",
+  tituloRegistro: "Solicitud de Ingreso Socios",
+} as const;
+
+/** Título del R-PGS1-1 para una categoría concreta. */
+export function tituloFormularioPrincipal(codigo: TipoMiembro | null): string {
+  const como = codigo ? CATALOGO_TIPOS[codigo].ingresoComo : "SOCIO";
+  return `FORMULARIO DE INGRESO COMO ${como} AL CLUB SOCIAL Y DEPORTIVO DE OFICIALES DE LA FUERZA AÉREA ECUATORIANA – CLUB LA CAMPIÑA`;
+}
+
+/**
+ * Las hojas de solicitud responden a dos maquetas:
  *
  * `SOLICITUD` — carta dirigida al Gerente («Señor GERENTE DEL CLUB LA CAMPIÑA
  * … Yo, ……… con C.I. ………»), seguida del recuadro DATOS PERSONALES ASPIRANTE y,
- * según el tipo, de los recuadros de cónyuge, hijos y socios garantes.
+ * según la categoría, de los recuadros de cónyuge, hijos y socios garantes.
  *
- * `FICHA` — ficha de datos del socio encabezada por el tipo de socio y, cuando
- * corresponde, por el nombre y grado del socio principal.
+ * `GENERAL` — el PGS1-11, encabezado por la columna de tipos de socio y, cuando
+ * corresponde, por el nombre y el grado del socio principal.
  */
-export type LayoutFormulario = "SOLICITUD" | "FICHA";
+export type LayoutHoja = "SOLICITUD" | "GENERAL";
 
-export type BloquesFormulario = {
+/** Recuadros que la hoja de solicitud añade al R-PGS1-1. */
+export type BloquesHoja = {
   /** Recuadro «DATOS DEL CÓNYUGE» con cédula, nombres, contacto y trabajo. */
   conyuge: boolean;
   /** Rejilla «DATOS HIJOS»: nombres, fecha de nacimiento, sexo, estado civil y correo. */
   hijos: boolean;
   /** «SOCIO QUE LE GARANTIZA» / «SOCIOS QUE LE GARANTIZA»: 0, 1 ó 2 garantes con firma. */
   garantes: 0 | 1 | 2;
-  /** Listado «Dependientes a su cargo» (padres, cónyuge, juvenil) del formulario del socio activo. */
-  dependientesACargo: boolean;
+};
+
+const SIN_RECUADROS: BloquesHoja = { conyuge: false, hijos: false, garantes: 0 };
+
+export type HojaSolicitud = {
+  /** Código del registro de calidad impreso al pie de la hoja. */
+  codigo: string;
+  /** Título tal como aparece en el encabezado de la hoja. */
+  titulo: string;
+  layout: LayoutHoja;
+  bloques: BloquesHoja;
+  /**
+   * Algunas categorías tienen dos hojas según el estado civil del solicitante
+   * (el Dependiente B tiene una para casados y otra para solteros). Cuando este
+   * campo está presente, la hoja se elige comparando con el estado civil.
+   */
+  paraEstadoCivil?: "CASADO" | "SOLTERO";
+};
+
+/**
+ * Todo lo que el trámite completo de un tipo de socio contiene: los recuadros
+ * de su hoja de solicitud y los datos del R-PGS1-1 que dependen de la
+ * categoría.
+ */
+export type BloquesFormulario = BloquesHoja & {
   /** Grado militar, promoción y situación (activo / pasivo) del propio solicitante. */
   datosMilitares: boolean;
   /** Fuerza a la que pertenece: Terrestre, Naval o Aérea. */
   fuerza: boolean;
   /** Nombre del socio principal y su grado militar, para los dependientes del titular. */
   vinculoTitular: boolean;
-  /** Profesión, cargo, lugar de trabajo. En la maqueta SOLICITUD se llama «OCUPACIÓN». */
-  datosLaborales: boolean;
-  /** Tipo de sangre: solo consta en la maqueta FICHA. */
-  tipoSangre: boolean;
-  /** Casilla «Hobbie»: solo consta en la maqueta FICHA. */
-  hobbie: boolean;
-  /** Casilla «Fecha de ingreso al Club»: solo consta en la maqueta FICHA. */
-  fechaIngresoClub: boolean;
-  /** Casilla «Sexo: Masculino / Femenino»: solo consta en la maqueta SOLICITUD. */
-  sexo: boolean;
-};
-
-const SIN_BLOQUES: BloquesFormulario = {
-  conyuge: false,
-  hijos: false,
-  garantes: 0,
-  dependientesACargo: false,
-  datosMilitares: false,
-  fuerza: false,
-  vinculoTitular: false,
-  datosLaborales: true,
-  tipoSangre: false,
-  hobbie: false,
-  fechaIngresoClub: false,
-  sexo: false,
-};
-
-/** Bloques comunes a las once solicitudes con maqueta de carta al Gerente. */
-const BLOQUES_SOLICITUD: BloquesFormulario = { ...SIN_BLOQUES, sexo: true };
-
-/** Bloques comunes a las fichas de socio (R-PGS1-1 y PGS1-11). */
-const BLOQUES_FICHA: BloquesFormulario = {
-  ...SIN_BLOQUES,
-  tipoSangre: true,
-  hobbie: true,
-  fechaIngresoClub: true,
-};
-
-export type VarianteFormulario = {
-  /** Código del registro de calidad impreso al pie del formulario. */
-  codigo: string;
-  /** Título tal como aparece en el encabezado del documento. */
-  titulo: string;
-  layout: LayoutFormulario;
-  bloques: BloquesFormulario;
-  /**
-   * Algunos tipos tienen dos formularios distintos según el estado civil del
-   * solicitante (el Dependiente B tiene uno para casados y otro para solteros).
-   * Cuando este campo está presente, la variante se elige comparando con el
-   * estado civil capturado.
-   */
-  paraEstadoCivil?: "CASADO" | "SOLTERO";
 };
 
 /** Modelos de carta de compromiso que acompañan a la solicitud de ingreso. */
@@ -152,8 +155,6 @@ export type ModeloCarta = (typeof MODELOS_CARTA)[number];
 export type ReglasTipoMiembro = {
   /** Exige nombre y cédula del socio titular al que se vincula la solicitud. */
   requiereSocioTitular: boolean;
-  /** Exige uno o dos socios que garanticen la afiliación, con su firma. */
-  requiereGarantes: 0 | 1 | 2;
   /** Exige grado militar, promoción y situación (activo / pasivo). */
   requiereDatosMilitares: boolean;
   /**
@@ -167,7 +168,13 @@ export type ReglasTipoMiembro = {
   requierePromocion: boolean;
   /** Exige indicar la fuerza (Terrestre / Naval / Aérea). */
   requiereFuerza: boolean;
-  /** Exige información laboral (profesión, lugar de trabajo, cargo). */
+  /**
+   * Exige la profesión u ocupación.
+   *
+   * El R-PGS1-1 tiene el recuadro para todos, pero solo se exige a quien abre
+   * cuenta propia: a un hijo juvenil o a los padres del titular no se les puede
+   * obligar a declarar una ocupación que quizá no tienen.
+   */
   requiereDatosLaborales: boolean;
   /**
    * El reverso del formulario pide «Número de Socio Activo» para los socios
@@ -184,6 +191,13 @@ export type ReglasTipoMiembro = {
   exigeSoltero?: boolean;
 };
 
+/** Datos del R-PGS1-1 que dependen de la categoría. */
+type DatosDeCategoria = {
+  datosMilitares: boolean;
+  fuerza: boolean;
+  vinculoTitular: boolean;
+};
+
 export type DefinicionTipoMiembro = {
   codigo: TipoMiembro;
   nombre: string;
@@ -194,35 +208,40 @@ export type DefinicionTipoMiembro = {
    * formulario general PGS1-11. Se imprime tal cual en el documento generado.
    */
   glosaFormulario: string;
-  /** Uno o dos formularios físicos. Vacío si el Club aún no proporcionó el formato. */
-  formularios: VarianteFormulario[];
+  /**
+   * Cómo se nombra la categoría en el título del R-PGS1-1: «FORMULARIO DE
+   * INGRESO COMO … AL CLUB SOCIAL Y DEPORTIVO…».
+   */
+  ingresoComo: string;
+  /** Datos del R-PGS1-1 que se piden solo a esta categoría. */
+  datos: DatosDeCategoria;
+  /**
+   * Hoja de solicitud de ingreso que acompaña al R-PGS1-1: ninguna, una, o dos
+   * variantes según el estado civil.
+   */
+  hojasSolicitud: HojaSolicitud[];
   /** Carta de compromiso que se firma junto con la solicitud, si aplica. */
   cartaCompromiso: ModeloCarta | null;
   reglas: ReglasTipoMiembro;
-  /**
-   * Disponible en el asistente de afiliación. Un tipo sin formulario físico
-   * confirmado permanece en el catálogo pero no se ofrece, para no generar un
-   * documento que el Club no reconoce.
-   */
+  /** Disponible en el asistente de afiliación. */
   disponible: boolean;
 };
 
-/** Deriva las reglas de validación a partir de los bloques del formulario. */
+/** Deriva las reglas de validación a partir de los datos de la categoría. */
 function reglasDesde(
-  bloques: BloquesFormulario,
+  datos: DatosDeCategoria,
   extra: Partial<ReglasTipoMiembro> = {}
 ): ReglasTipoMiembro {
   return {
-    requiereSocioTitular: bloques.vinculoTitular,
-    requiereGarantes: bloques.garantes,
-    requiereDatosMilitares: bloques.datosMilitares,
+    requiereSocioTitular: datos.vinculoTitular,
+    requiereDatosMilitares: datos.datosMilitares,
     // La promoción acompaña siempre a los datos militares de la propia Fuerza
     // Aérea. Los formularios de corresponsal también piden grado militar, pero
     // de una fuerza extranjera o de otra rama: ahí no hay promoción del Club, y
-    // por eso el bloque `fuerza` la excluye.
-    requierePromocion: bloques.datosMilitares && !bloques.fuerza,
-    requiereFuerza: bloques.fuerza,
-    requiereDatosLaborales: bloques.datosLaborales,
+    // por eso el dato `fuerza` la excluye.
+    requierePromocion: datos.datosMilitares && !datos.fuerza,
+    requiereFuerza: datos.fuerza,
+    requiereDatosLaborales: !datos.vinculoTitular,
     requiereNumeroSocioActivo: false,
     generaCredencial: true,
     ...extra,
@@ -233,10 +252,26 @@ function reglasDesde(
 /* Catálogo                                                            */
 /* ------------------------------------------------------------------ */
 
-const FICHA_INGRESO_SOCIOS: Omit<VarianteFormulario, "bloques"> = {
+/** Datos de una categoría que no pide nada propio en el R-PGS1-1. */
+const SOLO_PRINCIPAL: DatosDeCategoria = {
+  datosMilitares: false,
+  fuerza: false,
+  vinculoTitular: false,
+};
+
+const MILITAR_FAE: DatosDeCategoria = { ...SOLO_PRINCIPAL, datosMilitares: true };
+const MILITAR_OTRA_FUERZA: DatosDeCategoria = { ...SOLO_PRINCIPAL, datosMilitares: true, fuerza: true };
+const DEPENDIENTE_DEL_TITULAR: DatosDeCategoria = { ...SOLO_PRINCIPAL, vinculoTitular: true };
+
+/**
+ * El PGS1-11 como hoja de solicitud: la de los dependientes del titular y la
+ * del socio fundador. No añade recuadros de cónyuge, hijos ni garantes.
+ */
+const HOJA_GENERAL: HojaSolicitud = {
   codigo: "PGS1-11",
   titulo: "FORMULARIO DE INGRESO DE SOCIOS",
-  layout: "FICHA",
+  layout: "GENERAL",
+  bloques: SIN_RECUADROS,
 };
 
 export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
@@ -246,13 +281,13 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "SF",
     nombre: "Socio Fundador",
     glosaFormulario: "Socio Fundador",
+    ingresoComo: "SOCIO FUNDADOR",
     categoria: "Socios titulares",
     descripcion: "Oficial de la Fuerza Aérea Ecuatoriana fundador del Club.",
-    formularios: [
-      { ...FICHA_INGRESO_SOCIOS, bloques: { ...BLOQUES_FICHA, datosMilitares: true } },
-    ],
+    datos: MILITAR_FAE,
+    hojasSolicitud: [HOJA_GENERAL],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_FICHA, datosMilitares: true }),
+    reglas: reglasDesde(MILITAR_FAE),
     disponible: true,
   },
 
@@ -260,41 +295,33 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "SA",
     nombre: "Socio Activo",
     glosaFormulario: "Socio Activo (Oficial FAE)",
+    ingresoComo: "SOCIO ACTIVO",
     categoria: "Socios titulares",
     descripcion:
       "Oficial de la Fuerza Aérea Ecuatoriana en servicio activo o pasivo. Es el formulario que llenan los cadetes que ingresan cada octubre y los oficiales que se reincorporan.",
-    formularios: [
-      {
-        codigo: "R-PGS1-1",
-        titulo:
-          "FORMULARIO DE INGRESO COMO SOCIO ACTIVO AL CLUB SOCIAL Y DEPORTIVO DE OFICIALES DE LA FUERZA AÉREA ECUATORIANA – CLUB LA CAMPIÑA",
-        layout: "FICHA",
-        bloques: { ...BLOQUES_FICHA, datosMilitares: true, dependientesACargo: true },
-      },
-    ],
+    datos: MILITAR_FAE,
+    // El R-PGS1-1 es su propia solicitud de ingreso: no lleva hoja adicional.
+    hojasSolicitud: [],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_FICHA, datosMilitares: true, dependientesACargo: true }),
+    reglas: reglasDesde(MILITAR_FAE),
     disponible: true,
   },
 
   /* --- Dependientes del socio titular ------------------------------ */
-  /* Comparten el formulario general PGS1-11: el recuadro superior indica de   */
-  /* qué socio principal dependen y el grado militar de ese titular.           */
+  /* Su hoja es el PGS1-11: el recuadro superior indica de qué socio principal  */
+  /* dependen y el grado militar de ese titular.                                */
 
   CONYUGE: {
     codigo: "CONYUGE",
     nombre: "Cónyuge",
     glosaFormulario: "Cónyuge",
+    ingresoComo: "CÓNYUGE DE SOCIO",
     categoria: "Dependientes del socio titular",
     descripcion: "Cónyuge del socio titular, afiliado a la cuenta del titular.",
-    formularios: [
-      {
-        ...FICHA_INGRESO_SOCIOS,
-        bloques: { ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false },
-      },
-    ],
+    datos: DEPENDIENTE_DEL_TITULAR,
+    hojasSolicitud: [HOJA_GENERAL],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false }),
+    reglas: reglasDesde(DEPENDIENTE_DEL_TITULAR),
     disponible: true,
   },
 
@@ -302,16 +329,13 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "PADRES",
     nombre: "Padres",
     glosaFormulario: "Padres (de Oficial FAE)",
+    ingresoComo: "PADRE O MADRE DE SOCIO",
     categoria: "Dependientes del socio titular",
     descripcion: "Padre o madre del oficial FAE socio titular, afiliado a la cuenta del titular.",
-    formularios: [
-      {
-        ...FICHA_INGRESO_SOCIOS,
-        bloques: { ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false },
-      },
-    ],
+    datos: DEPENDIENTE_DEL_TITULAR,
+    hojasSolicitud: [HOJA_GENERAL],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false }),
+    reglas: reglasDesde(DEPENDIENTE_DEL_TITULAR),
     disponible: true,
   },
 
@@ -319,20 +343,14 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "JUVENIL",
     nombre: "Juvenil",
     glosaFormulario: "Juvenil (hijo soltero < 21 años)",
+    ingresoComo: "SOCIO JUVENIL",
     categoria: "Dependientes del socio titular",
     // El formulario PGS1-11 lo define como «Juvenil (hijo soltero < 21 años)».
     descripcion: "Hijo o hija soltero del socio titular, menor de 21 años.",
-    formularios: [
-      {
-        ...FICHA_INGRESO_SOCIOS,
-        bloques: { ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false },
-      },
-    ],
+    datos: DEPENDIENTE_DEL_TITULAR,
+    hojasSolicitud: [HOJA_GENERAL],
     cartaCompromiso: null,
-    reglas: reglasDesde(
-      { ...BLOQUES_FICHA, vinculoTitular: true, datosLaborales: false },
-      { edadMaxima: 20, exigeSoltero: true }
-    ),
+    reglas: reglasDesde(DEPENDIENTE_DEL_TITULAR, { edadMaxima: 20, exigeSoltero: true }),
     disponible: true,
   },
 
@@ -342,22 +360,25 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "DA",
     nombre: "Dependiente A",
     glosaFormulario: "Socio D - A (hijo de oficial FAE soltero < 24 años)",
+    ingresoComo: "SOCIO DEPENDIENTE A",
     categoria: "Socios dependientes",
     // PGS1-11: «Socio D-A (hijo de oficial FAE soltero < 24 años)».
     descripcion: "Hijo soltero de oficial FAE, menor de 24 años, con cuenta propia.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-22",
         titulo: "SOLICITUD DE INGRESO PARTICULAR DEPENDIENTE A",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, garantes: 1 },
+        bloques: { ...SIN_RECUADROS, garantes: 1 },
       },
     ],
     cartaCompromiso: "DEPENDIENTE",
-    reglas: reglasDesde(
-      { ...BLOQUES_SOLICITUD, garantes: 1 },
-      { requiereNumeroSocioActivo: true, edadMaxima: 23, exigeSoltero: true }
-    ),
+    reglas: reglasDesde(SOLO_PRINCIPAL, {
+      requiereNumeroSocioActivo: true,
+      edadMaxima: 23,
+      exigeSoltero: true,
+    }),
     disponible: true,
   },
 
@@ -365,31 +386,30 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "DB",
     nombre: "Dependiente B",
     glosaFormulario: "Socio D - B (hijo de oficial FAE casado o soltero > 24 años)",
+    ingresoComo: "SOCIO DEPENDIENTE B",
     categoria: "Socios dependientes",
     // PGS1-11: «Socio D-B (hijo de oficial FAE casado o soltero > 24 años)».
     descripcion:
-      "Hijo de oficial FAE casado, o soltero mayor de 24 años, con cuenta propia. Tiene dos formularios distintos según su estado civil.",
-    formularios: [
+      "Hijo de oficial FAE casado, o soltero mayor de 24 años, con cuenta propia. Tiene dos hojas de solicitud distintas según su estado civil.",
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-24",
         titulo: "SOLICITUD DE INGRESO PARTICULAR DEPENDIENTE B (casado)",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 1 },
+        bloques: { conyuge: true, hijos: true, garantes: 1 },
         paraEstadoCivil: "CASADO",
       },
       {
         codigo: "R-PGS1-23",
         titulo: "SOLICITUD DE INGRESO PARTICULAR DEPENDIENTE B (soltero)",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, hijos: true, garantes: 1 },
+        bloques: { conyuge: false, hijos: true, garantes: 1 },
         paraEstadoCivil: "SOLTERO",
       },
     ],
     cartaCompromiso: "DEPENDIENTE",
-    reglas: reglasDesde(
-      { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 1 },
-      { requiereNumeroSocioActivo: true }
-    ),
+    reglas: reglasDesde(SOLO_PRINCIPAL, { requiereNumeroSocioActivo: true }),
     disponible: true,
   },
 
@@ -397,19 +417,21 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "DC",
     nombre: "Dependiente C",
     glosaFormulario: "Socio D - C (hijo de un socio dependiente B > 24 años)",
+    ingresoComo: "SOCIO DEPENDIENTE C",
     categoria: "Socios dependientes",
     // PGS1-11: «Socio D-C (hijo de un socio dependiente B > 24 años)».
     descripcion: "Hijo de un socio Dependiente B, mayor de 24 años, con cuenta propia.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-25",
         titulo: "SOLICITUD DE INGRESO PARTICULAR DEPENDIENTE C",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 1 },
+        bloques: { conyuge: true, hijos: true, garantes: 1 },
       },
     ],
     cartaCompromiso: "DEPENDIENTE",
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 1 }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
 
@@ -419,18 +441,20 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "PA",
     nombre: "Particular A",
     glosaFormulario: "Socio P - A (Membresía)",
+    ingresoComo: "SOCIO PARTICULAR A",
     categoria: "Socios particulares",
     descripcion: "Socio particular bajo la modalidad de membresía. Requiere dos socios garantes.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-8",
         titulo: "SOLICITUD DE INGRESO SOCIOS PARTICULAR A",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 2 },
+        bloques: { conyuge: true, hijos: true, garantes: 2 },
       },
     ],
     cartaCompromiso: "PARTICULAR",
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, garantes: 2 }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
 
@@ -438,19 +462,21 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "PB",
     nombre: "Particular B",
     glosaFormulario: "Socio P - B (Sociedad Individual)",
+    ingresoComo: "SOCIO PARTICULAR B",
     categoria: "Socios particulares",
     descripcion:
       "Socio particular bajo la modalidad de sociedad individual. Requiere dos socios garantes.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-9",
         titulo: "SOLICITUD DE INGRESO SOCIOS PARTICULAR B",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, garantes: 2 },
+        bloques: { ...SIN_RECUADROS, garantes: 2 },
       },
     ],
     cartaCompromiso: "PARTICULAR",
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD, garantes: 2 }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
 
@@ -460,19 +486,21 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "CA",
     nombre: "Corresponsal A",
     glosaFormulario: "Socio C - A (Diplomáticos)",
+    ingresoComo: "SOCIO CORRESPONSAL A",
     categoria: "Socios corresponsales",
     // PGS1-11: «Socio C-A (Diplomáticos)».
     descripcion: "Personal diplomático acreditado, admitido en calidad de corresponsal.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-26",
         titulo: "SOLICITUD DE INGRESO SOCIOS CORRESPONSAL A",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true },
+        bloques: { conyuge: true, hijos: true, garantes: 0 },
       },
     ],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD, conyuge: true, hijos: true }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
 
@@ -480,25 +508,21 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "CB",
     nombre: "Corresponsal B",
     glosaFormulario: "Socio C - B (Agregados Militares)",
+    ingresoComo: "SOCIO CORRESPONSAL B",
     categoria: "Socios corresponsales",
     // PGS1-11: «Socio C-B (Agregados Militares)».
     descripcion: "Agregado militar acreditado ante el Ecuador, admitido en calidad de corresponsal.",
-    formularios: [
+    datos: MILITAR_OTRA_FUERZA,
+    hojasSolicitud: [
       {
         codigo: "R-PGS01-6",
         titulo: "SOLICITUD DE INGRESO SOCIOS CORRESPONSAL B",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, datosMilitares: true, fuerza: true },
+        bloques: { conyuge: true, hijos: true, garantes: 0 },
       },
     ],
     cartaCompromiso: null,
-    reglas: reglasDesde({
-      ...BLOQUES_SOLICITUD,
-      conyuge: true,
-      hijos: true,
-      datosMilitares: true,
-      fuerza: true,
-    }),
+    reglas: reglasDesde(MILITAR_OTRA_FUERZA),
     disponible: true,
   },
 
@@ -506,25 +530,21 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "CC",
     nombre: "Corresponsal C",
     glosaFormulario: "Socio C - C (Oficiales del Ejército)",
+    ingresoComo: "SOCIO CORRESPONSAL C",
     categoria: "Socios corresponsales",
     // PGS1-11: «Socio C-C (Oficiales del Ejército)».
     descripcion: "Oficial del Ejército u otra fuerza, admitido en calidad de corresponsal.",
-    formularios: [
+    datos: MILITAR_OTRA_FUERZA,
+    hojasSolicitud: [
       {
         codigo: "R-PGS01-7",
         titulo: "SOLICITUD DE INGRESO SOCIOS CORRESPONSAL C",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, conyuge: true, hijos: true, datosMilitares: true, fuerza: true },
+        bloques: { conyuge: true, hijos: true, garantes: 0 },
       },
     ],
     cartaCompromiso: null,
-    reglas: reglasDesde({
-      ...BLOQUES_SOLICITUD,
-      conyuge: true,
-      hijos: true,
-      datosMilitares: true,
-      fuerza: true,
-    }),
+    reglas: reglasDesde(MILITAR_OTRA_FUERZA),
     disponible: true,
   },
 
@@ -538,18 +558,20 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "SG",
     nombre: "Suscriptor de gimnasio",
     glosaFormulario: "Suscripción Gimnasio",
+    ingresoComo: "SUSCRIPTOR DEL GIMNASIO",
     categoria: "Suscriptores",
     descripcion: "Suscripción al servicio de gimnasio. Requiere un socio garante.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-13",
         titulo: "SOLICITUD DE INGRESO SUSCRIPCIÓN GIMNASIO",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD, garantes: 1 },
+        bloques: { ...SIN_RECUADROS, garantes: 1 },
       },
     ],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD, garantes: 1 }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
 
@@ -557,21 +579,22 @@ export const CATALOGO_TIPOS: Record<TipoMiembro, DefinicionTipoMiembro> = {
     codigo: "ST",
     nombre: "Suscriptor de tenis",
     glosaFormulario: "Suscripción Tenis",
+    ingresoComo: "SUSCRIPTOR DE TENIS",
     categoria: "Suscriptores",
     descripcion: "Suscripción al servicio de tenis.",
-    formularios: [
+    datos: SOLO_PRINCIPAL,
+    hojasSolicitud: [
       {
         codigo: "R-PGS1-12",
         titulo: "SOLICITUD DE INGRESO SUSCRIPCIÓN DE TENIS",
         layout: "SOLICITUD",
-        bloques: { ...BLOQUES_SOLICITUD },
+        bloques: SIN_RECUADROS,
       },
     ],
     cartaCompromiso: null,
-    reglas: reglasDesde({ ...BLOQUES_SOLICITUD }),
+    reglas: reglasDesde(SOLO_PRINCIPAL),
     disponible: true,
   },
-
 };
 
 /* ------------------------------------------------------------------ */
@@ -592,11 +615,16 @@ export const TIPOS_ORDENADOS: DefinicionTipoMiembro[] = ORDEN_CATEGORIAS.flatMap
   TIPOS_MIEMBRO.map((codigo) => CATALOGO_TIPOS[codigo]).filter((t) => t.categoria === categoria)
 );
 
-/** Tipos que el asistente ofrece hoy: los que tienen formulario físico confirmado. */
+/** Tipos que el asistente ofrece hoy. */
 export const TIPOS_DISPONIBLES: DefinicionTipoMiembro[] = TIPOS_ORDENADOS.filter((t) => t.disponible);
 
 export function getTipo(codigo: TipoMiembro): DefinicionTipoMiembro {
   return CATALOGO_TIPOS[codigo];
+}
+
+/** Si un valor recibido de fuera es un tipo de socio del catálogo. */
+export function esTipoMiembro(valor: unknown): valor is TipoMiembro {
+  return typeof valor === "string" && (TIPOS_MIEMBRO as readonly string[]).includes(valor);
 }
 
 export function reglasDe(codigo: TipoMiembro | null): ReglasTipoMiembro | null {
@@ -641,30 +669,61 @@ export function esEstadoCivilCasado(estadoCivil: string): boolean {
 }
 
 /**
- * Formulario que corresponde a una solicitud concreta. Devuelve `null` si el
- * Club aún no ha proporcionado el formato físico de ese tipo de socio.
+ * Hoja de solicitud que corresponde a una solicitud concreta, o `null` si la
+ * categoría no lleva hoja (el Socio Activo).
  */
-export function formularioPara(
+export function hojaSolicitudPara(
   codigo: TipoMiembro | null,
   estadoCivil: string
-): VarianteFormulario | null {
+): HojaSolicitud | null {
   if (!codigo) return null;
-  const { formularios } = CATALOGO_TIPOS[codigo];
-  if (formularios.length === 0) return null;
-  if (formularios.length === 1) return formularios[0];
+  const { hojasSolicitud } = CATALOGO_TIPOS[codigo];
+  if (hojasSolicitud.length === 0) return null;
+  if (hojasSolicitud.length === 1) return hojasSolicitud[0];
 
   const buscado = esEstadoCivilCasado(estadoCivil) ? "CASADO" : "SOLTERO";
-  return formularios.find((f) => f.paraEstadoCivil === buscado) ?? formularios[0];
+  return hojasSolicitud.find((h) => h.paraEstadoCivil === buscado) ?? hojasSolicitud[0];
 }
 
 /**
- * Bloques del formulario aplicables a una solicitud concreta. Es la función que
- * consultan el asistente (para decidir qué pasos mostrar) y el generador del
- * PDF (para decidir qué recuadros dibujar), de modo que ambos no puedan
- * discrepar.
+ * Recuadros aplicables a una solicitud concreta. Es la función que consultan el
+ * asistente (para decidir qué pasos mostrar), la validación y el generador del
+ * PDF (para decidir qué recuadros dibujar), de modo que no puedan discrepar.
  */
 export function bloquesPara(codigo: TipoMiembro | null, estadoCivil: string): BloquesFormulario | null {
-  return formularioPara(codigo, estadoCivil)?.bloques ?? null;
+  if (!codigo) return null;
+  const { datos } = CATALOGO_TIPOS[codigo];
+  const hoja = hojaSolicitudPara(codigo, estadoCivil);
+  return { ...(hoja?.bloques ?? SIN_RECUADROS), ...datos };
+}
+
+/** Un documento del trámite, para mostrar qué se va a generar. */
+export type DocumentoGenerado = { codigo: string; titulo: string };
+
+/**
+ * Los documentos que forman el trámite de una solicitud, en el orden en que se
+ * generan: el R-PGS1-1, la hoja de solicitud de la categoría y la carta de
+ * compromiso. El reverso de INFORMACIÓN INTERNA DEL CLUB acompaña siempre y no
+ * se enumera.
+ */
+export function documentosDelTramite(
+  codigo: TipoMiembro | null,
+  estadoCivil: string
+): DocumentoGenerado[] {
+  if (!codigo) return [];
+  const lista: DocumentoGenerado[] = [
+    { codigo: FORMULARIO_PRINCIPAL.codigo, titulo: "Formulario de ingreso (información del socio)" },
+  ];
+  const hoja = hojaSolicitudPara(codigo, estadoCivil);
+  if (hoja) lista.push({ codigo: hoja.codigo, titulo: hoja.titulo });
+  const carta = CATALOGO_TIPOS[codigo].cartaCompromiso;
+  if (carta) {
+    lista.push({
+      codigo: "Carta",
+      titulo: carta === "PARTICULAR" ? "Carta de compromiso del socio particular" : "Carta de compromiso del socio dependiente",
+    });
+  }
+  return lista;
 }
 
 export const TIPOS_SANGRE = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"] as const;
@@ -790,7 +849,10 @@ export const GRADOS_OFRECIDOS = GRADOS_MILITARES.filter((g) => g !== GRADO_NO_AP
 export const VINCULOS_DEPENDIENTE = ["Cónyuge", "Hijo/a", "Padre/Madre"] as const;
 export type VinculoDependiente = (typeof VINCULOS_DEPENDIENTE)[number];
 
-/** Vínculo implícito de cada tipo de dependiente del titular. */
+/**
+ * Vínculo de cada tipo de dependiente del titular. No se pregunta: lo fija el
+ * tipo elegido, y pedirlo aparte permitiría declarar una cónyuge como «Hijo/a».
+ */
 export const VINCULO_POR_TIPO: Partial<Record<TipoMiembro, VinculoDependiente>> = {
   CONYUGE: "Cónyuge",
   JUVENIL: "Hijo/a",

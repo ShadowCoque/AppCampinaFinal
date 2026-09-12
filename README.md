@@ -9,17 +9,30 @@ la documentación legal ni los formularios físicos de referencia.
 
 | Carpeta | Para qué |
 | --- | --- |
-| `server/` | El servidor (API + bandeja de tareas + repositorio de expedientes). **Empiece por `server/README.md`.** |
-| `web/` | La bandeja de tareas que sirve el servidor. |
+| `PROMPT-CLAUDE-SERVIDOR.md` | **Empiece por aquí.** Las tareas que le tocan a este servidor, en orden, con los comandos exactos y las precauciones. |
+| `server/` | El servidor: API, bandeja de tareas, repositorio de expedientes, vigilante de escaneos y generación del formulario en PDF. El detalle técnico está en `server/README.md`. |
+| `web/` | La bandeja de tareas que sirve el servidor, con el logotipo y los colores del Club. |
 | `src/domain/` | Reglas del negocio compartidas por el servidor y la app móvil. |
+| `src/services/formularios/` | El formulario del Club en HTML, compartido: la tableta lo imprime y el servidor lo convierte a PDF. |
 | `app/`, el resto de `src/` | Código fuente de la aplicación móvil, **solo como referencia** — para entender qué datos envía y qué formato de trámite espera el servidor. No se ejecuta ni se desarrolla desde este servidor: falta a propósito la carpeta `assets/` (imágenes e íconos), así que `npx expo start` no va a funcionar aquí. |
 
 ## Para desplegar el servidor
 
-Lea `server/README.md`. Resume en una línea: es un contenedor Docker que
-convive con otros servicios en el mismo servidor, se publica por HTTP plano
-(sin certificado TLS, es una red interna) y no necesita nada instalado fuera
-de Docker.
+Lea **`PROMPT-CLAUDE-SERVIDOR.md`**: dice qué hacer, en qué orden, y qué no se
+debe tocar. Resume en una línea: es un contenedor Docker que convive con otros
+servicios en el mismo servidor, se publica por HTTP plano (sin certificado
+TLS, es una red interna) y no necesita nada instalado fuera de Docker.
+
+Tres cosas cambiaron respecto de la versión anterior y **hay que atenderlas al
+actualizar**:
+
+- El contenedor trae ahora **Chromium**, para generar el formulario definitivo
+  en PDF al aprobar. Su límite de memoria subió de 512 MB a **1 GB**.
+- Hace falta la carpeta **`/srv/campina/escaneos/_ARCHIVADOS`**, con dueño
+  `1500:1500`: es donde el vigilante deja los documentos ya procesados. Antes
+  los borraba; ahora no borra nada.
+- La escritura en SAFI viene **apagada** (`SAFI_ESCRITURA=false`). Se enciende
+  solo con autorización expresa, y es la última tarea del prompt.
 
 ## Qué falta aquí a propósito
 

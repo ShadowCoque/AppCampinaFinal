@@ -242,11 +242,12 @@ export function nombreCoincide(esperado: string, encontrado: string): boolean {
  * muestra en la bandeja de tareas cuando un archivo no pudo clasificarse.
  */
 export const INSTRUCTIVO_ESCANEO = [
-  "Cree una carpeta por socio titular con el formato: número de socio, un espacio y los apellidos y nombres. Ejemplo: «280 COQUE VEGA JOEL SEBASTIAN».",
-  "Guarde dentro de esa carpeta la documentación del titular y la de todos sus dependientes.",
-  "Nombre el formulario de ingreso igual que la carpeta. Ejemplo: «280 COQUE VEGA JOEL SEBASTIAN.pdf».",
-  "Para los demás documentos, añada la etiqueta al final. Ejemplo: «280 COQUE VEGA JOEL SEBASTIAN CEDULA.pdf».",
-  "Para un dependiente, escriba el número del titular, un guion y el número del dependiente, seguido de sus propios apellidos y nombres. Ejemplo: «280-1 COQUE VEGA ANA MARIA.pdf».",
-  "Escriba siempre en MAYÚSCULAS y sin tildes, tal como consta el nombre en el CRM de SAFI.",
-  "Etiquetas reconocidas: CEDULA, CEDULA TITULAR, FOTO, TARJETA MILITAR, ACTA DE MATRIMONIO, PARTIDA DE NACIMIENTO, CARTA DE COMPROMISO, CREDENCIAL ANTERIOR, FACTURA, OTROS.",
+  "Primero asigne el número de socio en esta bandeja, con «Confirmar y crear en SAFI»: el nombre de cada archivo empieza con ese número. La tarea «Falta escanear documentación» le muestra después el nombre exacto de cada archivo que falta.",
+  "Nombre cada documento con el número de socio, un espacio, los apellidos y nombres y la etiqueta del documento. Ejemplo: «280 COQUE VEGA JOEL SEBASTIAN CEDULA.pdf».",
+  "Para un dependiente, escriba el número del titular, un guion y el número del dependiente, seguido de sus propios apellidos y nombres. Ejemplo: «280-1 COQUE VEGA ANA MARIA CEDULA.pdf».",
+  "Puede dejar los archivos sueltos en la carpeta compartida o dentro de una carpeta por socio titular con el formato «280 COQUE VEGA JOEL SEBASTIAN».",
+  "Escriba siempre en MAYÚSCULAS y sin tildes —la Ñ sí se conserva—, tal como consta el nombre en el CRM de SAFI.",
+  "No escanee el formulario ni la carta de compromiso: el sistema los genera con las firmas de la tableta y los archiva solos al aprobarse el ingreso.",
+  "Lo que el sistema archiva pasa a la subcarpeta _ARCHIVADOS y queda copiado en el expediente del socio. Lo que no puede identificar pasa a _REVISAR y aparece aquí como tarea. Si el número todavía no corresponde a ningún trámite, el archivo se queda donde está, en espera, hasta que se asigne: nunca se borra.",
+  "Etiquetas reconocidas: CEDULA, CEDULA TITULAR, TARJETA MILITAR, ACTA DE MATRIMONIO, PARTIDA DE NACIMIENTO, CREDENCIAL ANTERIOR, FACTURA, FOTO, OTROS.",
 ];

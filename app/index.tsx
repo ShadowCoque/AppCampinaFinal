@@ -13,6 +13,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { listarSolicitudes } from "../src/data/solicitudes";
 import { RESUMEN_LOPDP } from "../src/domain/privacidad";
+import {
+  describirResumen,
+  sincronizar,
+  ultimoResumen,
+  type ResumenSincronizacion,
+} from "../src/services/servidor";
 import { colors, radius, shadow, spacing, typography } from "../src/theme";
 
 type Modulo = {
@@ -43,22 +49,42 @@ export default function Portal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [pendientesAfiliacion, setPendientesAfiliacion] = useState(0);
+  const [envio, setEnvio] = useState<ResumenSincronizacion | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       let activo = true;
-      void (async () => {
+      const contar = async () => {
         const solicitudes = await listarSolicitudes();
         if (!activo) return;
         setPendientesAfiliacion(
           solicitudes.filter((s) => !["APROBADA", "RECHAZADA"].includes(s.estado)).length
         );
+      };
+      void (async () => {
+        await contar();
+        if (activo) setEnvio(await ultimoResumen());
+        // Al volver al portal se entrega lo pendiente y se trae el avance.
+        const resumen = await sincronizar();
+        if (!activo) return;
+        setEnvio(resumen);
+        await contar();
       })();
       return () => {
         activo = false;
       };
     }, [])
   );
+
+  const aviso = describirResumen(envio);
+  const colorAviso =
+    aviso.tono === "success"
+      ? colors.success
+      : aviso.tono === "danger"
+        ? colors.danger
+        : aviso.tono === "warning"
+          ? colors.warning
+          : colors.info;
 
   const modulos = useMemo<Modulo[]>(
     () => [
@@ -115,6 +141,34 @@ export default function Portal() {
       </View>
 
       <View style={styles.body}>
+        <Pressable
+          onPress={() => router.push("/configuracion")}
+          accessibilityRole="button"
+          accessibilityLabel={`Envío al servidor: ${aviso.titulo}`}
+          style={({ pressed }) => [styles.envio, { borderLeftColor: colorAviso }, pressed && styles.pressed]}
+        >
+          <Ionicons
+            name={
+              aviso.tono === "success"
+                ? "cloud-done"
+                : aviso.tono === "danger"
+                  ? "cloud-offline"
+                  : "cloud-upload"
+            }
+            size={20}
+            color={colorAviso}
+          />
+          <View style={styles.envioTexto}>
+            <Text style={styles.envioTitulo}>{aviso.titulo}</Text>
+            {envio?.detalle && aviso.tono !== "success" ? (
+              <Text style={styles.envioDetalle} numberOfLines={2}>
+                {envio.detalle}
+              </Text>
+            ) : null}
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
+        </Pressable>
+
         {modulos.map((modulo) => (
           <Pressable
             key={modulo.key}
@@ -186,7 +240,7 @@ export default function Portal() {
 
         <Text style={styles.pie}>
           Club Social y Deportivo de Oficiales de la FAE — Club La Campiña{"\n"}
-          Aplicación institucional · versión 2.1
+          Aplicación institucional · versión 2.2
         </Text>
       </View>
     </ScrollView>
@@ -221,6 +275,23 @@ const styles = StyleSheet.create({
   },
 
   body: { paddingHorizontal: spacing.lg, marginTop: -spacing.xxl },
+
+  envio: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 5,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    ...shadow.raised,
+  },
+  envioTexto: { flex: 1 },
+  envioTitulo: { fontSize: 13.5, fontWeight: "800", color: colors.text },
+  envioDetalle: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 16 },
 
   perfilCard: {
     backgroundColor: colors.surface,

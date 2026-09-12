@@ -60,13 +60,16 @@ function migrar(conexion: DatabaseSync, esNueva: boolean): void {
 
   for (const migracion of MIGRACIONES) {
     if (migracion.desde < actual) continue;
-    try {
-      conexion.exec(migracion.sql);
-      console.log(`[base] Migración aplicada: esquema ${migracion.desde} → ${migracion.desde + 1}.`);
-    } catch (error) {
-      // Una migración ya aplicada a mano no debe impedir el arranque.
-      console.warn(`[base] La migración desde ${migracion.desde} no se aplicó:`, error);
+    for (const sentencia of migracion.sentencias) {
+      try {
+        conexion.exec(sentencia);
+      } catch (error) {
+        // Una columna ya añadida a mano no debe impedir el arranque ni las
+        // demás sentencias de la misma migración.
+        console.warn(`[base] Sentencia de la migración ${migracion.desde} no aplicada: ${sentencia}`, error);
+      }
     }
+    console.log(`[base] Migración aplicada: esquema ${migracion.desde} → ${migracion.desde + 1}.`);
   }
 
   conexion

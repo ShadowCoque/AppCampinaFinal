@@ -3,10 +3,12 @@ import { cuotaAnualSugerida, cuotaMensualSugerida, formatearValor } from "./cuot
 import { requisitosCapturables } from "./documentos";
 import { CONSENTIMIENTOS, type ClaveConsentimiento } from "./privacidad";
 import {
+  VINCULO_POR_TIPO,
   bloquesPara,
   esEstadoCivilCasado,
   getTipo,
   reglasDe,
+  tieneCuentaPropia,
   type ModeloCarta,
 } from "./tiposMiembro";
 import {
@@ -91,7 +93,9 @@ export function ajustarBloques(datos: DatosAfiliacion): DatosAfiliacion {
     ...datos,
     garantes,
     hijos: bloques.hijos ? datos.hijos : [],
-    dependientesACargo: bloques.dependientesACargo ? datos.dependientesACargo : [],
+    // El vínculo con el titular lo fija el tipo elegido: una cónyuge no puede
+    // quedar declarada como «Hijo/a» por un toque equivocado.
+    vinculoConTitular: datos.tipoMiembro ? VINCULO_POR_TIPO[datos.tipoMiembro] ?? null : null,
     carta:
       definicion?.cartaCompromiso == null
         ? null
@@ -152,8 +156,8 @@ const TODOS_LOS_PASOS: DefinicionPaso[] = [
   { key: "tipo", title: "Tipo de socio y vínculo", shortTitle: "Tipo" },
   { key: "personales", title: "Datos personales del aspirante", shortTitle: "Personales" },
   { key: "contacto", title: "Contacto y domicilio", shortTitle: "Contacto" },
-  { key: "laboral", title: "Información laboral e institucional", shortTitle: "Laboral" },
-  { key: "familia", title: "Cónyuge, hijos y dependientes", shortTitle: "Familia" },
+  { key: "laboral", title: "Ocupación e información institucional", shortTitle: "Ocupación" },
+  { key: "familia", title: "Cónyuge e hijos", shortTitle: "Familia" },
   { key: "garantes", title: "Socios que le garantizan", shortTitle: "Garantes" },
   { key: "fotografia", title: "Fotografía del socio", shortTitle: "Fotografía" },
   { key: "compromiso", title: "Carta de compromiso", shortTitle: "Compromiso" },
@@ -162,9 +166,9 @@ const TODOS_LOS_PASOS: DefinicionPaso[] = [
 ];
 
 /**
- * Los pasos visibles se derivan de los bloques que tiene el formulario físico
- * del tipo de socio seleccionado: la aplicación pide exactamente lo que ese
- * formulario contiene, ni un campo más.
+ * Los pasos visibles se derivan de los documentos del tipo de socio
+ * seleccionado: el R-PGS1-1, común a todos, y los recuadros que añade su hoja
+ * de solicitud. La aplicación pide exactamente eso, ni un campo más.
  */
 export function pasosPara(datos: DatosAfiliacion): DefinicionPaso[] {
   const bloques = bloquesPara(datos.tipoMiembro, datos.estadoCivil);
@@ -176,10 +180,8 @@ export function pasosPara(datos: DatosAfiliacion): DefinicionPaso[] {
     if (!bloques) return true;
 
     switch (paso.key) {
-      case "laboral":
-        return bloques.datosLaborales || bloques.datosMilitares;
       case "familia":
-        return bloques.conyuge || bloques.hijos || bloques.dependientesACargo;
+        return bloques.conyuge || bloques.hijos;
       case "garantes":
         return bloques.garantes > 0;
       case "compromiso":
@@ -227,12 +229,6 @@ function validarTipo(estado: EstadoFormulario): Errores {
     return errores;
   }
 
-  if (getTipo(datos.tipoMiembro).formularios.length === 0) {
-    errores.tipoMiembro =
-      "El Club aún no ha proporcionado el formulario físico de este tipo de socio.";
-    return errores;
-  }
-
   if (reglas?.requiereSocioTitular) {
     const apellidos = validarNombre(datos.titularApellidos, "apellido del socio titular");
     if (apellidos) errores.titularApellidos = apellidos;
@@ -245,10 +241,6 @@ function validarTipo(estado: EstadoFormulario): Errores {
 
     if (!datos.titularNumeroSocio.trim()) {
       errores.titularNumeroSocio = "Ingrese el número de socio del titular.";
-    }
-
-    if (!datos.vinculoConTitular) {
-      errores.vinculoConTitular = "Indique el vínculo familiar con el socio titular.";
     }
   }
 
@@ -265,7 +257,6 @@ function validarPersonales(estado: EstadoFormulario): Errores {
   const { datos } = estado;
   const errores: Errores = {};
   const reglas = reglasDe(datos.tipoMiembro);
-  const bloques = bloquesPara(datos.tipoMiembro, datos.estadoCivil);
 
   const apellidos = validarNombre(datos.apellidos, "apellido");
   if (apellidos) errores.apellidos = apellidos;
@@ -273,11 +264,17 @@ function validarPersonales(estado: EstadoFormulario): Errores {
   const nombres = validarNombre(datos.nombres, "nombre");
   if (nombres) errores.nombres = nombres;
 
-  if (datos.titularCedula.trim() && datos.cedula.trim() === datos.titularCedula.trim()) {
+  if (
+    reglas?.requiereSocioTitular &&
+    datos.titularCedula.trim() &&
+    datos.cedula.trim() === datos.titularCedula.trim()
+  ) {
     errores.apellidos = "La cédula del solicitante no puede ser la misma del socio titular.";
   }
 
-  if (bloques?.sexo && !datos.sexo) {
+  // El sexo se pide a todos: consta en el formulario de todas las categorías,
+  // viaja al campo Género de SAFI y distingue el Segmento «Padre» de «Madre».
+  if (!datos.sexo) {
     errores.sexo = "Indique el sexo del solicitante.";
   }
 
@@ -306,7 +303,8 @@ function validarPersonales(estado: EstadoFormulario): Errores {
     errores.estadoCivil = "Este tipo de socio se otorga únicamente a personas solteras.";
   }
 
-  if (bloques?.tipoSangre && !datos.tipoSangre.trim()) {
+  // El R-PGS1-1 pide el tipo de sangre a todas las categorías.
+  if (!datos.tipoSangre.trim()) {
     errores.tipoSangre = "Seleccione el tipo de sangre.";
   }
 
@@ -342,7 +340,9 @@ function validarContacto(estado: EstadoFormulario): Errores {
   const correo = validarCorreo(datos.correo);
   if (correo) errores.correo = correo;
 
-  if (!datos.formaPago) {
+  // La forma de pago es un dato de la Cuenta. El cónyuge, los padres y el
+  // juvenil no tienen Cuenta propia: los factura la de su titular.
+  if (tieneCuentaPropia(datos.tipoMiembro) && !datos.formaPago) {
     errores.formaPago = "Seleccione la forma de pago acordada con el socio.";
   }
 
@@ -425,16 +425,6 @@ function validarFamilia(estado: EstadoFormulario): Errores {
     if (hijo.correo.trim()) {
       const correo = validarCorreo(hijo.correo, false);
       if (correo) errores[`hijo-${indice}-correo`] = correo;
-    }
-  });
-
-  datos.dependientesACargo.forEach((dependiente, indice) => {
-    if (!dependiente.apellidosNombres.trim() && !dependiente.vinculo) return;
-    if (!dependiente.apellidosNombres.trim()) {
-      errores[`dependiente-${indice}-nombre`] = "Ingrese los apellidos y nombres.";
-    }
-    if (!dependiente.vinculo) {
-      errores[`dependiente-${indice}-vinculo`] = "Indique el vínculo: padres, cónyuge o juvenil.";
     }
   });
 

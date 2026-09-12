@@ -5,40 +5,51 @@
  * de Contabilidad y Gerencia sin instalar nada y sin salir a internet, porque
  * el servidor vive en la red interna del Club.
  *
- * La paleta es la institucional: azul 08407D y dorado D0A33E.
+ * La paleta es la del logotipo institucional: azul 08407D, celeste 0071BD y
+ * dorado D0A33E.
  */
 
 :root {
   --azul: #08407d;
+  --azul-oscuro: #052c58;
+  --azul-medio: #0071bd;
   --azul-claro: #edf3f9;
   --azul-borde: #cfdcec;
   --dorado: #d0a33e;
+  --dorado-claro: #fbf3e2;
   --texto: #101820;
   --texto-suave: #54657a;
   --fondo: #f4f7fb;
   --superficie: #ffffff;
+  --superficie-alt: #f9fbfd;
   --borde: #dce5ef;
   --exito: #0f7b4f;
   --alerta: #b06a00;
   --peligro: #b3261e;
   --sombra: 0 1px 2px rgba(16, 24, 32, 0.05), 0 4px 12px rgba(16, 24, 32, 0.06);
+  --sombra-alta: 0 12px 40px rgba(5, 44, 88, 0.28);
   --radio: 10px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --azul: #6ea8e8;
+    --azul-oscuro: #0b2947;
+    --azul-medio: #64b5f6;
     --azul-claro: #16283c;
     --azul-borde: #2b445f;
     --texto: #e8eef5;
     --texto-suave: #9db0c4;
     --fondo: #0d1620;
     --superficie: #14202c;
+    --superficie-alt: #18242f;
     --borde: #26374a;
     --exito: #4fc98d;
     --alerta: #e0a54a;
     --peligro: #f08a80;
+    --dorado-claro: #2a2212;
     --sombra: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+    --sombra-alta: 0 12px 40px rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -59,38 +70,8 @@ body {
   display: none !important;
 }
 
-/* --- Marca ---------------------------------------------------------- */
-
-.marca {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.marca strong {
-  display: block;
-  color: var(--azul);
-  font-size: 15px;
-  letter-spacing: 0.2px;
-}
-.marca span {
-  display: block;
-  font-size: 12.5px;
-  color: var(--texto-suave);
-}
-.marca-icono {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--azul);
-  position: relative;
-  flex: none;
-}
-.marca-icono::after {
-  content: "";
-  position: absolute;
-  inset: 10px 7px;
-  background: var(--dorado);
-  clip-path: polygon(0 100%, 30% 25%, 55% 62%, 72% 38%, 100% 100%);
+img {
+  max-width: 100%;
 }
 
 /* --- Acceso --------------------------------------------------------- */
@@ -101,35 +82,54 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  padding: 24px;
+  gap: 18px;
+  padding: 24px 16px;
+  /* El azul del isotipo, de arriba abajo: la pantalla de acceso es lo
+     primero que ve cada área por la mañana. */
+  background: linear-gradient(160deg, var(--azul) 0%, var(--azul-oscuro) 100%);
 }
 
 .tarjeta-acceso {
   width: 100%;
-  max-width: 380px;
+  max-width: 400px;
   background: var(--superficie);
-  border: 1px solid var(--borde);
-  border-radius: var(--radio);
-  box-shadow: var(--sombra);
-  padding: 24px;
+  border-radius: 14px;
+  box-shadow: var(--sombra-alta);
+  padding: 28px 26px 26px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.tarjeta-acceso .marca {
-  margin-bottom: 10px;
+.logo-acceso {
+  width: 210px;
+  max-width: 100%;
+  align-self: center;
+  margin-bottom: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  /* El logotipo es azul y dorado sobre blanco; en modo oscuro la tarjeta es
+     oscura, así que se aclara para que no quede un bloque apagado. */
+  .logo-acceso {
+    filter: brightness(1.9) saturate(0.65);
+  }
+}
+.tarjeta-acceso h1 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--azul);
+  text-align: center;
 }
 .ayuda-acceso {
-  margin: 0 0 12px;
+  margin: 4px 0 14px;
   font-size: 13px;
   color: var(--texto-suave);
+  text-align: center;
 }
 .pie-acceso {
-  font-size: 12px;
-  color: var(--texto-suave);
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.78);
   text-align: center;
-  max-width: 420px;
+  max-width: 460px;
   margin: 0;
 }
 
@@ -138,6 +138,7 @@ label {
   font-weight: 600;
   color: var(--texto-suave);
   margin-top: 8px;
+  display: block;
 }
 .opcional {
   font-weight: 400;
@@ -164,8 +165,9 @@ input:read-only {
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--azul);
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--azul-medio);
   outline-offset: 1px;
 }
 textarea {
@@ -176,12 +178,15 @@ textarea {
 /* --- Botones -------------------------------------------------------- */
 
 .boton {
+  display: inline-block;
   border: 1px solid transparent;
   border-radius: 7px;
   padding: 9px 15px;
   font: inherit;
   font-size: 14px;
   font-weight: 600;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
   transition: filter 0.12s ease;
 }
@@ -197,6 +202,11 @@ textarea {
   color: #fff;
   margin-top: 14px;
 }
+@media (prefers-color-scheme: dark) {
+  .boton.primario {
+    color: #0b1a28;
+  }
+}
 .boton.sutil {
   background: transparent;
   border-color: var(--borde);
@@ -207,23 +217,54 @@ textarea {
   border-color: var(--peligro);
   color: var(--peligro);
 }
+.boton.dorado {
+  background: var(--dorado);
+  color: #3a2b06;
+}
 
 /* --- Cabecera ------------------------------------------------------- */
 
 .cabecera {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  padding: 12px 20px;
+  padding: 10px 20px;
   background: var(--superficie);
-  border-bottom: 1px solid var(--borde);
+  border-bottom: 3px solid var(--azul);
   flex-wrap: wrap;
+}
+.logo-cabecera {
+  height: 38px;
+  width: auto;
+}
+@media (prefers-color-scheme: dark) {
+  .logo-cabecera {
+    filter: brightness(1.9) saturate(0.65);
+  }
+}
+.cabecera-area {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--borde);
+  padding-left: 16px;
+  line-height: 1.3;
+}
+.cabecera-area strong {
+  font-size: 15px;
+  color: var(--azul);
+}
+.cabecera-area span {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dorado);
+  font-weight: 700;
 }
 .cabecera-acciones {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 .usuario-activo {
   font-size: 13px;
@@ -244,8 +285,8 @@ textarea {
 .pestana {
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  padding: 10px 14px;
+  border-bottom: 3px solid transparent;
+  padding: 11px 14px;
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -255,7 +296,7 @@ textarea {
 }
 .pestana.activa {
   color: var(--azul);
-  border-bottom-color: var(--azul);
+  border-bottom-color: var(--dorado);
 }
 .contador {
   display: inline-block;
@@ -268,7 +309,13 @@ textarea {
   text-align: center;
   margin-left: 4px;
 }
-.contador.cero {
+@media (prefers-color-scheme: dark) {
+  .contador {
+    color: #0b1a28;
+  }
+}
+.contador.cero,
+.contador.suave {
   background: var(--borde);
   color: var(--texto-suave);
 }
@@ -276,7 +323,7 @@ textarea {
 /* --- Contenido ------------------------------------------------------ */
 
 .contenido {
-  max-width: 1080px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 20px;
 }
@@ -284,7 +331,7 @@ textarea {
 .tarjeta {
   background: var(--superficie);
   border: 1px solid var(--borde);
-  border-left: 4px solid var(--azul);
+  border-left: 5px solid var(--azul);
   border-radius: var(--radio);
   box-shadow: var(--sombra);
   padding: 14px 16px;
@@ -311,11 +358,11 @@ textarea {
   flex-wrap: wrap;
 }
 .tarjeta h3 {
-  margin: 0 0 2px;
-  font-size: 15px;
+  margin: 0 0 4px;
+  font-size: 15.5px;
 }
 .tarjeta .detalle {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 13.5px;
   color: var(--texto-suave);
 }
@@ -349,7 +396,7 @@ textarea {
   border-color: rgba(15, 123, 79, 0.3);
 }
 .etiqueta.gold {
-  background: rgba(208, 163, 62, 0.12);
+  background: var(--dorado-claro);
   color: #8a6a1c;
   border-color: rgba(208, 163, 62, 0.4);
 }
@@ -381,6 +428,7 @@ textarea {
 .tarjeta-acciones .boton {
   padding: 7px 13px;
   font-size: 13.5px;
+  margin-top: 0;
 }
 .antiguedad {
   font-size: 12.5px;
@@ -393,7 +441,23 @@ textarea {
   font-weight: 600;
 }
 
-/* --- Tabla de atendidas --------------------------------------------- */
+/* Nombres de archivo que la Jefatura debe usar al escanear. */
+.archivos-esperados {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: var(--superficie-alt);
+  border: 1px dashed var(--azul-borde);
+  border-radius: 7px;
+  font-size: 12.5px;
+  list-style: none;
+}
+.archivos-esperados li {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  color: var(--azul);
+  word-break: break-all;
+}
+
+/* --- Tabla de listados ---------------------------------------------- */
 
 .tabla-envoltorio {
   overflow-x: auto;
@@ -425,6 +489,9 @@ table.listado td {
 }
 table.listado tr:last-child td {
   border-bottom: none;
+}
+table.listado tbody tr:hover {
+  background: var(--superficie-alt);
 }
 
 /* --- Estado vacío y ayuda ------------------------------------------- */
@@ -460,7 +527,7 @@ table.listado tr:last-child td {
   padding-left: 20px;
   line-height: 1.7;
 }
-.instructivo code {
+code {
   background: var(--azul-claro);
   border: 1px solid var(--azul-borde);
   border-radius: 4px;
@@ -503,20 +570,44 @@ table.listado tr:last-child td {
   border: 1px solid rgba(179, 38, 30, 0.3);
 }
 
-/* --- Diálogo -------------------------------------------------------- */
+/* --- Pie con el estado del sistema ---------------------------------- */
+
+.pie-sistema {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 4px 20px 24px;
+  font-size: 12px;
+  color: var(--texto-suave);
+  display: flex;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+}
+.pie-sistema .marca-pie {
+  margin-right: auto;
+}
+.pie-sistema b {
+  color: var(--texto);
+  font-weight: 600;
+}
+
+/* --- Diálogos ------------------------------------------------------- */
 
 dialog {
   border: 1px solid var(--borde);
-  border-radius: var(--radio);
+  border-radius: 12px;
   background: var(--superficie);
   color: var(--texto);
   padding: 20px 22px;
-  max-width: 480px;
+  max-width: 520px;
   width: calc(100% - 32px);
-  box-shadow: 0 12px 40px rgba(16, 24, 32, 0.25);
+  box-shadow: var(--sombra-alta);
+}
+dialog.ancho {
+  max-width: 1160px;
+  width: calc(100% - 24px);
 }
 dialog::backdrop {
-  background: rgba(16, 24, 32, 0.45);
+  background: rgba(5, 44, 88, 0.5);
 }
 dialog h2 {
   margin: 0 0 4px;
@@ -539,12 +630,158 @@ dialog h2 {
   margin-top: 0;
 }
 
+/* --- Expediente ----------------------------------------------------- */
+
+.expediente-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--borde);
+  padding-bottom: 12px;
+}
+.expediente-cuerpo {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.35fr);
+  gap: 18px;
+  margin-top: 14px;
+}
+.expediente-columna {
+  min-width: 0;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.expediente-formulario {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.formulario-barra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+}
+.formulario-barra .boton {
+  margin-top: 0;
+  margin-left: auto;
+}
+#exp-marco {
+  width: 100%;
+  height: 62vh;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.bloque {
+  margin-bottom: 16px;
+}
+.bloque > h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--texto-suave);
+}
+.filas {
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fila-dato {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 11px;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--borde);
+  background: var(--superficie);
+}
+.fila-dato:last-child {
+  border-bottom: none;
+}
+.fila-dato span {
+  color: var(--texto-suave);
+}
+.fila-dato b {
+  font-weight: 600;
+  text-align: right;
+}
+
+.constancia {
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--borde);
+  border-radius: 8px;
+  padding: 8px 11px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.constancia.cumplida {
+  border-left-color: var(--exito);
+}
+.constancia.pendiente {
+  border-left-color: var(--borde);
+  color: var(--texto-suave);
+}
+.constancia strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--azul);
+}
+
+.lista-documentos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13.5px;
+}
+.lista-documentos li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--borde);
+}
+.lista-documentos li:last-child {
+  border-bottom: none;
+}
+.lista-documentos a {
+  color: var(--azul-medio);
+}
+.miniatura-adjunto {
+  height: 42px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  background: #fff;
+  padding: 2px;
+}
+
+@media (max-width: 900px) {
+  .expediente-cuerpo {
+    grid-template-columns: 1fr;
+  }
+  .expediente-columna,
+  #exp-marco {
+    max-height: none;
+    height: 70vh;
+  }
+  .expediente-columna {
+    height: auto;
+  }
+}
+
 /* --- Diálogo de alta en SAFI ---------------------------------------- */
 
 /* Lleva bastantes más campos que el de revisión, y conviene verlos todos a la
    vez: son los que quedarán escritos en el CRM. */
 #dialogo-safi {
-  max-width: 640px;
+  max-width: 680px;
 }
 
 .grupo-campos {
@@ -585,25 +822,25 @@ dialog h2 {
   line-height: 1.45;
 }
 .nota-safi.peligro {
-  background: color-mix(in srgb, var(--peligro) 10%, var(--superficie));
   border-color: var(--peligro);
   color: var(--peligro);
+  background: rgba(179, 38, 30, 0.08);
 }
 
 /* Un valor que el tarifario del Club exige y la lista de SAFI todavía no
-   tiene. Se muestra en lugar de ocultarse: dice qué hay que añadir al CRM. */
+   tiene, o una comprobación que impide crear el socio. */
 .aviso-safi {
   margin-bottom: 8px;
   padding: 9px 11px;
   border-radius: 7px;
   border: 1px solid var(--alerta);
-  background: color-mix(in srgb, var(--alerta) 10%, var(--superficie));
+  background: rgba(176, 106, 0, 0.08);
   font-size: 13px;
   line-height: 1.45;
 }
 .aviso-safi.bloquea {
   border-color: var(--peligro);
-  background: color-mix(in srgb, var(--peligro) 10%, var(--superficie));
+  background: rgba(179, 38, 30, 0.08);
 }
 .aviso-safi strong {
   display: block;
@@ -623,12 +860,12 @@ dialog h2 {
   left: 50%;
   bottom: 22px;
   transform: translateX(-50%);
-  background: var(--texto);
-  color: var(--fondo);
+  background: var(--azul-oscuro);
+  color: #fff;
   padding: 10px 18px;
   border-radius: 22px;
   font-size: 14px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--sombra-alta);
   z-index: 10;
   max-width: calc(100% - 32px);
   text-align: center;
@@ -641,10 +878,17 @@ dialog h2 {
   .cabecera {
     padding: 10px 14px;
   }
+  .cabecera-area {
+    border-left: none;
+    padding-left: 0;
+  }
   .pestanas {
     padding: 0 14px;
   }
   .antiguedad {
     margin-left: 0;
+  }
+  .pie-sistema {
+    padding: 4px 14px 20px;
   }
 }

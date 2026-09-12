@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 /**
@@ -18,10 +19,40 @@ function entero(clave: string, porDefecto: number): number {
   return Number.isFinite(valor) && valor > 0 ? Math.trunc(valor) : porDefecto;
 }
 
+function booleano(clave: string, porDefecto: boolean): boolean {
+  const valor = (process.env[clave] ?? "").trim().toLowerCase();
+  if (!valor) return porDefecto;
+  return valor === "true" || valor === "1" || valor === "si" || valor === "sí";
+}
+
+/**
+ * Navegador con el que se imprime el formulario final en PDF.
+ *
+ * Es el mismo motor —Chromium— con el que la tableta imprime el formulario, de
+ * modo que el documento archivado es idéntico al que se vio en pantalla. En el
+ * contenedor lo instala el Dockerfile; fuera de él se busca en las rutas
+ * habituales, o se indica con `PDF_NAVEGADOR`.
+ */
+function localizarNavegador(): string {
+  const indicado = texto("PDF_NAVEGADOR", "");
+  if (indicado) return indicado;
+  const candidatos = [
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome",
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  ];
+  return candidatos.find((ruta) => fs.existsSync(ruta)) ?? "";
+}
+
 const enProduccion = texto("NODE_ENV", "production") === "production";
 
 /** Directorio de datos: base SQLite, expedientes y respaldos. */
 const datosDir = texto("DATOS_DIR", "/datos");
+
+/** Carpeta compartida de escaneos. */
+const escaneosDir = texto("ESCANEOS_DIR", "/escaneos");
 
 const urlPublica = texto("URL_PUBLICA", "http://localhost:8080");
 
@@ -74,21 +105,53 @@ export const config = {
   baseDatos: path.join(datosDir, "campina.db"),
   /** Repositorio digital de expedientes, organizado por socio. */
   expedientesDir: texto("EXPEDIENTES_DIR", path.join(datosDir, "expedientes")),
+  /**
+   * Firmas y fotografías que entrega la tableta, una carpeta por trámite.
+   *
+   * Existen desde el registro, antes de que el trámite tenga número de socio
+   * —y por tanto antes de que tenga carpeta en el repositorio—. De aquí salen
+   * las firmas del formulario y la fotografía que se archiva al aprobarse.
+   */
+  tramitesDir: path.join(datosDir, "tramites"),
 
   /**
    * Carpeta compartida (SMB) donde la Jefatura de Socios deposita los escaneos.
-   * El servidor solo lee de aquí y mueve lo que reconoce al repositorio.
+   * El servidor archiva lo que reconoce y nunca borra nada de aquí: lo archivado
+   * pasa a `_ARCHIVADOS/`, lo dudoso a `_REVISAR/`, y lo que espera su trámite
+   * se queda donde está.
    */
-  escaneosDir: texto("ESCANEOS_DIR", "/escaneos"),
+  escaneosDir,
   /** Subcarpeta a la que van los archivos con nombre no reconocido. */
-  escaneosRevisarDir: texto("ESCANEOS_REVISAR_DIR", "/escaneos/_REVISAR"),
+  escaneosRevisarDir: texto("ESCANEOS_REVISAR_DIR", path.join(escaneosDir, "_REVISAR")),
+  /**
+   * Subcarpeta a la que pasa el original de lo ya archivado.
+   *
+   * Antes el original se borraba tras copiarlo al repositorio: para quien
+   * miraba la carpeta compartida, el documento simplemente desaparecía. Ahora
+   * queda a la vista, en su carpeta de socio, y la Jefatura decide cuándo
+   * limpiar.
+   */
+  escaneosArchivadosDir: texto(
+    "ESCANEOS_ARCHIVADOS_DIR",
+    path.join(escaneosDir, "_ARCHIVADOS")
+  ),
   /** Cada cuántos segundos se recorre la carpeta compartida. */
   intervaloVigilanciaSeg: entero("INTERVALO_VIGILANCIA_SEG", 30),
 
   /** Secreto para firmar la cookie de sesión. */
   secretoSesion: texto("SECRETO_SESION", enProduccion ? "" : "desarrollo-no-usar-en-produccion"),
-  /** Duración de la sesión, en horas. */
+  /** Duración de la sesión de los navegadores de las tres áreas, en horas. */
   horasSesion: entero("HORAS_SESION", 10),
+  /**
+   * Duración de la sesión de la tableta del Área de Socios, en horas (30 días
+   * por defecto). La tableta envía sola lo que registra: con una sesión de
+   * jornada dejaba de enviar cada mañana hasta que alguien volvía a iniciarla.
+   * Si la tableta se extravía, `usuario.js sesiones <usuario>` las revoca.
+   */
+  horasSesionTableta: entero("HORAS_SESION_TABLETA", 720),
+
+  /** Navegador para imprimir el formulario final. Vacío: no se genera el PDF. */
+  pdfNavegador: localizarNavegador(),
 
   /**
    * Modo de publicación en el CRM de SAFI.
@@ -108,6 +171,26 @@ export const config = {
   safiBaseUrl: texto("SAFI_BASE_URL", ""),
   safiUsuario: texto("SAFI_USUARIO", ""),
   safiClave: texto("SAFI_CLAVE", ""),
+  /**
+   * Si el sistema puede ESCRIBIR en SAFI: crear Cuentas, fichas de Socio y
+   * Documentos.
+   *
+   * **Por defecto, no.** Con `SAFI_MODO=API` y la escritura apagada el sistema
+   * lee del CRM —listas de valores, comprobación de números y cédulas ya
+   * existentes, la Cuenta del titular de un dependiente— pero no crea nada: el
+   * alta la hace la Jefatura a mano, con los valores que el panel le muestra, y
+   * registra los identificadores. Se enciende con `SAFI_ESCRITURA=true` una vez
+   * comprobado el primer alta, y no antes: SAFI es el sistema en producción del
+   * Club.
+   */
+  safiEscritura: booleano("SAFI_ESCRITURA", false),
+  /**
+   * Contraseña del usuario de la integración, SOLO para el plan B de los
+   * documentos: si la API del CRM no admitiera adjuntar archivos, se suben
+   * replicando el formulario del navegador, que exige contraseña y no clave de
+   * acceso. Opcional.
+   */
+  safiClaveWeb: texto("SAFI_CLAVE_WEB", ""),
   /** Cada cuántos segundos se reintenta la cola de publicación en SAFI. */
   intervaloSafiSeg: entero("INTERVALO_SAFI_SEG", 120),
 

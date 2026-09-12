@@ -1,8 +1,14 @@
-import { formularioPara, type VarianteFormulario } from "../../domain/tiposMiembro";
 import type { SolicitudAfiliacion } from "../../domain/solicitud";
+import {
+  CATALOGO_TIPOS,
+  FORMULARIO_PRINCIPAL,
+  hojaSolicitudPara,
+  tituloFormularioPrincipal,
+  type HojaSolicitud,
+} from "../../domain/tiposMiembro";
 import { paginaCarta } from "./cartas";
 import { ESTILOS_FORMULARIO } from "./estilos";
-import { paginasFicha } from "./layoutFicha";
+import { paginaPrincipal, paginasGeneral } from "./layoutFicha";
 import { paginasSolicitud } from "./layoutSolicitud";
 import { paginacion, pie } from "./piezas";
 import { paginaReverso } from "./reverso";
@@ -12,42 +18,58 @@ export { recursosVacios } from "./tipos";
 export type { RecursosFormulario } from "./tipos";
 
 /**
- * Construye el formulario de ingreso completo de una solicitud, tal como se
- * imprime hoy en papel: el anverso con los datos del socio, la hoja de garantes
- * cuando el tipo la exige, la carta de compromiso cuando corresponde, y el
- * reverso con la INFORMACIÓN INTERNA DEL CLUB.
+ * Construye el trámite completo de una solicitud, tal como se archiva:
  *
- * Es el documento que se archiva en el expediente digital y se carga a la
- * sección Documentos del módulo Cuenta del CRM de SAFI.
+ *   1. El R-PGS1-1, formulario principal común a todas las categorías.
+ *   2. La hoja de solicitud de ingreso de su categoría, con los recuadros de
+ *      cónyuge, hijos y garantes que esa hoja tenga. El Socio Activo no lleva:
+ *      su R-PGS1-1 ya es su solicitud.
+ *   3. La carta de compromiso, cuando la categoría la exige.
+ *   4. El reverso con la INFORMACIÓN INTERNA DEL CLUB y las tres constancias.
+ *
+ * Es código puro —no toca el sistema de archivos ni la red— y lo usan tanto la
+ * tableta, que lo imprime con el sistema del dispositivo, como el servidor, que
+ * lo sirve a la bandeja y lo archiva en el expediente al aprobarse el ingreso.
+ * Así el documento que ve la Gerencia es exactamente el que se generó en la
+ * tableta, con las constancias que se hayan ido sumando.
  */
 
 export type ResultadoFormulario = {
   html: string;
-  /** Código del registro de calidad del formulario emitido (p. ej. `R-PGS1-8`). */
+  /** Códigos de los documentos incluidos (p. ej. `R-PGS1-1 · R-PGS1-8`). */
   codigoRegistro: string;
-  /** Título del formulario, tal como consta en su encabezado. */
+  /** Título del formulario principal. */
   titulo: string;
   paginas: number;
 };
 
-export function variantePara(solicitud: SolicitudAfiliacion): VarianteFormulario | null {
-  return formularioPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
+/** Hoja de solicitud que acompaña al R-PGS1-1 de esta solicitud, si lleva. */
+export function hojaDe(solicitud: SolicitudAfiliacion): HojaSolicitud | null {
+  return hojaSolicitudPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
 }
 
 export function construirFormulario(
   solicitud: SolicitudAfiliacion,
   recursos: RecursosFormulario
 ): ResultadoFormulario | null {
-  const variante = variantePara(solicitud);
-  if (!variante) return null;
+  const tipo = solicitud.datos.tipoMiembro;
+  if (!tipo) return null;
 
-  const contenido =
-    variante.layout === "FICHA"
-      ? paginasFicha(solicitud, variante, recursos)
-      : paginasSolicitud(solicitud, variante, recursos);
+  const hoja = hojaDe(solicitud);
+  const hojas = hoja
+    ? hoja.layout === "GENERAL"
+      ? paginasGeneral(solicitud, hoja, recursos)
+      : paginasSolicitud(solicitud, hoja, recursos)
+    : [];
 
-  const carta = paginaCarta(solicitud, recursos);
-  const paginas = [...contenido, ...(carta ? [carta] : []), paginaReverso(solicitud, recursos, variante.codigo)];
+  const carta = CATALOGO_TIPOS[tipo].cartaCompromiso ? paginaCarta(solicitud, recursos) : null;
+
+  const paginas = [
+    paginaPrincipal(solicitud, recursos),
+    ...hojas,
+    ...(carta ? [carta] : []),
+    paginaReverso(solicitud, recursos, FORMULARIO_PRINCIPAL.codigo),
+  ];
 
   const cuerpo = paginas
     .map(
@@ -59,11 +81,14 @@ export function construirFormulario(
     )
     .join("");
 
+  const titulo = tituloFormularioPrincipal(tipo);
+  const codigos = [FORMULARIO_PRINCIPAL.codigo, ...(hoja ? [hoja.codigo] : [])].join(" · ");
+
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8" />
-    <title>${escaparTitulo(variante.titulo)}</title>
+    <title>${escaparTitulo(`${solicitud.codigo} · ${codigos}`)}</title>
     <style>${ESTILOS_FORMULARIO}</style></head><body>${cuerpo}</body></html>`;
 
-  return { html, codigoRegistro: variante.codigo, titulo: variante.titulo, paginas: paginas.length };
+  return { html, codigoRegistro: codigos, titulo, paginas: paginas.length };
 }
 
 function escaparTitulo(valor: string): string {

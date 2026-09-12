@@ -1,11 +1,13 @@
 # Servidor de afiliación de socios — Club La Campiña
 
-Backend de la solución descrita en el informe **CLC-TI-010**. Reúne tres piezas:
+Backend de la solución descrita en el informe **CLC-TI-010**. Reúne cuatro
+piezas:
 
 | Pieza | Qué hace |
 | --- | --- |
-| **API** | La consume la aplicación móvil del Área de Socios para registrar afiliaciones y subir documentos. |
-| **Bandeja de tareas** | Interfaz web para Contabilidad y Gerencia: revisar y aprobar el ingreso de cada socio. |
+| **API** | La consume la aplicación móvil del Área de Socios: registra afiliaciones con sus firmas y su fotografía, y le devuelve el avance de cada trámite. |
+| **Bandeja de tareas** | Interfaz web de las tres áreas: el Área de Socios crea al socio en SAFI, Contabilidad revisa y la Gerencia aprueba, cada una viendo el formulario del trámite. |
+| **Generador del formulario** | Compone el R-PGS1-1, la hoja de solicitud de la categoría, la carta de compromiso y el reverso, con las firmas capturadas en la tableta, y lo imprime en PDF. |
 | **Repositorio digital** | Archiva los expedientes, vigila la carpeta compartida de escaneos y los publica en el CRM de SAFI. |
 
 ---
@@ -21,14 +23,23 @@ versión 22.5, de modo que la imagen no necesita cadena de compilación y toda l
 base de datos es un solo archivo: respaldarla es copiarla.
 
 **Un solo dominio para todo.** El servidor importa el mismo TypeScript que la
-aplicación móvil (`src/domain/`): los tipos de socio, las reglas de cada
-formulario y la convención de nombres del repositorio se declaran una vez. Si el
-Club modifica un formulario, la app y el servidor se alinean solos.
+aplicación móvil (`src/domain/`) y el mismo generador de formularios
+(`src/services/formularios/`): los tipos de socio, las reglas de cada
+formulario, la convención de nombres del repositorio y el propio documento se
+declaran una vez. El formulario que ve la Gerencia es el mismo que se firmó en
+la tableta.
 
-**Nunca archiva a ciegas.** Un documento archivado en el expediente de otro
-socio es un incidente de protección de datos. Lo que el vigilante no puede
-clasificar sin ambigüedad se traslada a `_REVISAR/` —nunca se borra— y genera una
-tarea en la bandeja del Área de Socios explicando qué corregir.
+**Nunca archiva a ciegas y nunca borra.** Un documento archivado en el
+expediente de otro socio es un incidente de protección de datos. Lo que el
+vigilante no puede clasificar sin ambigüedad se aparta a `_REVISAR/`; lo que
+archiva deja su original en `_ARCHIVADOS/`; lo que todavía no corresponde a
+ningún trámite se queda donde está, en espera. Las tres situaciones generan
+tarea en la bandeja del Área de Socios.
+
+**Escribir en SAFI se habilita a propósito.** SAFI es el sistema en producción
+del Club. Con `SAFI_ESCRITURA=false` —el valor por defecto— el sistema lee del
+CRM y avisa de duplicados, pero el alta la hace una persona y registra los
+identificadores. Ver la sección 6.
 
 ---
 
@@ -41,6 +52,9 @@ tarea en la bandeja del Área de Socios explicando qué corregir.
 - **Nada de certificado TLS.** Es un servidor interno y la bandeja se publica
   por HTTP plano, directo en la LAN. El nombre de host ya existe: es el mismo
   que resuelve GLPI. Ver sección 3.6.
+- **~1 GB de memoria para el contenedor.** En reposo ocupa unos 80 MB; el resto
+  es margen para el Chromium que imprime el formulario, que se abre unos
+  segundos por trámite y se cierra.
 - Node 22.5 o superior, **solo** si se ejecuta fuera de contenedor.
 
 ---
@@ -50,12 +64,18 @@ tarea en la bandeja del Área de Socios explicando qué corregir.
 ### 3.1 Preparar el servidor
 
 ```bash
-sudo mkdir -p /srv/campina/{datos,escaneos/_REVISAR}
-sudo useradd -r -u 1500 -s /usr/sbin/nologin campina
+sudo mkdir -p /srv/campina/{datos,escaneos/_REVISAR,escaneos/_ARCHIVADOS}
+sudo groupadd -g 1500 campina
+sudo useradd -r -u 1500 -g 1500 -s /usr/sbin/nologin campina
 sudo chown -R 1500:1500 /srv/campina
 sudo chmod 750 /srv/campina/datos      # el expediente no es de lectura pública
 sudo chmod 2770 /srv/campina/escaneos  # setgid: lo que deje el escáner hereda el grupo
 ```
+
+El identificador **1500 no es decorativo**: es el mismo con el que corre el
+usuario dentro del contenedor (ver `Dockerfile`). Con otro identificador el
+servicio no podría escribir en `/srv/campina/datos` ni retirar de la carpeta
+compartida lo que ya archivó.
 
 ### 3.2 Desplegar el código
 
@@ -75,8 +95,12 @@ Comprobación:
 
 ```bash
 curl -s http://127.0.0.1:8080/api/salud
-# {"ok":true,"safiModo":"MANUAL","vigilanciaActiva":true,...}
+# {"ok":true,"safiModo":"MANUAL","safiEscritura":false,"pdfDisponible":true,"vigilanciaActiva":true,...}
 ```
+
+`pdfDisponible: true` significa que el contenedor tiene su Chromium y puede
+imprimir el formulario final. Si saliera `false`, el sistema funciona igual pero
+ese PDF habría que guardarlo a mano desde el navegador (la bandeja lo indica).
 
 ### 3.3 Crear los usuarios de cada área
 
@@ -92,11 +116,17 @@ $D node dist/server/src/cli/usuario.js crear gerencia      "NOMBRE APELLIDO" GER
 
 $D node dist/server/src/cli/usuario.js listar
 $D node dist/server/src/cli/usuario.js clave contabilidad   # restablecer una contraseña
+$D node dist/server/src/cli/usuario.js sesiones             # sesiones abiertas por usuario
+$D node dist/server/src/cli/usuario.js sesiones socios      # cerrarlas (tableta extraviada)
 ```
 
 El nombre que se registre aquí es el que quedará impreso en la constancia
 «Revisado» o «Aprobado» del reverso del formulario, así que debe ser el del
 funcionario real, no un genérico.
+
+La tableta usa el usuario del Área de Socios y recibe una **sesión de 30 días**
+(`HORAS_SESION_TABLETA`), porque envía sola lo que registra; los navegadores de
+las tres áreas usan la sesión corta de siempre (`HORAS_SESION`, 10 horas).
 
 ### 3.4 Publicar la carpeta de escaneos por Samba
 
@@ -112,7 +142,8 @@ En `/etc/samba/smb.conf`:
    force group = campina
    create mask = 0660
    directory mask = 2770
-   # El vigilante retira los archivos ya archivados; no hace falta papelera.
+   # El servidor no borra nada: mueve lo archivado a _ARCHIVADOS/ y lo dudoso
+   # a _REVISAR/. No hace falta papelera.
    vfs objects =
 ```
 
@@ -126,7 +157,17 @@ sudo systemctl restart smbd
 En el equipo de la Jefatura de Socios, conectar una unidad de red a
 `\\<ip-del-servidor>\escaneos-socios` y configurar el escáner para que guarde
 ahí. La convención de nombres está en la pestaña **«Cómo escanear»** de la propia
-bandeja, con un comprobador que valida un nombre antes de escanear.
+bandeja, con un comprobador que valida un nombre antes de escanear y dice a qué
+trámite corresponde.
+
+Dentro de esa carpeta aparecen tres cosas, y conviene explicárselas a la
+Jefatura:
+
+| Carpeta | Qué es |
+| --- | --- |
+| (raíz) | Lo recién escaneado. Si un archivo se queda aquí, la bandeja dice por qué. |
+| `_ARCHIVADOS/<carpeta del socio>/` | Lo ya archivado en el expediente. El original se conserva a la vista; se puede vaciar cuando se quiera. |
+| `_REVISAR/` | Lo que el sistema no pudo identificar. Cada archivo tiene su tarea explicando qué corregir. |
 
 ### 3.5 Publicar el repositorio de expedientes en solo lectura
 
@@ -155,11 +196,8 @@ en la carpeta de escaneos; el repositorio ya archivado solo se mira.
 sudo systemctl restart smbd
 ```
 
-En el equipo de la Jefatura, conectar una segunda unidad de red a
-`\\<ip-del-servidor>\expedientes-socios`.
-
 Este compartido **no sustituye al respaldo**: la copia diaria de `/srv/campina/datos`
-(sección 6) sigue siendo la que protege ante una pérdida del servidor.
+(sección 4) sigue siendo la que protege ante una pérdida del servidor.
 
 ### 3.6 Cómo se publica: directo, sin proxy ni TLS
 
@@ -233,17 +271,33 @@ $C up -d
 /srv/campina/
 ├── datos/
 │   ├── campina.db                          Base SQLite (usuarios, trámites, bitácora)
+│   ├── tramites/                           Firmas y fotografía que envía la tableta
+│   │   └── <id del trámite>/
+│   │       ├── firma_solicitante.png
+│   │       ├── firma_garante_1.png
+│   │       └── foto_carnet.jpg
 │   └── expedientes/                        Samba: SOLO LECTURA
 │       └── 280 COQUE VEGA JOEL SEBASTIAN/  Una carpeta por socio titular
-│           ├── 280 COQUE VEGA JOEL SEBASTIAN.pdf            Formulario + carta
+│           ├── 280 COQUE VEGA JOEL SEBASTIAN.pdf         Formulario completo
+│           ├── 280 COQUE VEGA JOEL SEBASTIAN FOTO.jpg
 │           ├── 280 COQUE VEGA JOEL SEBASTIAN CEDULA.pdf
-│           └── 280-1 COQUE VEGA ANA MARIA CEDULA.pdf        Documento del dependiente
+│           ├── 280-1 COQUE VEGA ANA MARIA CEDULA.pdf     Documento del dependiente
+│           └── _ANTERIORES/                Versiones sustituidas, con su fecha
 └── escaneos/                               Samba: lectura y escritura
+    ├── _ARCHIVADOS/                        Originales ya archivados
     └── _REVISAR/                           Lo que el vigilante no supo clasificar
 ```
 
 La carpeta del socio titular es la unidad que corresponde a una **Cuenta** del
-CRM de SAFI: lo que se archiva aquí es exactamente lo que se publica allá.
+CRM de SAFI: lo que se archiva aquí es exactamente lo que se publica allá. La
+carpeta se identifica por el número, no por el nombre: si ya existe una que
+empieza por «280 », es esa, aunque el nombre del titular se haya escrito de otro
+modo en el trámite de un dependiente.
+
+**Nada se pierde al reemplazar.** Si llega una versión nueva de un documento ya
+archivado —una cédula reescaneada, el formulario final que sustituye a uno
+anterior— la versión previa se conserva en `_ANTERIORES/` con la fecha en el
+nombre.
 
 Este repositorio es, además, **el respaldo del expediente digital**: el mismo
 documento queda en dos sitios independientes, aquí y en el módulo Documentos de
@@ -257,28 +311,33 @@ diaria de la sección 4.
 SAFI es un **vTiger 7**. El contrato quedó levantado y verificado creando
 registros de prueba reales; el detalle completo está en `SAFI-INTEGRACION.md`.
 
-El servidor opera en tres modos, según `SAFI_MODO`:
+El servidor opera en tres modos, según `SAFI_MODO`, y en cada uno la escritura
+se habilita aparte con `SAFI_ESCRITURA`:
 
 - **`API`** — el modo de trabajo. Usa `webservice.php`, la interfaz REST de
-  vTiger. No depende del HTML ni del token anti-CSRF, y además lee del propio
-  CRM las listas de valores con `operation=describe`, de modo que un valor que
-  el Club añada allá aparece en el panel sin tocar el código.
-  `SAFI_CLAVE` debe ser la **clave de acceso** (Access Key) del usuario, que
-  está en el CRM bajo Mis Preferencias → Detalles del usuario. No es su
+  vTiger. `SAFI_CLAVE` debe ser la **clave de acceso** (Access Key) del usuario,
+  que está en el CRM bajo Mis Preferencias → Detalles del usuario. No es su
   contraseña.
 
 - **`HTTP`** — plan B, por si el servicio web estuviera deshabilitado en la
-  instalación. Replica la petición que el propio navegador envía al guardar,
-  leyendo el token anti-CSRF antes de cada envío. Aquí `SAFI_CLAVE` sí es la
-  contraseña.
+  instalación. Replica la petición que el propio navegador envía al guardar.
+  Aquí `SAFI_CLAVE` sí es la contraseña.
 
 - **`MANUAL`** — sin integración. El expediente queda completo y ordenado en el
   repositorio, y la bandeja del Área de Socios muestra qué está pendiente de
-  subir. Es el valor por defecto para que un despliegue sin credenciales
-  arranque igual.
+  subir.
 
-Cambiar de modo no requiere tocar nada más: los documentos ya archivados se
-reencolan y se publican.
+### La escritura se enciende cuando usted lo decida
+
+| `SAFI_ESCRITURA` | Qué hace el sistema |
+| --- | --- |
+| `false` (por defecto) | **Lee** del CRM: listas de valores, números de socio y cédulas ya usados, la Cuenta del titular de un dependiente, y comprueba los identificadores que se le transcriben. **No crea nada.** El alta la hace la Jefatura en el CRM y registra en el panel los identificadores que SAFI le asignó. |
+| `true` | El panel crea la **Cuenta** (solo si la persona es titular) y su ficha de **Socio**; el expediente aprobado se publica en **Documentos**. |
+
+Antes de encenderla conviene: `Cómo escanear → Comprobar la conexión` en la
+bandeja del Área de Socios (comprueba saludo, acceso, lectura de los tres
+módulos y si la API admite relacionar documentos), y una afiliación de prueba
+completa con la escritura apagada.
 
 ### Cuidado con el puerto
 
@@ -292,20 +351,19 @@ Incorrecto   http://192.168.2.100/saficrm_clubcampina_75
 ```
 
 El servidor lo comprueba al arrancar y se niega a levantar con una dirección sin
-puerto. Para diagnosticar en caliente, `GET /api/safi/diagnostico` recorre el
-saludo y el acceso paso a paso y dice en cuál falla; la bandeja del Área de
-Socios lo expone como un botón en la pestaña «Cómo escanear».
+puerto.
 
 ### Cuándo se escribe en SAFI
 
 El alta la dispara el Área de Socios desde su bandeja, justo después de que la
-tableta registre la afiliación y antes de que Contabilidad revise —porque
+tableta registre la afiliación y **antes** de que Contabilidad revise —porque
 Contabilidad revisa comprobando el ingreso en el CRM—. El panel recoge el número
-de socio y los campos que SAFI guarda como listas cerradas, y al confirmar crea
-la **Cuenta** (solo si la persona es titular) y su ficha de **Socio**.
+de socio y los campos que SAFI guarda como listas cerradas, comprueba en el CRM
+que nada esté duplicado, y al confirmar crea la Cuenta y la ficha de Socio.
 
-Los documentos del expediente se publican después, contra la Cuenta, cuando la
-Gerencia aprueba.
+Los documentos del expediente se publican **solo cuando la Gerencia aprueba**:
+antes de eso una afiliación puede devolverse o anularse, y su expediente no debe
+quedar en el CRM.
 
 ---
 
@@ -315,23 +373,31 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 
 | Método | Ruta | Área | Qué hace |
 | --- | --- | --- | --- |
-| `POST` | `/api/sesion` | — | Inicia sesión. Devuelve cookie firmada. |
+| `POST` | `/api/sesion` | — | Inicia sesión. `dispositivo: "tableta"` pide la sesión larga. |
 | `DELETE` | `/api/sesion` | cualquiera | Cierra la sesión. |
-| `GET` | `/api/bandeja` | cualquiera | Tareas pendientes y atendidas del área. |
+| `GET` | `/api/bandeja` | cualquiera | Tareas pendientes, lo que viene en camino y lo atendido. |
 | `GET` | `/api/solicitudes` | cualquiera | Listado de trámites. |
-| `GET` | `/api/solicitudes/:id` | cualquiera | Expediente completo y sus documentos. |
-| `POST` | `/api/solicitudes` | Socios | Registra una afiliación desde la tableta. |
-| `POST` | `/api/solicitudes/:id/numeros` | Socios | Número de socio y de tarjeta. |
-| `GET` | `/api/solicitudes/:id/safi` | Socios | Propuesta, listas de valores del CRM y avisos para el alta. |
-| `POST` | `/api/solicitudes/:id/safi` | Socios | Confirma los campos y crea la Cuenta y el Socio en SAFI. |
+| `GET` | `/api/solicitudes/:id` | cualquiera | Expediente completo: datos, tareas, adjuntos y documentos. |
+| `POST` | `/api/solicitudes` | Socios | Registra una afiliación con sus firmas (idempotente). |
+| `POST` | `/api/solicitudes/:id/adjuntos` | Socios | Fotografía o firma que envía la tableta. |
+| `GET` | `/api/solicitudes/:id/adjuntos/:rol` | cualquiera | Firma o fotografía, para verla en la bandeja. |
+| `POST` | `/api/tableta/avance` | Socios | Estado y constancias de los trámites que la tableta ya envió. |
+| `GET` | `/api/solicitudes/:id/formulario` | cualquiera | El formulario completo en pantalla. |
+| `GET` | `/api/solicitudes/:id/formulario.pdf` | cualquiera | El mismo formulario, impreso en PDF. |
+| `POST` | `/api/solicitudes/:id/formulario-final` | Socios | Reintenta archivar el formulario final. |
+| `GET` | `/api/solicitudes/:id/safi` | Socios | Propuesta, listas del CRM y comprobación de duplicados. |
+| `POST` | `/api/solicitudes/:id/safi` | Socios | Confirma y crea la Cuenta y el Socio (o registra el alta manual). |
 | `GET` | `/api/safi/diagnostico` | Socios | Comprueba la conexión con el CRM paso a paso. |
 | `POST` | `/api/solicitudes/:id/revisar` | Contabilidad | Constancia REVISADO + casilla FC (opcional). |
-| `POST` | `/api/solicitudes/:id/aprobar` | Gerencia | Constancia APROBADO. |
+| `POST` | `/api/solicitudes/:id/aprobar` | Gerencia | Constancia APROBADO; archiva el formulario final. |
 | `POST` | `/api/solicitudes/:id/observar` | Contabilidad, Gerencia | Devuelve el trámite con observación. |
-| `POST` | `/api/expediente/:id/documentos` | Socios | Sube un documento capturado. |
-| `GET` | `/api/expediente/documentos/:archivoId` | cualquiera | Descarga un documento. |
+| `POST` | `/api/solicitudes/:id/reenviar` | Socios | Atiende la observación y lo devuelve a quien lo devolvió. |
+| `POST` | `/api/solicitudes/:id/anular` | Socios | Anula un trámite que no procede. |
+| `POST` | `/api/solicitudes/:id/tarjeta` | Socios | Número de la credencial. |
+| `POST` | `/api/solicitudes/:id/safi/documentos-a-mano` | Socios | Constancia de carga manual en el CRM. |
+| `GET` | `/api/expediente/documentos/:archivoId` | cualquiera | Descarga un documento archivado. |
 | `POST` | `/api/escaneos/revisar` | Socios | Fuerza una pasada del vigilante. |
-| `GET` | `/api/escaneos/comprobar?nombre=` | Socios | Valida un nombre de archivo. |
+| `GET` | `/api/escaneos/comprobar?nombre=` | Socios | Valida un nombre de archivo y dice a quién corresponde. |
 | `POST` | `/api/safi/reintentar` | Socios | Reintenta la cola de publicación. |
 | `GET` | `/api/salud` | — | Estado del servicio. |
 
@@ -341,15 +407,19 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 
 - Las contraseñas se almacenan con `scrypt` y una sal por usuario; la
   comparación es de tiempo constante.
-- La cookie de sesión es `httpOnly`, `sameSite=lax` y `secure` en producción, y
-  solo contiene el identificador de una sesión almacenada en la base: el
-  servidor puede revocarla en cualquier momento.
+- La cookie de sesión es `httpOnly`, `sameSite=lax` y `secure` cuando la
+  publicación es por HTTPS, y solo contiene el identificador de una sesión
+  almacenada en la base: el servidor puede revocarla en cualquier momento
+  (`usuario.js sesiones <usuario>`).
 - Toda actuación sobre un expediente —consulta, descarga, revisión, aprobación,
-  archivo de un escaneo— queda en la tabla `bitacora` con fecha, hora, usuario y
-  área. Es la evidencia que exige la LOPDP.
+  archivo de un escaneo, alta en SAFI— queda en la tabla `bitacora` con fecha,
+  hora, usuario y área. Es la evidencia que exige la LOPDP.
 - El registro del servidor no escribe cédulas ni nombres: los datos personales
   viven en la base, no en los logs.
 - El contenedor corre como usuario sin privilegios y con `no-new-privileges`.
+  El Chromium que imprime el formulario se lanza sin acceso a la red: la página
+  que abre es HTML generado por el propio servidor, con las imágenes
+  incrustadas.
 
 ---
 
@@ -364,8 +434,10 @@ export DATOS_DIR=./.datos ESCANEOS_DIR=./.escaneos
 export SECRETO_SESION=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 export NODE_ENV=development PUERTO=8080
 
-node dist/server/src/cli/usuario.js crear socios "PRUEBA LOCAL" SOCIOS clave123
+node dist/server/src/cli/usuario.js crear socios "PRUEBA LOCAL" SOCIOS clave123456
 npm start
 ```
 
-La bandeja queda en `http://localhost:8080`.
+La bandeja queda en `http://localhost:8080`. Fuera del contenedor, el formulario
+en PDF necesita un Chromium instalado: el servidor lo busca en las rutas
+habituales y, si hace falta, se indica con `PDF_NAVEGADOR`.

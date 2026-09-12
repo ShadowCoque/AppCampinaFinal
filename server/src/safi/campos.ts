@@ -24,15 +24,25 @@ export const MODULOS = {
   socio: "Contacts",
   /** «Documentos»: los archivos del expediente. */
   documento: "Documents",
+  /** Carpetas de documentos: SAFI tiene una sola, «Default». */
+  carpetaDocumentos: "DocumentFolders",
 } as const;
 
-/** vTiger espera las fechas en el formato configurado para el usuario. */
-export const FORMATO_FECHA_SAFI = "dd-mm-yyyy";
+/**
+ * Formato de las fechas, que depende de por dónde se escriba:
+ *
+ *   · El **formulario HTML** (modo HTTP) espera el formato configurado para el
+ *     usuario del CRM, `dd-mm-yyyy`, igual que lo teclearía una persona.
+ *   · La **API** (modo API) espera ISO, `yyyy-mm-dd`, y hace ella la
+ *     conversión. Enviarle `26-08-2026` la haría leer el año 26.
+ */
+export type ViaSafi = "API" | "HTTP";
 
-/** `2026-08-26` → `26-08-2026`. */
-export function fechaSafi(iso: string): string {
+/** `2026-08-26` → `26-08-2026` (formulario) o `2026-08-26` (API). */
+export function fechaSafi(iso: string, via: ViaSafi = "HTTP"): string {
   const partes = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return partes ? `${partes[3]}-${partes[2]}-${partes[1]}` : "";
+  if (!partes) return "";
+  return via === "API" ? `${partes[1]}-${partes[2]}-${partes[3]}` : `${partes[3]}-${partes[2]}-${partes[1]}`;
 }
 
 /**

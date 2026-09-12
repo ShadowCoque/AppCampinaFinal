@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS solicitudes (
   codigo         TEXT NOT NULL UNIQUE,
   estado         TEXT NOT NULL,
   numero_socio   TEXT,
+  /* Orden del dependiente dentro de la cuenta del titular (-1, -2…). NULL en
+     el propio titular. Con el número de socio identifica a la persona en el
+     repositorio: el número solo no basta, porque es el mismo para toda la
+     familia. */
+  ordinal_dependiente INTEGER,
   cedula         TEXT NOT NULL,
   nombre         TEXT NOT NULL,
   tipo_miembro   TEXT,
@@ -50,6 +55,19 @@ CREATE TABLE IF NOT EXISTS solicitudes (
      calcula el propio dominio al guardar, de modo que la bandeja no tenga que
      recorrer el histórico completo para saber qué está pendiente. */
   requiere_atencion INTEGER NOT NULL DEFAULT 1
+);
+
+/* Firmas y fotografía entregadas por la tableta, una fila por papel. */
+CREATE TABLE IF NOT EXISTS adjuntos (
+  id             TEXT PRIMARY KEY,
+  solicitud_id   TEXT NOT NULL REFERENCES solicitudes(id) ON DELETE CASCADE,
+  rol            TEXT NOT NULL,
+  nombre_archivo TEXT NOT NULL,
+  ruta           TEXT NOT NULL,
+  bytes          INTEGER NOT NULL,
+  tipo_contenido TEXT NOT NULL,
+  recibido_en    TEXT NOT NULL,
+  UNIQUE (solicitud_id, rol)
 );
 
 /* Un archivo del repositorio digital, venga de la aplicación o del escáner. */
@@ -71,13 +89,17 @@ CREATE TABLE IF NOT EXISTS archivos (
   safi_intentos       INTEGER NOT NULL DEFAULT 0
 );
 
-/* Archivos depositados con un nombre que el repositorio no supo clasificar. */
+/* Archivos depositados que el repositorio no pudo archivar todavía:
+   RECHAZADO (apartado a _REVISAR) o EN_ESPERA (en su sitio, esperando que
+   exista el trámite con ese número). */
 CREATE TABLE IF NOT EXISTS incidencias (
   id           TEXT PRIMARY KEY,
   archivo      TEXT NOT NULL,
   motivo       TEXT NOT NULL,
   detalle      TEXT NOT NULL,
   numero_socio TEXT,
+  tipo         TEXT NOT NULL DEFAULT 'RECHAZADO',
+  ruta         TEXT,
   detectada_en TEXT NOT NULL,
   resuelta_en  TEXT
 );
@@ -111,9 +133,11 @@ export const INDICES_SQL = `
 CREATE INDEX IF NOT EXISTS idx_sesiones_expira ON sesiones(expira_en);
 CREATE INDEX IF NOT EXISTS idx_solicitudes_estado ON solicitudes(estado);
 CREATE INDEX IF NOT EXISTS idx_solicitudes_socio  ON solicitudes(numero_socio);
+CREATE INDEX IF NOT EXISTS idx_solicitudes_persona ON solicitudes(numero_socio, ordinal_dependiente);
 CREATE INDEX IF NOT EXISTS idx_solicitudes_cedula ON solicitudes(cedula);
 CREATE INDEX IF NOT EXISTS idx_solicitudes_atencion ON solicitudes(requiere_atencion);
 CREATE INDEX IF NOT EXISTS idx_solicitudes_actualizada ON solicitudes(actualizada_en DESC);
+CREATE INDEX IF NOT EXISTS idx_adjuntos_solicitud ON adjuntos(solicitud_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_archivos_ruta ON archivos(ruta);
 CREATE INDEX IF NOT EXISTS idx_archivos_socio ON archivos(numero_socio, ordinal_dependiente);
 CREATE INDEX IF NOT EXISTS idx_archivos_safi  ON archivos(safi_estado);
@@ -122,17 +146,29 @@ CREATE INDEX IF NOT EXISTS idx_bitacora_en ON bitacora(en);
 `;
 
 /** Versión del esquema. Al subirla, añada la migración correspondiente. */
-export const VERSION_ESQUEMA = 2;
+export const VERSION_ESQUEMA = 3;
 
 /**
  * Migraciones para bases creadas con una versión anterior.
  *
- * Se aplican en orden y deben poder ejecutarse sobre una base ya migrada sin
- * causar daño: el índice es la versión desde la que se migra.
+ * Se aplican en orden, sentencia por sentencia, y deben poder ejecutarse sobre
+ * una base ya migrada sin causar daño: una columna que ya existe no impide que
+ * se apliquen las demás. El índice es la versión desde la que se migra.
+ *
+ * La tabla `adjuntos` no necesita migración: `CREATE TABLE IF NOT EXISTS` la
+ * crea en una base existente igual que en una nueva.
  */
-export const MIGRACIONES: { desde: number; sql: string }[] = [
+export const MIGRACIONES: { desde: number; sentencias: string[] }[] = [
   {
     desde: 1,
-    sql: "ALTER TABLE solicitudes ADD COLUMN requiere_atencion INTEGER NOT NULL DEFAULT 1;",
+    sentencias: ["ALTER TABLE solicitudes ADD COLUMN requiere_atencion INTEGER NOT NULL DEFAULT 1"],
+  },
+  {
+    desde: 2,
+    sentencias: [
+      "ALTER TABLE solicitudes ADD COLUMN ordinal_dependiente INTEGER",
+      "ALTER TABLE incidencias ADD COLUMN tipo TEXT NOT NULL DEFAULT 'RECHAZADO'",
+      "ALTER TABLE incidencias ADD COLUMN ruta TEXT",
+    ],
   },
 ];

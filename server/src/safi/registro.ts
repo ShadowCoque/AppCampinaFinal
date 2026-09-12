@@ -39,6 +39,7 @@ import {
   telefonoPrincipal,
   tipoSocioExisteEnSafi,
   tipoSocioSafi,
+  type ViaSafi,
 } from "./campos";
 
 /**
@@ -362,21 +363,26 @@ export function camposCuenta(
 /**
  * Campos de la ficha del Socio (`Contacts`): una por persona, titular o
  * dependiente, todas apuntando a la Cuenta del titular.
+ *
+ * `cuentaId` llega ya en el formato de la vía: identificador de servicio web
+ * (`11x13352`) por la API, número suelto (`13352`) por el formulario. El nombre
+ * de la Cuenta solo lo usa el formulario, que lo muestra junto al vínculo.
  */
 export function camposSocio(
   solicitud: SolicitudAfiliacion,
   confirmacion: ConfirmacionSafi,
-  contexto: { cuentaId: string; cuentaNombre: string; asignadoA: string }
+  contexto: { cuentaId: string; cuentaNombre: string; asignadoA: string; via: ViaSafi }
 ): Record<string, string> {
   const { datos, tramite } = solicitud;
   const esCasado = esEstadoCivilCasado(datos.estadoCivil);
   const esTitular = tieneCuentaPropia(datos.tipoMiembro);
+  const { via } = contexto;
 
   const militar = datos.gradoMilitar.trim();
 
   return sinVacios({
     [CAMPOS_SOCIO.cuentaId]: contexto.cuentaId,
-    [CAMPOS_SOCIO.cuentaNombre]: contexto.cuentaNombre,
+    [CAMPOS_SOCIO.cuentaNombre]: via === "HTTP" ? contexto.cuentaNombre : "",
     [CAMPOS_SOCIO.asignadoA]: contexto.asignadoA,
 
     [CAMPOS_SOCIO.numeroSocio]: normalizarNumeroSocio(tramite.numeroSocio),
@@ -399,7 +405,7 @@ export function camposSocio(
           apellidosTitular: normalizarNombreFinal(datos.titularApellidos),
         }),
 
-    [CAMPOS_SOCIO.fechaNacimiento]: fechaSafi(datos.fechaNacimiento),
+    [CAMPOS_SOCIO.fechaNacimiento]: fechaSafi(datos.fechaNacimiento, via),
     // El Segmento y el Tipo de Socio salen los dos del tipo elegido en el
     // asistente: un solo campo del formulario llena los dos del CRM.
     [CAMPOS_SOCIO.segmento]: segmentoSafi(datos.tipoMiembro, datos.sexo),
@@ -408,8 +414,8 @@ export function camposSocio(
     [CAMPOS_SOCIO.estadoSocio]: ESTADO_SOCIO_ACTIVO,
     [CAMPOS_SOCIO.estadoCivil]: ESTADO_CIVIL_SAFI[datos.estadoCivil] ?? "",
 
-    [CAMPOS_SOCIO.fechaIngreso]: fechaSafi(datos.fechaIngresoClub || tramite.fechaRegistro),
-    [CAMPOS_SOCIO.fechaRegistro]: fechaSafi(tramite.fechaRegistro),
+    [CAMPOS_SOCIO.fechaIngreso]: fechaSafi(datos.fechaIngresoClub || tramite.fechaRegistro, via),
+    [CAMPOS_SOCIO.fechaRegistro]: fechaSafi(tramite.fechaRegistro, via),
 
     // `cf_953` es lista cerrada y obligatoria: el grado llega ya elegido de esa
     // misma lista, y quien no es militar va con `NO APLICA`.

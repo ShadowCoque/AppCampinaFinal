@@ -18,12 +18,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { persistirFirma } from "../src/data/archivos";
 import { leerOperador } from "../src/data/operador";
 import {
+  borradorYaRegistrado,
+  cerrarBorrador,
   crearSolicitud,
   descartarBorrador,
   guardarBorrador,
   leerBorrador,
   nuevaSolicitudId,
 } from "../src/data/solicitudes";
+import { estaSincronizada, sincronizar } from "../src/services/servidor";
 import {
   ajustarBloques,
   estadoInicial,
@@ -73,14 +76,11 @@ export default function AfiliacionScreen() {
   }, []);
 
   const pasos = useMemo(() => pasosPara(estado.datos), [estado.datos]);
-  const pasoActual = pasos[Math.min(indice, pasos.length - 1)];
-  const esUltimo = indice >= pasos.length - 1;
-
-  // Cambiar el tipo de socio puede eliminar un paso (p. ej. el laboral);
-  // en ese caso el índice debe reajustarse al último paso disponible.
-  useEffect(() => {
-    setIndice((actual) => Math.min(actual, pasos.length - 1));
-  }, [pasos.length]);
+  // Cambiar el tipo de socio puede eliminar un paso (p. ej. el de garantes):
+  // el índice se acota al dibujar, sin reescribir el estado.
+  const indiceActual = Math.min(indice, pasos.length - 1);
+  const pasoActual = pasos[indiceActual];
+  const esUltimo = indiceActual >= pasos.length - 1;
 
   /* ---------------- Borrador ---------------- */
 
@@ -92,6 +92,15 @@ export default function AfiliacionScreen() {
 
       if (!borrador?.estado?.datos?.tipoMiembro) {
         setCargando(false);
+        return;
+      }
+
+      // Un borrador que ya se registró es el rastro de un cierre inesperado de
+      // la aplicación justo después de enviar. No se ofrece continuarlo:
+      // volver a enviarlo duplicaría el trámite.
+      if (await borradorYaRegistrado(borrador)) {
+        await cerrarBorrador();
+        if (activo) setCargando(false);
         return;
       }
 
@@ -131,10 +140,10 @@ export default function AfiliacionScreen() {
   useEffect(() => {
     if (cargando || !estado.datos.tipoMiembro) return;
     const temporizador = setTimeout(() => {
-      void guardarBorrador(solicitudId, indice, estado);
+      void guardarBorrador(solicitudId, indiceActual, estado);
     }, 700);
     return () => clearTimeout(temporizador);
-  }, [cargando, estado, indice, solicitudId]);
+  }, [cargando, estado, indiceActual, solicitudId]);
 
   /* ---------------- Actualización de campos ---------------- */
 
@@ -164,16 +173,23 @@ export default function AfiliacionScreen() {
    * La firma se lleva a disco en cuanto se traza y en el estado queda su ruta.
    * El autoguardado del borrador corre cada pocos segundos: conservar la imagen
    * codificada en el estado obligaría a reescribirla entera cada vez.
+   *
+   * La escritura se hace fuera del actualizador de estado: React puede
+   * ejecutar un actualizador dos veces, y aquí eso significaba escribir dos
+   * archivos y borrar la firma anterior dos veces.
    */
+  const estadoActual = useRef(estado);
+  useEffect(() => {
+    estadoActual.current = estado;
+  }, [estado]);
+
   const setFirma = useCallback(
     (uri: string | null) => {
-      setEstado((previo) => ({
-        ...previo,
-        firmaUri: persistirFirma(solicitudId, uri, {
-          prefijo: "firma",
-          anterior: previo.firmaUri,
-        }),
-      }));
+      const firmaUri = persistirFirma(solicitudId, uri, {
+        prefijo: "firma",
+        anterior: estadoActual.current.firmaUri,
+      });
+      setEstado((previo) => ({ ...previo, firmaUri }));
       setErrores((previos) => (previos.firma ? { ...previos, firma: undefined } : previos));
     },
     [solicitudId]
@@ -181,17 +197,14 @@ export default function AfiliacionScreen() {
 
   const setFirmaGarante = useCallback(
     (indice: number, uri: string | null) => {
+      const anterior = estadoActual.current.datos.garantes[indice]?.firmaUri ?? null;
+      const firmaUri = persistirFirma(solicitudId, uri, {
+        prefijo: `firma-garante-${indice + 1}`,
+        anterior,
+      });
       setEstado((previo) => {
         const garantes = previo.datos.garantes.map((garante, i) =>
-          i === indice
-            ? {
-                ...garante,
-                firmaUri: persistirFirma(solicitudId, uri, {
-                  prefijo: `firma-garante-${indice + 1}`,
-                  anterior: garante.firmaUri,
-                }),
-              }
-            : garante
+          i === indice ? { ...garante, firmaUri } : garante
         );
         return { ...previo, datos: { ...previo.datos, garantes } };
       });
@@ -255,25 +268,40 @@ export default function AfiliacionScreen() {
     setEnviando(true);
     try {
       const solicitud = await crearSolicitud(solicitudId, estado, operador);
-      await descartarBorrador();
+      // Se cierra el borrador SIN tocar sus archivos: la firma, las de los
+      // garantes y la fotografía son ya las de la afiliación registrada.
+      await cerrarBorrador();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      Alert.alert(
-        "Afiliación registrada",
-        `El trámite ${solicitud.codigo} quedó registrado. Contabilidad lo verá en su bandeja para revisarlo.`,
-        [
-          {
-            text: "Ver solicitud",
-            onPress: () =>
-              router.replace({ pathname: "/solicitud/[id]", params: { id: solicitud.id } }),
-          },
-        ]
-      );
+      // La entrega al servidor es inmediata. Si no hay red o sesión, queda en
+      // la cola de la tableta y se reintenta sola; lo que no se hace es decir
+      // que Contabilidad ya la tiene cuando no es cierto.
+      const resumen = await sincronizar();
+      const entregada = await estaSincronizada(solicitud.id);
+
+      const irAlDetalle = () =>
+        router.replace({ pathname: "/solicitud/[id]", params: { id: solicitud.id } });
+
+      if (entregada) {
+        Alert.alert(
+          "Afiliación registrada y enviada",
+          `El trámite ${solicitud.codigo} ya está en el servidor del Club. Aparece en la bandeja del Área de Socios para crearlo en SAFI; después lo revisará Contabilidad y lo aprobará la Gerencia.`,
+          [{ text: "Ver solicitud", onPress: irAlDetalle }]
+        );
+      } else {
+        Alert.alert(
+          "Afiliación registrada en la tableta",
+          `El trámite ${solicitud.codigo} quedó guardado, pero todavía no llegó al servidor. Se enviará solo en cuanto sea posible.\n\n${
+            resumen.detalle ?? "Revise la conexión y la sesión en «Configuración y envío»."
+          }`,
+          [{ text: "Ver solicitud", onPress: irAlDetalle }]
+        );
+      }
     } catch (error) {
-      console.warn("[afiliacion] Error al enviar:", error);
+      console.warn("[afiliacion] Error al registrar:", error);
       Alert.alert(
-        "No se pudo enviar",
-        "Ocurrió un problema al guardar la solicitud. Intente nuevamente."
+        "No se pudo registrar",
+        "Ocurrió un problema al guardar la solicitud en la tableta. Intente nuevamente."
       );
     } finally {
       setEnviando(false);
@@ -290,7 +318,7 @@ export default function AfiliacionScreen() {
     }
 
     setErrores({});
-    setCompletados((previos) => new Set(previos).add(indice));
+    setCompletados((previos) => new Set(previos).add(indiceActual));
 
     if (esUltimo) {
       void enviar();
@@ -298,31 +326,31 @@ export default function AfiliacionScreen() {
     }
 
     void Haptics.selectionAsync();
-    setIndice((i) => i + 1);
+    setIndice(indiceActual + 1);
     irArriba();
   };
 
   const retroceder = () => {
-    if (indice === 0) {
+    if (indiceActual === 0) {
       router.back();
       return;
     }
     setErrores({});
-    setIndice((i) => i - 1);
+    setIndice(indiceActual - 1);
     irArriba();
   };
 
   const saltarA = (destino: number) => {
-    if (destino === indice) return;
+    if (destino === indiceActual) return;
 
-    if (destino > indice) {
+    if (destino > indiceActual) {
       const problemas = validarPaso(pasoActual.key, estado);
       if (Object.keys(problemas).length > 0) {
         setErrores(problemas);
         irArriba();
         return;
       }
-      setCompletados((previos) => new Set(previos).add(indice));
+      setCompletados((previos) => new Set(previos).add(indiceActual));
     }
 
     setErrores({});
@@ -428,7 +456,7 @@ export default function AfiliacionScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <Stepper steps={pasos} currentIndex={indice} completed={completados} onSelect={saltarA} />
+      <Stepper steps={pasos} currentIndex={indiceActual} completed={completados} onSelect={saltarA} />
 
       <ScrollView
         ref={scrollRef}
@@ -453,9 +481,9 @@ export default function AfiliacionScreen() {
 
       <View style={[styles.pie, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Button
-          label={indice === 0 ? "Cancelar" : "Atrás"}
+          label={indiceActual === 0 ? "Cancelar" : "Atrás"}
           variant="secondary"
-          icon={indice === 0 ? "close" : "chevron-back"}
+          icon={indiceActual === 0 ? "close" : "chevron-back"}
           onPress={retroceder}
           disabled={enviando}
         />

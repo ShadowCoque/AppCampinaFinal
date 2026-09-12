@@ -179,6 +179,30 @@ export function cerrarSesion(sesionId: string): void {
   db().prepare("DELETE FROM sesiones WHERE id = ?").run(sesionId);
 }
 
+/**
+ * Cierra todas las sesiones abiertas de un usuario. Es lo que hay que hacer si
+ * la tableta del Área de Socios se extravía: su sesión dura 30 días.
+ */
+export function cerrarSesionesDe(usuario: string): number {
+  const resultado = db()
+    .prepare(
+      "DELETE FROM sesiones WHERE usuario_id IN (SELECT id FROM usuarios WHERE usuario = ?)"
+    )
+    .run(usuario.trim().toLowerCase());
+  return Number(resultado.changes);
+}
+
+/** Sesiones abiertas de cada usuario, para saber qué dispositivos hay dentro. */
+export function sesionesAbiertas(): { usuario: string; sesiones: number; ultima: string }[] {
+  return db()
+    .prepare(
+      `SELECT u.usuario AS usuario, COUNT(s.id) AS sesiones, MAX(s.creada_en) AS ultima
+       FROM usuarios u LEFT JOIN sesiones s ON s.usuario_id = u.id AND s.expira_en > ?
+       GROUP BY u.usuario ORDER BY u.usuario`
+    )
+    .all(ahora()) as unknown as { usuario: string; sesiones: number; ultima: string }[];
+}
+
 /** Elimina las sesiones vencidas. Se ejecuta periódicamente. */
 export function purgarSesiones(): number {
   const resultado = db().prepare("DELETE FROM sesiones WHERE expira_en <= ?").run(ahora());

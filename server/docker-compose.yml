@@ -38,6 +38,9 @@ services:
       URL_PUBLICA: "${URL_PUBLICA:?Defina URL_PUBLICA en server/.env, p. ej. http://soporte.clublacampina.com.ec:8080}"
       SECRETO_SESION: "${SECRETO_SESION:?Defina SECRETO_SESION en server/.env}"
       HORAS_SESION: "${HORAS_SESION:-10}"
+      # Sesión de la tableta del Área de Socios: envía sola lo que registra, y
+      # con una sesión de jornada dejaba de enviar cada mañana.
+      HORAS_SESION_TABLETA: "${HORAS_SESION_TABLETA:-720}"
       # Ver la nota de BIND_HOST arriba: actívelo solo junto con
       # BIND_HOST=127.0.0.1 y un proxy inverso real.
       TRUST_PROXY: "${TRUST_PROXY:-false}"
@@ -47,6 +50,12 @@ services:
       SAFI_BASE_URL: "${SAFI_BASE_URL:-}"
       SAFI_USUARIO: "${SAFI_USUARIO:-}"
       SAFI_CLAVE: "${SAFI_CLAVE:-}"
+      # Escribir en SAFI (crear Cuenta, Socio y Documentos) se habilita a
+      # propósito, una vez comprobado el primer alta. Con la escritura apagada
+      # el sistema lee del CRM y avisa de duplicados, pero no crea nada.
+      SAFI_ESCRITURA: "${SAFI_ESCRITURA:-false}"
+      # Solo para el plan B de los documentos (contraseña, no clave de acceso).
+      SAFI_CLAVE_WEB: "${SAFI_CLAVE_WEB:-}"
       MAX_ARCHIVO_MB: "${MAX_ARCHIVO_MB:-25}"
       TZ: "America/Guayaquil"
 
@@ -58,11 +67,13 @@ services:
       - "${ESCANEOS_HOST:-/srv/campina/escaneos}:/escaneos"
 
     # Límites explícitos: la mesa de ayuda no puede quedarse sin memoria por
-    # culpa de este servicio.
+    # culpa de este servicio. El margen sobre los 512 MB anteriores es para el
+    # Chromium que imprime el formulario, que se abre unos segundos por trámite
+    # y se cierra: en reposo el servicio ocupa del orden de 80 MB.
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
           cpus: "1.0"
 
     logging:

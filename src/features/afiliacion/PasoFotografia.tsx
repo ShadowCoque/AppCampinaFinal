@@ -98,7 +98,7 @@ export function PasoFotografia({
     <>
       <InfoNote tone="info" icon="camera-outline">
         Tome la fotografía con la tableta o elija la de la cédula. El resto de la documentación no se
-        adjunta aquí: la Jefatura la escana a la carpeta compartida y el sistema la archiva sola en
+        adjunta aquí: la Jefatura la escanea a la carpeta compartida y el sistema la archiva sola en
         el expediente del socio.
       </InfoNote>
 
