@@ -12,6 +12,23 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 15/09/2026** por el Claude del servidor. Este encargo se conserva
+> tal como llegó.
+>
+> - **Tarea 1.** `git pull` en avance rápido. El `git diff --stat` sobre
+>   `server`, `web`, `src/domain` y `src/services/formularios` salió vacío: no se
+>   reconstruyó la imagen.
+> - **Tarea 2.** La base sigue a cero: 0 trámites, ninguno anterior a la
+>   limpieza y ningún `REGISTRAR_AFILIACION` desde entonces; solo dos inicios de
+>   sesión de `socios` el 15/09. No resucitó nada y nada llegó a SAFI.
+> - **Tarea 3.** El Coordinador ya instaló la aplicación nueva y usó «Borrar los
+>   datos de prueba».
+> - **La sugerencia** del texto de «Faltan archivos de la tableta» queda para la
+>   próxima reconstrucción de la imagen.
+> - Fuera del encargo: el respaldo de socios pasó a **un archivo por día**
+>   (`campina_<fecha>_diario.tar.gz`, base verificada y expedientes) y se
+>   conservan los de hoy y de ayer.
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

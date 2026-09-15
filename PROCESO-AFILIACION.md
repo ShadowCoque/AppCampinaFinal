@@ -255,7 +255,8 @@ queda constancia en la bitácora.
 ## Prueba en limpio: lista de comprobación
 
 Ambiente del 12/09/2026: base a cero (solo los tres usuarios), carpetas vacías,
-SAFI en API con escritura habilitada.
+SAFI en API con escritura habilitada. **Comprobado el 15/09/2026:** la base sigue
+sin trámites y no hay ninguno resucitado por la aplicación anterior.
 
 1. [ ] **Dejar la tableta en limpio antes de abrir la aplicación contra este
        servidor.** Con la versión de la aplicación del 15/09/2026:
@@ -300,4 +301,4 @@ SAFI en API con escritura habilitada.
 | Un escaneo no se archiva | Pestaña «Cómo escanear» → «Comprobar un nombre antes de escanear» |
 | Dudas sobre el CRM | Pestaña «Cómo escanear» → «Comprobar la conexión». No crea nada |
 | Estado del servicio | `curl http://127.0.0.1:8080/api/salud` |
-| Respaldos | `/home/joel/glpi_backups/campina_*` — diario a la 01:30, tres copias |
+| Respaldos | `/home/joel/glpi_backups/campina_<fecha>_diario.tar.gz` — un archivo por día a la 01:30, con la base verificada y los expedientes. Se conservan los de hoy y de ayer. La forma de restaurar está en la cabecera de `/usr/local/sbin/respaldo_campina.sh` |
