@@ -26,7 +26,11 @@ import {
   leerBorrador,
   nuevaSolicitudId,
 } from "../src/data/solicitudes";
-import { estaSincronizada, sincronizar } from "../src/services/servidor";
+import {
+  enumerarAdjuntos,
+  sincronizar,
+  situacionDeEntrega,
+} from "../src/services/servidor";
 import {
   ajustarBloques,
   estadoInicial,
@@ -277,23 +281,52 @@ export default function AfiliacionScreen() {
       // la cola de la tableta y se reintenta sola; lo que no se hace es decir
       // que Contabilidad ya la tiene cuando no es cierto.
       const resumen = await sincronizar();
-      const entregada = await estaSincronizada(solicitud.id);
+      const situacion = await situacionDeEntrega(solicitud.id);
+      // El código definitivo lo asigna el servidor al recibirla.
+      const codigo = situacion?.solicitud.codigo ?? solicitud.codigo;
 
       const irAlDetalle = () =>
         router.replace({ pathname: "/solicitud/[id]", params: { id: solicitud.id } });
 
-      if (entregada) {
+      // Lo que no llegó se dice aquí mismo, con la persona todavía delante:
+      // es cuando aún se puede volver a capturar.
+      const perdidas = situacion?.perdidas ?? [];
+      const sinArchivos =
+        perdidas.length > 0
+          ? `\n\nAtención: ${enumerarAdjuntos(perdidas)} no ${
+              perdidas.length === 1 ? "quedó guardada" : "quedaron guardadas"
+            } en la tableta y no ${perdidas.length === 1 ? "llegará" : "llegarán"} al servidor. Vuelva a ${
+              perdidas.length === 1 ? "capturarla" : "capturarlas"
+            } desde la solicitud antes de que el socio se retire.`
+          : "";
+      const porLlegar = (situacion?.faltantes ?? []).filter((rol) => !perdidas.includes(rol));
+
+      if (situacion?.detenido?.motivo === "RECHAZADO") {
         Alert.alert(
-          "Afiliación registrada y enviada",
-          `El trámite ${solicitud.codigo} ya está en el servidor del Club. Aparece en la bandeja del Área de Socios para crearlo en SAFI; después lo revisará Contabilidad y lo aprobará la Gerencia.`,
+          "El servidor rechazó la afiliación",
+          `El trámite ${codigo} quedó guardado en la tableta, pero el servidor no lo aceptó: «${situacion.detenido.mensaje}».${sinArchivos}`,
+          [{ text: "Ver solicitud", onPress: irAlDetalle }]
+        );
+      } else if (situacion?.enviada) {
+        Alert.alert(
+          perdidas.length > 0 ? "Afiliación enviada, pero incompleta" : "Afiliación registrada y enviada",
+          `El trámite ${codigo} ya está en el servidor del Club. Aparece en la bandeja del Área de Socios para crearlo en SAFI; después lo revisará Contabilidad y lo aprobará la Gerencia.${
+            porLlegar.length > 0
+              ? `\n\nFalta que llegue ${enumerarAdjuntos(porLlegar)}: la tableta ${
+                  porLlegar.length === 1 ? "la envía sola" : "las envía solas"
+                } en cuanto pueda.`
+              : ""
+          }${sinArchivos}`,
           [{ text: "Ver solicitud", onPress: irAlDetalle }]
         );
       } else {
         Alert.alert(
           "Afiliación registrada en la tableta",
-          `El trámite ${solicitud.codigo} quedó guardado, pero todavía no llegó al servidor. Se enviará solo en cuanto sea posible.\n\n${
-            resumen.detalle ?? "Revise la conexión y la sesión en «Configuración y envío»."
-          }`,
+          `El trámite ${codigo} quedó guardado, pero todavía no llegó al servidor. Se enviará solo en cuanto sea posible.\n\n${
+            resumen.estado === "ATENCION" || !resumen.detalle
+              ? "Revise la conexión y la sesión en «Configuración y envío»."
+              : resumen.detalle
+          }${sinArchivos}`,
           [{ text: "Ver solicitud", onPress: irAlDetalle }]
         );
       }

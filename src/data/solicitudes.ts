@@ -7,12 +7,13 @@ import {
   expedienteVacio,
   migrarSolicitud,
   tramiteVacio,
+  type RolAdjunto,
   type SolicitudAfiliacion,
   type TramiteInterno,
 } from "../domain/solicitud";
 import type { EstadoFormulario } from "../domain/formularioAfiliacion";
-import { CLAVES, escribirJSON, leerJSON, nuevoId } from "./almacenamiento";
-import { eliminarExpediente, persistirFirma } from "./archivos";
+import { CLAVES, eliminar, escribirJSON, leerJSON, nuevoId } from "./almacenamiento";
+import { eliminarExpediente, eliminarTodosLosExpedientes, persistirFirma } from "./archivos";
 
 /**
  * Repositorio local de solicitudes de afiliación.
@@ -212,6 +213,105 @@ export async function eliminarSolicitud(id: string): Promise<void> {
   const lista = await listarSolicitudes();
   await guardarLista(lista.filter((s) => s.id !== id));
   eliminarExpediente(id);
+}
+
+/* ------------------------------------------------------------------ */
+/* Firmas y fotografía en la tableta                                   */
+/* ------------------------------------------------------------------ */
+
+/** Dónde guarda la copia de la tableta el archivo de cada firma y de la fotografía. */
+export function rutaDelAdjunto(solicitud: SolicitudAfiliacion, rol: RolAdjunto): string | null {
+  switch (rol) {
+    case "FIRMA_SOLICITANTE":
+      return solicitud.firmaUri;
+    case "FIRMA_GARANTE_1":
+      return solicitud.datos.garantes[0]?.firmaUri ?? null;
+    case "FIRMA_GARANTE_2":
+      return solicitud.datos.garantes[1]?.firmaUri ?? null;
+    case "FOTO_CARNET":
+      return solicitud.documentos.find((d) => d.tipo === "FOTO_CARNET")?.uri || null;
+  }
+}
+
+/**
+ * Sustituye el archivo de una firma o de la fotografía por uno recién
+ * capturado, cuando el original ya no está en la tableta.
+ *
+ * Solo cambia la ruta: la fecha de actualización es la del servidor y así se
+ * queda, porque es la que decide si hay avance nuevo que traer.
+ */
+export async function reemplazarAdjunto(
+  id: string,
+  rol: RolAdjunto,
+  archivo: { uri: string; nombreArchivo?: string; mimeType?: string; tamanoBytes?: number }
+): Promise<SolicitudAfiliacion | null> {
+  const lista = await listarSolicitudes();
+  const indice = lista.findIndex((s) => s.id === id);
+  if (indice === -1) return null;
+
+  const actual = lista[indice];
+  let actualizada: SolicitudAfiliacion;
+
+  if (rol === "FOTO_CARNET") {
+    actualizada = {
+      ...actual,
+      documentos: actual.documentos.map((documento) =>
+        documento.tipo === "FOTO_CARNET"
+          ? {
+              ...documento,
+              uri: archivo.uri,
+              nombreArchivo: archivo.nombreArchivo ?? documento.nombreArchivo,
+              mimeType: archivo.mimeType ?? documento.mimeType,
+              tamanoBytes: archivo.tamanoBytes ?? documento.tamanoBytes,
+              capturadoEn: new Date().toISOString(),
+            }
+          : documento
+      ),
+    };
+  } else if (rol === "FIRMA_SOLICITANTE") {
+    actualizada = { ...actual, firmaUri: archivo.uri };
+  } else {
+    const posicion = rol === "FIRMA_GARANTE_1" ? 0 : 1;
+    actualizada = {
+      ...actual,
+      datos: {
+        ...actual.datos,
+        garantes: actual.datos.garantes.map((garante, i) =>
+          i === posicion ? { ...garante, firmaUri: archivo.uri } : garante
+        ),
+      },
+    };
+  }
+
+  lista[indice] = actualizada;
+  return (await guardarLista(lista)) ? actualizada : null;
+}
+
+/**
+ * Deja la tableta sin nada registrado: las afiliaciones, el borrador en curso,
+ * las actualizaciones de datos y la carpeta con todas sus firmas y fotografías.
+ *
+ * Conserva lo que se configura una sola vez por tableta —el funcionario y la
+ * dirección del servidor— y la sesión. Existe para montar una prueba desde
+ * cero: antes, la única forma era borrar los datos de la aplicación desde los
+ * ajustes de Android, que se llevaba también la configuración.
+ */
+export async function borrarRegistrosLocales(): Promise<{
+  afiliaciones: number;
+  actualizaciones: number;
+}> {
+  const [afiliaciones, actualizaciones] = await Promise.all([
+    leerJSON<unknown[]>(CLAVES.solicitudes, []),
+    leerJSON<unknown[]>(CLAVES.actualizaciones, []),
+  ]);
+
+  await eliminar(CLAVES.solicitudes, CLAVES.borradorAfiliacion, CLAVES.actualizaciones);
+  eliminarTodosLosExpedientes();
+
+  return {
+    afiliaciones: Array.isArray(afiliaciones) ? afiliaciones.length : 0,
+    actualizaciones: Array.isArray(actualizaciones) ? actualizaciones.length : 0,
+  };
 }
 
 /* ------------------------------------------------------------------ */

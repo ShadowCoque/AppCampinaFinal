@@ -160,9 +160,9 @@ export default function Portal() {
           />
           <View style={styles.envioTexto}>
             <Text style={styles.envioTitulo}>{aviso.titulo}</Text>
-            {envio?.detalle && aviso.tono !== "success" ? (
-              <Text style={styles.envioDetalle} numberOfLines={2}>
-                {envio.detalle}
+            {aviso.detalle ? (
+              <Text style={styles.envioDetalle} numberOfLines={3}>
+                {aviso.detalle}
               </Text>
             ) : null}
           </View>

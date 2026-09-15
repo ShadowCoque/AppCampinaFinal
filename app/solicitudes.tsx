@@ -11,17 +11,14 @@ import {
   View,
 } from "react-native";
 
-import { listarSolicitudes } from "../src/data/solicitudes";
 import { formatFechaHora } from "../src/domain/fechas";
-import {
-  ESTADO_META,
-  adjuntosFaltantes,
-  nombreCompleto,
-  type EstadoSolicitud,
-  type SolicitudAfiliacion,
-} from "../src/domain/solicitud";
+import { ESTADO_META, nombreCompleto, type EstadoSolicitud } from "../src/domain/solicitud";
 import { nombreTipo } from "../src/domain/tiposMiembro";
-import { idsSincronizados, sincronizar } from "../src/services/servidor";
+import {
+  situacionesDeEntrega,
+  sincronizar,
+  type SituacionEntrega,
+} from "../src/services/servidor";
 import { colors, radius, shadow, spacing, typography } from "../src/theme";
 import { Badge, Button, EmptyState } from "../src/ui";
 
@@ -35,18 +32,34 @@ const FILTROS: { valor: Filtro; etiqueta: string }[] = [
 
 const FINALIZADAS: EstadoSolicitud[] = ["APROBADA", "RECHAZADA"];
 
+/** El aviso de envío más importante de un trámite, si tiene alguno. */
+function avisoDeEnvio(
+  situacion: SituacionEntrega
+): { etiqueta: string; tono: "danger" | "warning"; icono: "cloud-offline" | "alert-circle" } | null {
+  const { detenido, enviada, faltantes, perdidas } = situacion;
+  if (detenido?.motivo === "NO_EXISTE_EN_SERVIDOR") {
+    return { etiqueta: "El servidor ya no tiene este trámite", tono: "danger", icono: "cloud-offline" };
+  }
+  if (detenido) return { etiqueta: "El servidor rechazó el envío", tono: "danger", icono: "alert-circle" };
+  if (perdidas.length > 0) {
+    return { etiqueta: "Faltan archivos en la tableta", tono: "danger", icono: "alert-circle" };
+  }
+  if (!enviada) return { etiqueta: "Sin enviar al servidor", tono: "danger", icono: "cloud-offline" };
+  if (faltantes.length > 0) {
+    return { etiqueta: "Firmas o fotografía por enviar", tono: "warning", icono: "cloud-offline" };
+  }
+  return null;
+}
+
 export default function SolicitudesScreen() {
   const router = useRouter();
-  const [solicitudes, setSolicitudes] = useState<SolicitudAfiliacion[]>([]);
-  const [enviadas, setEnviadas] = useState<string[]>([]);
+  const [situaciones, setSituaciones] = useState<SituacionEntrega[]>([]);
   const [filtro, setFiltro] = useState<Filtro>("PENDIENTES");
   const [busqueda, setBusqueda] = useState("");
   const [refrescando, setRefrescando] = useState(false);
 
   const cargar = useCallback(async () => {
-    const [lista, ids] = await Promise.all([listarSolicitudes(), idsSincronizados()]);
-    setSolicitudes(lista);
-    setEnviadas(ids);
+    setSituaciones(await situacionesDeEntrega());
   }, []);
 
   useFocusEffect(
@@ -57,13 +70,13 @@ export default function SolicitudesScreen() {
 
   const visibles = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
-    return solicitudes
-      .filter((s) => {
+    return situaciones
+      .filter(({ solicitud: s }) => {
         if (filtro === "PENDIENTES") return !FINALIZADAS.includes(s.estado);
         if (filtro === "COMPLETADAS") return FINALIZADAS.includes(s.estado);
         return true;
       })
-      .filter((s) => {
+      .filter(({ solicitud: s }) => {
         if (!texto) return true;
         return (
           nombreCompleto(s.datos).toLowerCase().includes(texto) ||
@@ -71,7 +84,7 @@ export default function SolicitudesScreen() {
           s.codigo.toLowerCase().includes(texto)
         );
       });
-  }, [solicitudes, filtro, busqueda]);
+  }, [situaciones, filtro, busqueda]);
 
   return (
     <View style={styles.pantalla}>
@@ -115,7 +128,7 @@ export default function SolicitudesScreen() {
 
       <FlatList
         data={visibles}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(situacion) => situacion.solicitud.id}
         contentContainerStyle={styles.lista}
         refreshControl={
           <RefreshControl
@@ -150,11 +163,10 @@ export default function SolicitudesScreen() {
             ) : null}
           </EmptyState>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item: situacion }) => {
+          const item = situacion.solicitud;
           const meta = ESTADO_META[item.estado];
-          const sinEnviar = !enviadas.includes(item.id);
-          const incompleta =
-            !sinEnviar && item.estado !== "RECHAZADA" && adjuntosFaltantes(item).length > 0;
+          const aviso = avisoDeEnvio(situacion);
           return (
             <Pressable
               onPress={() => router.push({ pathname: "/solicitud/[id]", params: { id: item.id } })}
@@ -178,13 +190,9 @@ export default function SolicitudesScreen() {
                 <Text style={styles.metaTexto}>{nombreTipo(item.datos.tipoMiembro)}</Text>
               </View>
 
-              {sinEnviar || incompleta ? (
+              {aviso ? (
                 <View style={styles.aviso}>
-                  <Badge
-                    label={sinEnviar ? "Sin enviar al servidor" : "Faltan firmas o fotografía en el servidor"}
-                    tone="danger"
-                    icon="cloud-offline"
-                  />
+                  <Badge label={aviso.etiqueta} tone={aviso.tono} icon={aviso.icono} />
                 </View>
               ) : item.tramite.numeroSocio ? (
                 <View style={styles.aviso}>

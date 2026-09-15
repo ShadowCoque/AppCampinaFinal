@@ -9,6 +9,11 @@
 > Antes de empezar: `git pull origin despliegue-servidor`. El dominio compartido
 > (`src/domain`) cambió.
 
+> **Atendido el 15/09/2026** por el Claude de desarrollo: los cinco puntos de la
+> sección 3 están en la aplicación. Qué se hizo, qué se encontró —incluida una
+> corrección al punto 4— y lo que le queda al servidor están en
+> `PROMPT-CLAUDE-SERVIDOR.md`. Este encargo se conserva tal como llegó.
+
 ## 1. Estado del servidor a esta fecha
 
 | Cosa | Estado |

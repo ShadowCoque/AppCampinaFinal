@@ -1,7 +1,18 @@
-import { leerBase64 } from "../data/archivos";
-import { CLAVES, escribirJSON, leerJSON } from "../data/almacenamiento";
-import { incorporarAvance, listarSolicitudes, type AvanceDelServidor } from "../data/solicitudes";
-import { adjuntosFaltantes, type SolicitudAfiliacion } from "../domain/solicitud";
+import { archivoDisponible, leerBase64 } from "../data/archivos";
+import { CLAVES, eliminar, escribirJSON, leerJSON } from "../data/almacenamiento";
+import {
+  borrarRegistrosLocales,
+  incorporarAvance,
+  listarSolicitudes,
+  rutaDelAdjunto,
+  type AvanceDelServidor,
+} from "../data/solicitudes";
+import {
+  ROL_ADJUNTO_META,
+  adjuntosFaltantes,
+  type RolAdjunto,
+  type SolicitudAfiliacion,
+} from "../domain/solicitud";
 
 /**
  * Cliente del servidor institucional.
@@ -19,6 +30,12 @@ import { adjuntosFaltantes, type SolicitudAfiliacion } from "../domain/solicitud
  *   2. las firmas trazadas en pantalla (sin ellas el formulario no se puede
  *      componer), y
  *   3. la fotografía tipo carnet.
+ *
+ * Lo que un reintento no puede arreglar no se reintenta: una firma que ya no
+ * está en la tableta, un trámite que el servidor dejó de conocer o un archivo
+ * que rechazó por su contenido. Se avisa en la tableta y se espera a que el
+ * operador decida. Insistir cada dos minutos no lo resolvía, y además
+ * escondía el problema detrás de un «envío pendiente».
  *
  * La sesión se mantiene con la cookie que emite el servidor; React Native la
  * conserva en el almacén de cookies del sistema, de modo que aquí no se guarda
@@ -58,44 +75,137 @@ export async function hayServidorConfigurado(): Promise<boolean> {
 /* Cola de envío                                                       */
 /* ------------------------------------------------------------------ */
 
-/**
- * Identificadores ya aceptados por el servidor. Se lleva aparte del documento
- * de la solicitud para que la estructura que viaja al servidor sea exactamente
- * la del dominio compartido, sin campos propios del dispositivo.
- */
-const CLAVE_SINCRONIZADAS = "campina.sincronizadas.v1";
-
-/** Resultado del último intento, para mostrarlo en el portal y en Configuración. */
-const CLAVE_ESTADO = "campina.sincronizacion.estado.v1";
-
 async function sincronizadas(): Promise<string[]> {
-  return leerJSON<string[]>(CLAVE_SINCRONIZADAS, []);
+  return leerJSON<string[]>(CLAVES.sincronizadas, []);
 }
 
 async function guardarSincronizadas(ids: string[]): Promise<void> {
-  await escribirJSON(CLAVE_SINCRONIZADAS, Array.from(new Set(ids)));
-}
-
-export async function estaSincronizada(id: string): Promise<boolean> {
-  return (await sincronizadas()).includes(id);
-}
-
-/** Identificadores que el servidor ya tiene, para marcar en la lista lo que falta enviar. */
-export async function idsSincronizados(): Promise<string[]> {
-  return sincronizadas();
+  await escribirJSON(CLAVES.sincronizadas, Array.from(new Set(ids)));
 }
 
 /**
- * Afiliaciones cuya entrega no está completa: las que el servidor aún no tiene
- * y las que tiene sin alguna de sus firmas o sin la fotografía.
+ * Por qué se dejó de enviar un trámite.
+ *
+ *   NO_EXISTE_EN_SERVIDOR  El servidor lo aceptó en su día y hoy responde que
+ *                          no lo tiene: su base se vació o se restauró.
+ *   RECHAZADO              El servidor lo rechazó con un motivo que un
+ *                          reintento no cambia (un archivo que no es la imagen
+ *                          que dice ser, por ejemplo).
  */
-export async function pendientesDeEnvio(): Promise<SolicitudAfiliacion[]> {
-  const [lista, enviadas] = await Promise.all([listarSolicitudes(), sincronizadas()]);
-  return lista.filter(
-    (s) =>
-      s.estado !== "BORRADOR" &&
-      (!enviadas.includes(s.id) || (s.estado !== "RECHAZADA" && adjuntosFaltantes(s).length > 0))
+export type EnvioDetenido =
+  | { motivo: "NO_EXISTE_EN_SERVIDOR"; en: string }
+  | { motivo: "RECHAZADO"; en: string; mensaje: string; rol?: RolAdjunto };
+
+async function enviosDetenidos(): Promise<Record<string, EnvioDetenido>> {
+  const guardados = await leerJSON<Record<string, EnvioDetenido> | null>(
+    CLAVES.enviosDetenidos,
+    {}
   );
+  return guardados && typeof guardados === "object" ? guardados : {};
+}
+
+/**
+ * Cómo está el envío de un trámite, visto desde la tableta: lo que el servidor
+ * ya tiene, lo que le falta y si la tableta todavía puede entregárselo.
+ */
+export type SituacionEntrega = {
+  solicitud: SolicitudAfiliacion;
+  /** El servidor aceptó el trámite. */
+  enviada: boolean;
+  /**
+   * Firmas y fotografía que el servidor todavía no tiene y que nadie declaró
+   * resueltas de otro modo desde la bandeja.
+   */
+  faltantes: RolAdjunto[];
+  /** De las que faltan, las que tampoco están ya en la tableta: no llegarán solas. */
+  perdidas: RolAdjunto[];
+  /** Por qué se dejó de enviar, si se dejó. */
+  detenido: EnvioDetenido | null;
+};
+
+function situacionDe(
+  solicitud: SolicitudAfiliacion,
+  enviadas: string[],
+  detenidos: Record<string, EnvioDetenido>
+): SituacionEntrega {
+  // Un trámite anulado ya no reclama nada: lo que le falte da igual.
+  const faltantes = solicitud.estado === "RECHAZADA" ? [] : adjuntosFaltantes(solicitud);
+  return {
+    solicitud,
+    enviada: enviadas.includes(solicitud.id),
+    faltantes,
+    perdidas: faltantes.filter((rol) => !archivoDisponible(rutaDelAdjunto(solicitud, rol))),
+    detenido: detenidos[solicitud.id] ?? null,
+  };
+}
+
+export async function situacionesDeEntrega(): Promise<SituacionEntrega[]> {
+  const [lista, enviadas, detenidos] = await Promise.all([
+    listarSolicitudes(),
+    sincronizadas(),
+    enviosDetenidos(),
+  ]);
+  return lista
+    .filter((s) => s.estado !== "BORRADOR")
+    .map((s) => situacionDe(s, enviadas, detenidos));
+}
+
+export async function situacionDeEntrega(id: string): Promise<SituacionEntrega | null> {
+  const [lista, enviadas, detenidos] = await Promise.all([
+    listarSolicitudes(),
+    sincronizadas(),
+    enviosDetenidos(),
+  ]);
+  const solicitud = lista.find((s) => s.id === id);
+  return solicitud ? situacionDe(solicitud, enviadas, detenidos) : null;
+}
+
+/** La entrega está incompleta y la sincronización todavía puede avanzarla sola. */
+export function seEnviaSola(situacion: SituacionEntrega): boolean {
+  if (situacion.detenido) return false;
+  return (
+    !situacion.enviada || situacion.faltantes.some((rol) => !situacion.perdidas.includes(rol))
+  );
+}
+
+/** Hace falta que alguien intervenga: la tableta no puede completar la entrega por su cuenta. */
+export function requiereAtencion(situacion: SituacionEntrega): boolean {
+  if (situacion.solicitud.estado === "RECHAZADA") return false;
+  return situacion.detenido !== null || situacion.perdidas.length > 0;
+}
+
+/** Afiliaciones cuya entrega sigue incompleta y la tableta completará sola. */
+export async function pendientesDeEnvio(): Promise<SolicitudAfiliacion[]> {
+  return (await situacionesDeEntrega()).filter(seEnviaSola).map((s) => s.solicitud);
+}
+
+/** «la firma del solicitante y la fotografía tipo carnet». */
+export function enumerarAdjuntos(roles: RolAdjunto[]): string {
+  const nombres = roles.map((rol) => `la ${ROL_ADJUNTO_META[rol].etiqueta.toLowerCase()}`);
+  if (nombres.length <= 1) return nombres[0] ?? "";
+  return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
+
+/**
+ * Qué le pasa al envío de un trámite, en una frase: para la lista de
+ * «Configuración y envío» y el aviso del portal. `null` si no hay nada que el
+ * operador deba hacer.
+ */
+export function describirSituacion(situacion: SituacionEntrega): string | null {
+  if (!requiereAtencion(situacion)) return null;
+  const { codigo } = situacion.solicitud;
+  const { detenido, perdidas } = situacion;
+
+  if (detenido?.motivo === "NO_EXISTE_EN_SERVIDOR") {
+    return `${codigo}: el servidor ya no tiene este trámite y la tableta dejó de enviarlo.`;
+  }
+  if (detenido?.motivo === "RECHAZADO") {
+    return `${codigo}: el servidor rechazó el envío («${detenido.mensaje.replace(/\.$/, "")}») y la tableta dejó de insistir.`;
+  }
+  const una = perdidas.length === 1;
+  return `${codigo}: ${enumerarAdjuntos(perdidas)} ya no ${una ? "está" : "están"} en esta tableta y no ${
+    una ? "llegará sola" : "llegarán solas"
+  } al servidor.`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -105,11 +215,33 @@ export async function pendientesDeEnvio(): Promise<SolicitudAfiliacion[]> {
 export class ErrorServidor extends Error {
   constructor(
     mensaje: string,
-    readonly codigo: number
+    readonly codigo: number,
+    /**
+     * El servidor respondió con su propio mensaje de error. Si no —sin red, o
+     * una respuesta que no es de este servidor—, el código no dice nada del
+     * trámite: puede ser la dirección mal escrita.
+     */
+    readonly delServidor = false
   ) {
     super(mensaje);
     this.name = "ErrorServidor";
   }
+}
+
+/**
+ * Rechazos con motivo que un reintento no cambia: datos que no pasan la
+ * validación, un archivo demasiado grande o de otro tipo. Los demás —sin
+ * sesión, sin conexión, el servidor caído— se resuelven solos o con una acción
+ * que no depende del trámite.
+ */
+const RECHAZOS_DEFINITIVOS = [400, 409, 413, 415, 422];
+
+function esRechazoDefinitivo(error: unknown): error is ErrorServidor {
+  return (
+    error instanceof ErrorServidor &&
+    error.delServidor &&
+    RECHAZOS_DEFINITIVOS.includes(error.codigo)
+  );
 }
 
 /**
@@ -165,7 +297,7 @@ async function peticion<T>(
 
   if (!respuesta.ok) {
     const mensaje = datos?.error ?? `El servidor respondió ${respuesta.status}.`;
-    throw new ErrorServidor(mensaje, respuesta.status);
+    throw new ErrorServidor(mensaje, respuesta.status, typeof datos?.error === "string");
   }
 
   return datos as T;
@@ -223,6 +355,7 @@ export async function comprobarServidor(): Promise<{ ok: boolean; safiModo?: str
 export type EstadoSincronizacion =
   | "AL_DIA"
   | "PENDIENTE"
+  | "ATENCION"
   | "SIN_SERVIDOR"
   | "SIN_SESION"
   | "SIN_CONEXION"
@@ -236,8 +369,10 @@ export type ResumenSincronizacion = {
   archivos: number;
   /** Trámites cuyo avance cambió en la tableta. */
   actualizadas: number;
-  /** Entregas que siguen incompletas tras el intento. */
+  /** Entregas que siguen incompletas y la tableta completará sola. */
   pendientes: number;
+  /** Trámites que la tableta no puede completar sin que alguien intervenga. */
+  atencion: number;
   /** Mensaje para el operador, cuando algo impidió completar el envío. */
   detalle?: string;
   en: string;
@@ -245,7 +380,9 @@ export type ResumenSincronizacion = {
 
 /** Último resultado guardado, para el aviso del portal. */
 export async function ultimoResumen(): Promise<ResumenSincronizacion | null> {
-  return leerJSON<ResumenSincronizacion | null>(CLAVE_ESTADO, null);
+  const guardado = await leerJSON<ResumenSincronizacion | null>(CLAVES.estadoSincronizacion, null);
+  // Los resúmenes que guardó una versión anterior no traen `atencion`.
+  return guardado ? { ...guardado, atencion: guardado.atencion ?? 0 } : null;
 }
 
 /** Firma de un archivo del expediente como base64, o `null` si no está. */
@@ -277,7 +414,9 @@ function sinRutasLocales(solicitud: SolicitudAfiliacion): SolicitudAfiliacion {
  *
  * Es idempotente: si el servidor ya la tiene, devuelve lo que guarda y, de
  * paso, completa las firmas que le falten. Por eso sirve igual para el primer
- * envío que para reparar uno que se quedó a medias.
+ * envío que para reparar uno que se quedó a medias — pero solo sobre un
+ * trámite que el servidor acaba de confirmar que tiene: con un identificador
+ * que no conoce, lo registra como nuevo.
  */
 async function registrarEnServidor(solicitud: SolicitudAfiliacion): Promise<SolicitudAfiliacion> {
   const [solicitante, ...garantes] = await Promise.all([
@@ -292,24 +431,34 @@ async function registrarEnServidor(solicitud: SolicitudAfiliacion): Promise<Soli
 }
 
 /**
- * Sube la fotografía tipo carnet capturada en la tableta. Devuelve la
- * solicitud tal como queda en el servidor, o `null` si no había nada que subir.
+ * Nombre con el que viaja la fotografía. El servidor comprueba que la
+ * extensión corresponda al contenido, y el nombre que dio la galería puede ser
+ * el del original, no el del recorte que se guardó: el de la ruta es el fiable.
  */
-async function subirFotografia(solicitud: SolicitudAfiliacion): Promise<SolicitudAfiliacion | null> {
-  const foto = solicitud.documentos.find((d) => d.tipo === "FOTO_CARNET");
-  if (!foto) return null;
+function nombreDeSubida(uri: string, nombreOriginal: string): string {
+  const deLaRuta = uri.split("?")[0].split("/").pop() ?? "";
+  if (/\.(jpe?g|png)$/i.test(deLaRuta)) return deLaRuta;
+  if (/\.(jpe?g|png)$/i.test(nombreOriginal)) return nombreOriginal;
+  return "fotografia.jpg";
+}
 
-  // Si el archivo ya no está en la tableta no hay nada que subir: se informa
-  // en lugar de insistir en cada sincronización.
-  const contenido = await leerBase64(foto.uri);
-  if (!contenido) return null;
+/**
+ * Sube la fotografía tipo carnet capturada en la tableta y devuelve la
+ * solicitud tal como queda en el servidor. Si el servidor no conoce el
+ * trámite responde 404: esta ruta, a diferencia del registro, nunca lo crea.
+ */
+async function subirFotografia(solicitud: SolicitudAfiliacion): Promise<SolicitudAfiliacion> {
+  const foto = solicitud.documentos.find((d) => d.tipo === "FOTO_CARNET");
+  if (!foto) throw new Error("La solicitud no tiene fotografía.");
 
   const formulario = new FormData();
+  // El papel va antes que el archivo: el servidor solo lee los campos que
+  // preceden a la parte del archivo.
   formulario.append("rol", "FOTO_CARNET");
   // React Native admite este descriptor de archivo en FormData.
   formulario.append("archivo", {
     uri: foto.uri,
-    name: foto.nombreArchivo || "fotografia.jpg",
+    name: nombreDeSubida(foto.uri, foto.nombreArchivo),
     type: foto.mimeType || "image/jpeg",
   } as unknown as Blob);
 
@@ -332,6 +481,7 @@ function aAvance(solicitud: SolicitudAfiliacion): AvanceDelServidor {
 }
 
 let enCurso: Promise<ResumenSincronizacion> | null = null;
+let cambioEnCurso: Promise<unknown> | null = null;
 
 /**
  * Entrega al servidor lo registrado en la tableta y trae el avance de cada
@@ -344,27 +494,71 @@ let enCurso: Promise<ResumenSincronizacion> | null = null;
  */
 export function sincronizar(): Promise<ResumenSincronizacion> {
   if (!enCurso) {
-    enCurso = ejecutarSincronizacion().finally(() => {
+    // Si hay un cambio de la cola en marcha (un borrado, un reenvío), se espera
+    // a que termine antes de leerla.
+    const cambio = cambioEnCurso;
+    const pasada = cambio
+      ? cambio.then(ejecutarSincronizacion, ejecutarSincronizacion)
+      : ejecutarSincronizacion();
+    enCurso = pasada.finally(() => {
       enCurso = null;
     });
   }
   return enCurso;
 }
 
+/**
+ * Aplica un cambio a la cola de envío sin que una sincronización lo pise:
+ * espera a la que esté en marcha, y la que se pida mientras tanto espera a que
+ * el cambio termine. Sin esto, una sincronización que leyó la lista antes de
+ * borrarla podía volver a escribirla entera después.
+ */
+async function sinSincronizar<T>(cambio: () => Promise<T>): Promise<T> {
+  const previos = [enCurso, cambioEnCurso];
+  const aplicado = (async () => {
+    for (const previo of previos) if (previo) await previo.catch(() => undefined);
+    return cambio();
+  })();
+  cambioEnCurso = aplicado;
+  try {
+    return await aplicado;
+  } finally {
+    if (cambioEnCurso === aplicado) cambioEnCurso = null;
+  }
+}
+
 async function ejecutarSincronizacion(): Promise<ResumenSincronizacion> {
+  const ahora = () => new Date().toISOString();
   const resumen: ResumenSincronizacion = {
     estado: "AL_DIA",
     enviadas: 0,
     archivos: 0,
     actualizadas: 0,
     pendientes: 0,
-    en: new Date().toISOString(),
+    atencion: 0,
+    en: ahora(),
   };
 
+  // Toda pasada termina revisando la tableta, haya servidor o no: un archivo
+  // que ya no está se avisa el mismo día en que se abre la aplicación, no el
+  // de la aprobación.
   const cerrar = async (): Promise<ResumenSincronizacion> => {
-    resumen.pendientes = (await pendientesDeEnvio()).length;
-    if (resumen.estado === "AL_DIA" && resumen.pendientes > 0) resumen.estado = "PENDIENTE";
-    await escribirJSON(CLAVE_ESTADO, resumen);
+    const situaciones = await situacionesDeEntrega();
+    const conAviso = situaciones.filter(requiereAtencion);
+    resumen.pendientes = situaciones.filter(seEnviaSola).length;
+    resumen.atencion = conAviso.length;
+    if (resumen.estado === "AL_DIA" && conAviso.length > 0) {
+      resumen.estado = "ATENCION";
+      resumen.detalle = [
+        describirSituacion(conAviso[0]),
+        conAviso.length > 1 ? `Y ${conAviso.length - 1} más en «Configuración y envío».` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+    } else if (resumen.estado === "AL_DIA" && resumen.pendientes > 0) {
+      resumen.estado = "PENDIENTE";
+    }
+    await escribirJSON(CLAVES.estadoSincronizacion, resumen);
     return resumen;
   };
 
@@ -374,117 +568,240 @@ async function ejecutarSincronizacion(): Promise<ResumenSincronizacion> {
     return cerrar();
   }
 
-  const detener = (error: unknown): boolean => {
+  /**
+   * Anota un fallo y dice si hay que suspender la pasada: sin conexión o sin
+   * una sesión válida, nada de lo que sigue puede salir.
+   */
+  const interrumpe = (error: unknown): boolean => {
     const codigo = error instanceof ErrorServidor ? error.codigo : -1;
+    const mensaje = error instanceof Error ? error.message : String(error);
     if (codigo === 401) {
       resumen.estado = "SIN_SESION";
       resumen.detalle =
         "La sesión de la tableta con el servidor venció. Iníciela de nuevo en «Configuración y envío».";
       return true;
     }
+    if (codigo === 403) {
+      // Todo lo que pide la tableta es del Área de Socios: si el servidor niega
+      // una cosa por el área del usuario, las niega todas.
+      resumen.estado = "SIN_SESION";
+      resumen.detalle = `La tableta inició sesión con un usuario que no es del Área de Socios: ${mensaje} Cierre la sesión e iníciela con el usuario del Área de Socios.`;
+      return true;
+    }
     if (codigo === 0) {
       resumen.estado = "SIN_CONEXION";
-      resumen.detalle = error instanceof Error ? error.message : "Sin conexión con el servidor.";
+      resumen.detalle = mensaje;
       return true;
     }
     resumen.estado = "ERROR";
-    if (!resumen.detalle) resumen.detalle = error instanceof Error ? error.message : String(error);
+    if (!resumen.detalle) resumen.detalle = mensaje;
     return false;
   };
 
   let registradas = await sincronizadas();
+  const detenidos = await enviosDetenidos();
 
-  // 1. Registrar lo que el servidor todavía no tiene, con sus firmas.
+  /**
+   * Aparta un trámite de la cola hasta que el operador decida: lo que el
+   * servidor rechazó con motivo o dejó de conocer no se vuelve a pedir en cada
+   * pasada.
+   */
+  const apartar = async (id: string, detenido: EnvioDetenido) => {
+    detenidos[id] = detenido;
+    await escribirJSON(CLAVES.enviosDetenidos, detenidos);
+  };
+
+  /**
+   * Trámites que el servidor confirmó tener en esta misma pasada. Solo a esos
+   * se les completan las firmas, porque el registro, con un identificador que
+   * el servidor no conoce, crea un trámite nuevo.
+   */
+  const confirmadas = new Set<string>();
+
+  // 1. Registrar lo que el servidor todavía no tiene, con las firmas que haya.
   for (const solicitud of await listarSolicitudes()) {
-    if (solicitud.estado === "BORRADOR" || registradas.includes(solicitud.id)) continue;
+    if (
+      solicitud.estado === "BORRADOR" ||
+      registradas.includes(solicitud.id) ||
+      detenidos[solicitud.id]
+    ) {
+      continue;
+    }
     try {
       const guardada = await registrarEnServidor(solicitud);
       await incorporarAvance([aAvance(guardada)]);
       registradas = [...registradas, solicitud.id];
       await guardarSincronizadas(registradas);
+      confirmadas.add(solicitud.id);
       resumen.enviadas += 1;
     } catch (error) {
-      if (detener(error)) return cerrar();
+      if (esRechazoDefinitivo(error)) {
+        await apartar(solicitud.id, { motivo: "RECHAZADO", en: ahora(), mensaje: error.message });
+        continue;
+      }
+      if (interrumpe(error)) return cerrar();
     }
   }
 
-  // 2. Completar las entregas a medias: firmas o fotografía que no llegaron.
-  for (const solicitud of await listarSolicitudes()) {
-    if (!registradas.includes(solicitud.id) || solicitud.estado === "RECHAZADA") continue;
-    const faltan = adjuntosFaltantes(solicitud);
-    if (faltan.length === 0) continue;
-
-    try {
-      // Solo se reintenta con las firmas que siguen en la tableta: si el
-      // archivo ya no está, reenviar no lo arregla y la bandeja lo avisa.
-      const firmasDisponibles = await Promise.all(
-        faltan
-          .filter((rol) => rol !== "FOTO_CARNET")
-          .map((rol) =>
-            firmaBase64(
-              rol === "FIRMA_SOLICITANTE"
-                ? solicitud.firmaUri
-                : solicitud.datos.garantes[rol === "FIRMA_GARANTE_1" ? 0 : 1]?.firmaUri ?? null
-            )
-          )
-      );
-      const hayFirmas = firmasDisponibles.filter(Boolean).length;
-      if (hayFirmas > 0) {
-        const reparada = await registrarEnServidor(solicitud);
-        await incorporarAvance([aAvance(reparada)]);
-        resumen.archivos += hayFirmas;
-      } else if (firmasDisponibles.length > 0 && !resumen.detalle) {
-        resumen.detalle = `El trámite ${solicitud.codigo} no tiene su firma en esta tableta; no puede completarse desde aquí.`;
-      }
-      if (faltan.includes("FOTO_CARNET")) {
-        const conFoto = await subirFotografia(solicitud);
-        if (conFoto) {
-          await incorporarAvance([aAvance(conFoto)]);
-          resumen.archivos += 1;
-        }
-      }
-    } catch (error) {
-      if (detener(error)) return cerrar();
-    }
-  }
-
-  // 3. Traer el avance de los trámites en curso: número de socio, constancias
-  //    y estado del expediente, para que la tableta muestre lo mismo que la
-  //    bandeja.
+  // 2. Traer el avance de lo ya enviado: número de socio, constancias y estado
+  //    del expediente, para que la tableta muestre lo mismo que la bandeja.
+  //
+  //    Va antes de completar las entregas a medias por dos razones: se repara
+  //    con lo que el servidor tiene hoy —lo que la Jefatura ya subió o declaró
+  //    en papel desde la bandeja no se vuelve a enviar—, y un trámite que el
+  //    servidor ya no conoce se descubre antes de mandarle nada.
   try {
-    const enCursoLocal = (await listarSolicitudes()).filter(
-      (s) => registradas.includes(s.id) && s.estado !== "BORRADOR"
+    const consultables = (await listarSolicitudes()).filter(
+      (s) => registradas.includes(s.id) && s.estado !== "BORRADOR" && !detenidos[s.id]
     );
-    if (enCursoLocal.length > 0) {
+    if (consultables.length > 0) {
       const respuesta = await peticion<{ avances: AvanceDelServidor[]; desconocidos: string[] }>(
         "/api/tableta/avance",
-        { metodo: "POST", cuerpo: { ids: enCursoLocal.map((s) => s.id) } }
+        { metodo: "POST", cuerpo: { ids: consultables.map((s) => s.id) } }
       );
       resumen.actualizadas = await incorporarAvance(respuesta.avances);
+      for (const avance of respuesta.avances) confirmadas.add(avance.id);
 
-      // Un trámite que el servidor no conoce —una base restaurada, por
-      // ejemplo— se vuelve a registrar en la próxima pasada.
-      if (respuesta.desconocidos.length > 0) {
-        registradas = registradas.filter((id) => !respuesta.desconocidos.includes(id));
-        await guardarSincronizadas(registradas);
+      // Un trámite que el servidor aceptó y ahora no conoce es una base que se
+      // vació o se restauró. Antes se volvía a registrar solo en la pasada
+      // siguiente, y tras vaciar la base para una prueba en limpio la tableta
+      // resucitaba cada trámite viejo como uno nuevo. Ahora lo decide el
+      // operador (ver `reanudarEnvio`).
+      for (const id of respuesta.desconocidos) {
+        await apartar(id, { motivo: "NO_EXISTE_EN_SERVIDOR", en: ahora() });
       }
     }
   } catch (error) {
-    if (detener(error)) return cerrar();
+    if (interrumpe(error)) return cerrar();
+  }
+
+  // 3. Completar las entregas a medias con lo que siga en la tableta. Lo que ya
+  //    no está no se pide —reenviar no lo trae de vuelta—: el trámite queda a
+  //    la vista como pendiente de atención.
+  for (const solicitud of await listarSolicitudes()) {
+    if (
+      !registradas.includes(solicitud.id) ||
+      solicitud.estado === "RECHAZADA" ||
+      detenidos[solicitud.id]
+    ) {
+      continue;
+    }
+    const faltan = adjuntosFaltantes(solicitud);
+    if (faltan.length === 0) continue;
+
+    /** La pieza que se estaba enviando, para decir cuál rechazó el servidor. */
+    let subiendo: RolAdjunto | undefined;
+    try {
+      const firmasQueFaltan = faltan.filter((rol) => ROL_ADJUNTO_META[rol].esFirma);
+      const contenidos = await Promise.all(
+        firmasQueFaltan.map((rol) => firmaBase64(rutaDelAdjunto(solicitud, rol)))
+      );
+      const firmas = firmasQueFaltan.filter((_, indice) => contenidos[indice]);
+      if (firmas.length > 0 && confirmadas.has(solicitud.id)) {
+        subiendo = firmas.length === 1 ? firmas[0] : undefined;
+        const antes = new Set(solicitud.expediente.adjuntosRecibidos ?? []);
+        const reparada = await registrarEnServidor(solicitud);
+        await incorporarAvance([aAvance(reparada)]);
+        resumen.archivos += (reparada.expediente.adjuntosRecibidos ?? []).filter(
+          (rol) => !antes.has(rol)
+        ).length;
+      }
+
+      const foto = rutaDelAdjunto(solicitud, "FOTO_CARNET");
+      if (faltan.includes("FOTO_CARNET") && archivoDisponible(foto)) {
+        subiendo = "FOTO_CARNET";
+        const conFoto = await subirFotografia(solicitud);
+        await incorporarAvance([aAvance(conFoto)]);
+        resumen.archivos += 1;
+      }
+    } catch (error) {
+      if (error instanceof ErrorServidor && error.delServidor && error.codigo === 404) {
+        await apartar(solicitud.id, { motivo: "NO_EXISTE_EN_SERVIDOR", en: ahora() });
+        continue;
+      }
+      if (esRechazoDefinitivo(error)) {
+        await apartar(solicitud.id, {
+          motivo: "RECHAZADO",
+          en: ahora(),
+          mensaje: error.message,
+          rol: subiendo,
+        });
+        continue;
+      }
+      if (interrumpe(error)) return cerrar();
+    }
   }
 
   return cerrar();
 }
 
-/** Texto corto del estado, para el portal. */
+/**
+ * Vuelve a poner en la cola un trámite cuyo envío se detuvo, y lo intenta de
+ * inmediato.
+ *
+ * Si se detuvo porque el servidor ya no lo tenía, se registra de nuevo: el
+ * servidor le asigna otro código y el trámite empieza otra vez por la creación
+ * en SAFI. Por eso lo decide el operador y no la sincronización.
+ */
+export async function reanudarEnvio(id: string): Promise<ResumenSincronizacion> {
+  await sinSincronizar(async () => {
+    const detenidos = await enviosDetenidos();
+    if (detenidos[id]?.motivo === "NO_EXISTE_EN_SERVIDOR") {
+      await guardarSincronizadas((await sincronizadas()).filter((otro) => otro !== id));
+    }
+    delete detenidos[id];
+    await escribirJSON(CLAVES.enviosDetenidos, detenidos);
+  });
+  return sincronizar();
+}
+
+/**
+ * Borra de la tableta todo lo registrado, con sus firmas y fotografías, y el
+ * estado de los envíos. No toca el servidor, ni la configuración de la
+ * tableta, ni su sesión.
+ */
+export async function borrarDatosDePrueba(): Promise<{
+  afiliaciones: number;
+  actualizaciones: number;
+}> {
+  return sinSincronizar(async () => {
+    const borrados = await borrarRegistrosLocales();
+    await eliminar(CLAVES.sincronizadas, CLAVES.estadoSincronizacion, CLAVES.enviosDetenidos);
+    return borrados;
+  });
+}
+
+/** Texto corto del estado, para el portal y «Configuración y envío». */
 export function describirResumen(resumen: ResumenSincronizacion | null): {
   titulo: string;
   tono: "success" | "warning" | "danger" | "info";
+  /** Lo que conviene leer además del título, si hay algo. */
+  detalle?: string;
 } {
   if (!resumen) return { titulo: "Aún no se ha sincronizado con el servidor.", tono: "info" };
+
+  // Lo que la tableta no puede completar sola se menciona siempre, aunque el
+  // título hable de la conexión: si no, quedaría escondido detrás de ese aviso.
+  const { atencion } = resumen;
+  const tambien =
+    atencion === 0
+      ? undefined
+      : atencion === 1
+        ? "Además, 1 trámite necesita su atención."
+        : `Además, ${atencion} trámites necesitan su atención.`;
+  const juntar = (...partes: (string | undefined)[]) =>
+    partes.filter(Boolean).join("\n") || undefined;
+
   switch (resumen.estado) {
     case "AL_DIA":
       return { titulo: "Todo lo registrado está en el servidor.", tono: "success" };
+    case "ATENCION":
+      return {
+        titulo:
+          atencion === 1 ? "1 trámite necesita su atención." : `${atencion} trámites necesitan su atención.`,
+        tono: "danger",
+        detalle: resumen.detalle,
+      };
     case "PENDIENTE":
       return {
         titulo:
@@ -492,14 +809,31 @@ export function describirResumen(resumen: ResumenSincronizacion | null): {
             ? "1 afiliación con envío pendiente."
             : `${resumen.pendientes} afiliaciones con envío pendiente.`,
         tono: "warning",
+        detalle: juntar(resumen.detalle, tambien),
       };
     case "SIN_SERVIDOR":
-      return { titulo: "Falta configurar el servidor.", tono: "danger" };
+      return {
+        titulo: "Falta configurar el servidor.",
+        tono: "danger",
+        detalle: juntar(resumen.detalle, tambien),
+      };
     case "SIN_SESION":
-      return { titulo: "Sesión vencida: no se están enviando las afiliaciones.", tono: "danger" };
+      return {
+        titulo: "Sin una sesión válida: no se están enviando las afiliaciones.",
+        tono: "danger",
+        detalle: juntar(resumen.detalle, tambien),
+      };
     case "SIN_CONEXION":
-      return { titulo: "Sin conexión con el servidor: se enviará al volver la red.", tono: "warning" };
+      return {
+        titulo: "Sin conexión con el servidor: se enviará al volver la red.",
+        tono: "warning",
+        detalle: juntar(resumen.detalle, tambien),
+      };
     case "ERROR":
-      return { titulo: resumen.detalle ?? "El servidor rechazó un envío.", tono: "danger" };
+      return {
+        titulo: resumen.detalle ?? "El servidor rechazó un envío.",
+        tono: "danger",
+        detalle: tambien,
+      };
   }
 }

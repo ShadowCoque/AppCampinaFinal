@@ -138,6 +138,22 @@ export async function leerBase64(uri: string): Promise<string | null> {
   }
 }
 
+/**
+ * Si un archivo del expediente sigue en la tableta.
+ *
+ * Una firma que quedó como `data:` URI lleva la imagen dentro de la propia
+ * cadena, así que siempre está.
+ */
+export function archivoDisponible(uri: string | null | undefined): boolean {
+  if (!uri) return false;
+  if (esDataUri(uri)) return true;
+  try {
+    return new File(uri).exists;
+  } catch {
+    return false;
+  }
+}
+
 export function eliminarArchivo(uri: string): void {
   if (esDataUri(uri)) return;
   try {
@@ -155,6 +171,20 @@ export function eliminarExpediente(solicitudId: string): void {
     if (dir.exists) dir.delete();
   } catch (error) {
     console.warn("[archivos] No se pudo eliminar el expediente:", error);
+  }
+}
+
+/**
+ * Elimina todos los expedientes del dispositivo: firmas y fotografías de las
+ * afiliaciones y de las actualizaciones de datos. Solo lo usa el borrado de
+ * los datos de prueba.
+ */
+export function eliminarTodosLosExpedientes(): void {
+  try {
+    const dir = new Directory(Paths.document, RAIZ);
+    if (dir.exists) dir.delete();
+  } catch (error) {
+    console.warn("[archivos] No se pudieron eliminar los expedientes:", error);
   }
 }
 

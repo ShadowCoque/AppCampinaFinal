@@ -10,6 +10,8 @@ la documentación legal ni los formularios físicos de referencia.
 | Carpeta | Para qué |
 | --- | --- |
 | `PROMPT-CLAUDE-SERVIDOR.md` | **Empiece por aquí.** Las tareas que le tocan a este servidor, en orden, con los comandos exactos y las precauciones. |
+| `PROMPT-CLAUDE-DESARROLLO.md` | El canal en sentido contrario: lo que el Claude del servidor le pide al de desarrollo. Cuando está atendido, lo dice al principio. |
+| `PROCESO-AFILIACION.md` | El trámite de principio a fin, con lo que cada área ve y hace, y la lista de comprobación de la prueba en limpio. |
 | `server/` | El servidor: API, bandeja de tareas, repositorio de expedientes, vigilante de escaneos y generación del formulario en PDF. El detalle técnico está en `server/README.md`. |
 | `web/` | La bandeja de tareas que sirve el servidor, con el logotipo y los colores del Club. |
 | `src/domain/` | Reglas del negocio compartidas por el servidor y la app móvil. |
@@ -23,8 +25,12 @@ debe tocar. Resume en una línea: es un contenedor Docker que convive con otros
 servicios en el mismo servidor, se publica por HTTP plano (sin certificado
 TLS, es una red interna) y no necesita nada instalado fuera de Docker.
 
-Tres cosas cambiaron respecto de la versión anterior y **hay que atenderlas al
-actualizar**:
+**Ronda del 15/09/2026:** solo cambia la aplicación de la tableta. `server/`,
+`web/`, `src/domain/` y `src/services/formularios/` no cambian: no hay imagen que
+reconstruir. Lo que le toca al servidor está en `PROMPT-CLAUDE-SERVIDOR.md`.
+
+Del despliegue del 11/09, tres cosas que **hay que atender al actualizar** desde
+una versión anterior:
 
 - El contenedor trae ahora **Chromium**, para generar el formulario definitivo
   en PDF al aprobar. Su límite de memoria subió de 512 MB a **1 GB**.

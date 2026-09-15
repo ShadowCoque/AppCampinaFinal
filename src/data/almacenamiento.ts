@@ -16,6 +16,16 @@ export const CLAVES = {
   operador: "campina.operador.v1",
   /** Configuración de conexión con el servidor institucional. */
   servidor: "campina.servidor.v1",
+  /**
+   * Afiliaciones que el servidor ya aceptó. Se lleva aparte del documento de la
+   * solicitud para que lo que viaja al servidor sea exactamente el dominio
+   * compartido, sin campos propios del dispositivo.
+   */
+  sincronizadas: "campina.sincronizadas.v1",
+  /** Resultado del último intento de envío, para el portal y Configuración. */
+  estadoSincronizacion: "campina.sincronizacion.estado.v1",
+  /** Afiliaciones cuyo envío se detuvo hasta que el operador decida. */
+  enviosDetenidos: "campina.envios.detenidos.v1",
 } as const;
 
 export async function leerJSON<T>(clave: string, porDefecto: T): Promise<T> {
@@ -39,11 +49,11 @@ export async function escribirJSON(clave: string, valor: unknown): Promise<boole
   }
 }
 
-export async function eliminar(clave: string): Promise<void> {
+export async function eliminar(...claves: string[]): Promise<void> {
   try {
-    await AsyncStorage.removeItem(clave);
+    await AsyncStorage.multiRemove(claves);
   } catch (error) {
-    console.warn(`[almacenamiento] No se pudo eliminar "${clave}":`, error);
+    console.warn(`[almacenamiento] No se pudo eliminar "${claves.join(", ")}":`, error);
   }
 }
 

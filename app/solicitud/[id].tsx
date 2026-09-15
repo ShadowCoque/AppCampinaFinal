@@ -4,8 +4,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { formatearTamano } from "../../src/data/archivos";
-import { eliminarSolicitud, obtenerSolicitud } from "../../src/data/solicitudes";
+import { archivoDisponible, formatearTamano } from "../../src/data/archivos";
+import { eliminarSolicitud } from "../../src/data/solicitudes";
 import { FORMA_PAGO_META } from "../../src/domain/facturacion";
 import { formatFechaCorta, formatFechaHora } from "../../src/domain/fechas";
 import { CONSENTIMIENTOS } from "../../src/domain/privacidad";
@@ -14,19 +14,17 @@ import {
   AREA_META,
   ESTADO_META,
   ORIGEN_IDENTIDAD_META,
-  ROL_ADJUNTO_META,
-  adjuntosFaltantes,
   nombreCompleto,
   nombreTitular,
   type Area,
   type ConstanciaTramite,
-  type SolicitudAfiliacion,
 } from "../../src/domain/solicitud";
 import { nombreDocumento } from "../../src/domain/documentos";
 import { numeroEnExpediente } from "../../src/domain/tareas";
 import { documentosDelTramite, nombreTipo, reglasDe } from "../../src/domain/tiposMiembro";
+import { TarjetaEnvio } from "../../src/features/expediente/TarjetaEnvio";
 import { exportarSolicitudAfiliacion } from "../../src/services/pdf";
-import { estaSincronizada, sincronizar } from "../../src/services/servidor";
+import { situacionDeEntrega, type SituacionEntrega } from "../../src/services/servidor";
 import { colors, radius, spacing, typography } from "../../src/theme";
 import { Badge, Button, Card, DataRow, InfoNote } from "../../src/ui";
 
@@ -74,20 +72,35 @@ function ConstanciaFila({
   );
 }
 
+/** Firma trazada en la tableta, o el aviso de que el archivo ya no está en ella. */
+function FirmaGuardada({ uri, pie }: { uri: string | null; pie: string }) {
+  if (!uri) return null;
+  if (!archivoDisponible(uri)) {
+    return (
+      <InfoNote tone="danger" icon="alert-circle-outline">
+        {`${pie}: el archivo ya no está en esta tableta.`}
+      </InfoNote>
+    );
+  }
+  return (
+    <View style={styles.firma}>
+      <Image source={{ uri }} style={styles.firmaImagen} contentFit="contain" />
+      <Text style={styles.firmaPie}>{pie}</Text>
+    </View>
+  );
+}
+
 export default function DetalleSolicitudScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [solicitud, setSolicitud] = useState<SolicitudAfiliacion | null>(null);
-  const [enServidor, setEnServidor] = useState(false);
+  const [situacion, setSituacion] = useState<SituacionEntrega | null>(null);
   const [cargando, setCargando] = useState(true);
   const [exportando, setExportando] = useState(false);
-  const [enviando, setEnviando] = useState(false);
+  const [scrollHabilitado, setScrollHabilitado] = useState(true);
 
   const cargar = useCallback(async () => {
     if (!id) return;
-    const [local, entregada] = await Promise.all([obtenerSolicitud(id), estaSincronizada(id)]);
-    setSolicitud(local);
-    setEnServidor(entregada);
+    setSituacion(await situacionDeEntrega(id));
     setCargando(false);
   }, [id]);
 
@@ -107,7 +120,8 @@ export default function DetalleSolicitudScreen() {
     );
   }
 
-  if (!solicitud) {
+  const solicitud = situacion?.solicitud;
+  if (!situacion || !solicitud) {
     return (
       <View style={styles.centro}>
         <Ionicons name="alert-circle-outline" size={40} color={colors.textFaint} />
@@ -122,7 +136,6 @@ export default function DetalleSolicitudScreen() {
   const reglas = reglasDe(datos.tipoMiembro);
   const documentosTramite = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
   const { tramite, expediente } = solicitud;
-  const faltantes = solicitud.estado === "RECHAZADA" ? [] : adjuntosFaltantes(solicitud);
   const numero = numeroEnExpediente(solicitud);
 
   const exportar = async () => {
@@ -131,26 +144,14 @@ export default function DetalleSolicitudScreen() {
     setExportando(false);
   };
 
-  /** Entrega lo pendiente y trae el avance que registró el servidor. */
-  const enviarAhora = async () => {
-    setEnviando(true);
-    try {
-      const resumen = await sincronizar();
-      await cargar();
-      if (resumen.detalle && resumen.estado !== "AL_DIA") {
-        Alert.alert("Envío al servidor", resumen.detalle);
-      }
-    } finally {
-      setEnviando(false);
-    }
-  };
-
   const borrar = () => {
     Alert.alert(
       "Eliminar solicitud de la tableta",
-      enServidor
-        ? "Se eliminará la copia de esta tableta. El trámite y su expediente siguen en el servidor del Club."
-        : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con la firma y la fotografía. Esta acción no se puede deshacer.",
+      situacion.detenido?.motivo === "NO_EXISTE_EN_SERVIDOR"
+        ? "El servidor ya no tiene este trámite: si lo elimina de la tableta, no queda en ninguna parte, con su firma y su fotografía. Esta acción no se puede deshacer."
+        : situacion.enviada
+          ? "Se eliminará la copia de esta tableta. El trámite y su expediente siguen en el servidor del Club."
+          : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con la firma y la fotografía. Esta acción no se puede deshacer.",
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -166,7 +167,11 @@ export default function DetalleSolicitudScreen() {
   };
 
   return (
-    <ScrollView style={styles.pantalla} contentContainerStyle={styles.contenido}>
+    <ScrollView
+      style={styles.pantalla}
+      contentContainerStyle={styles.contenido}
+      scrollEnabled={scrollHabilitado}
+    >
       <View style={styles.cabecera}>
         <View style={styles.cabeceraFila}>
           <Text style={styles.codigo}>{solicitud.codigo}</Text>
@@ -190,44 +195,11 @@ export default function DetalleSolicitudScreen() {
         />
       </View>
 
-      <Card title="Envío al servidor del Club" icon="cloud-upload">
-        {!enServidor ? (
-          <InfoNote tone="danger" icon="cloud-offline">
-            Esta afiliación todavía no llegó al servidor, así que no aparece en ninguna bandeja. Se
-            envía sola en cuanto hay conexión y sesión; también puede enviarla ahora.
-          </InfoNote>
-        ) : faltantes.length > 0 ? (
-          <InfoNote tone="warning" icon="alert-circle-outline">
-            {`El servidor tiene el trámite pero le falta: ${faltantes
-              .map((rol) => ROL_ADJUNTO_META[rol].etiqueta.toLowerCase())
-              .join(", ")}. Sin la firma no se puede componer el formulario.`}
-          </InfoNote>
-        ) : (
-          <InfoNote tone="success" icon="cloud-done">
-            El servidor tiene el trámite completo: datos, firmas y fotografía.
-          </InfoNote>
-        )}
-        {!enServidor || faltantes.length > 0 ? (
-          <Button
-            label="Enviar ahora"
-            icon="sync"
-            onPress={enviarAhora}
-            loading={enviando}
-            fullWidth
-            style={styles.botonEnviar}
-          />
-        ) : (
-          <Button
-            label="Actualizar el avance"
-            icon="refresh"
-            variant="secondary"
-            onPress={enviarAhora}
-            loading={enviando}
-            fullWidth
-            style={styles.botonEnviar}
-          />
-        )}
-      </Card>
+      <TarjetaEnvio
+        situacion={situacion}
+        onCambio={cargar}
+        onDibujando={(dibujando) => setScrollHabilitado(!dibujando)}
+      />
 
       <Card title="Información interna del Club" icon="clipboard" subtitle="Reverso del formulario">
         <DataRow
@@ -366,16 +338,7 @@ export default function DetalleSolicitudScreen() {
                 value={`${garante.apellidosNombres} · Socio N.º ${garante.numeroSocio}`}
               />
               <DataRow label="Celular" value={garante.celular} />
-              {garante.firmaUri ? (
-                <View style={styles.firma}>
-                  <Image
-                    source={{ uri: garante.firmaUri }}
-                    style={styles.firmaImagen}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.firmaPie}>{`Firma de ${garante.apellidosNombres}`}</Text>
-                </View>
-              ) : null}
+              <FirmaGuardada uri={garante.firmaUri} pie={`Firma de ${garante.apellidosNombres}`} />
             </View>
           ))}
         </Card>
@@ -512,12 +475,7 @@ export default function DetalleSolicitudScreen() {
           </InfoNote>
         )}
 
-        {solicitud.firmaUri ? (
-          <View style={styles.firma}>
-            <Image source={{ uri: solicitud.firmaUri }} style={styles.firmaImagen} contentFit="contain" />
-            <Text style={styles.firmaPie}>Firma del solicitante</Text>
-          </View>
-        ) : null}
+        <FirmaGuardada uri={solicitud.firmaUri} pie="Firma del solicitante" />
       </Card>
 
       <Card title="Historial del trámite" icon="time">
@@ -598,7 +556,6 @@ const styles = StyleSheet.create({
 
   acciones: { gap: spacing.sm, marginTop: spacing.lg },
   accionesSecundarias: { gap: spacing.sm, marginTop: spacing.xl },
-  botonEnviar: { marginTop: spacing.md },
 
   vacio: { ...typography.caption },
   galeria: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },

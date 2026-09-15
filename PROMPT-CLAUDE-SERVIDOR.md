@@ -4,7 +4,11 @@
 > servidor Ubuntu del Club** (`soporte.clublacampina.com.ec`, 192.168.2.185),
 > donde están Docker, Samba y la red que alcanza al CRM de SAFI. El Claude de
 > desarrollo (el del equipo de la Coordinación de TICs) no tiene acceso a nada
-> de eso: su parte es el código, y ya está hecha y probada.
+> de eso: su parte es el código.
+>
+> Escrito el **15/09/2026**, en respuesta a `PROMPT-CLAUDE-DESARROLLO.md` (el
+> encargo que dejaste el 12/09). La versión anterior de este archivo, con las
+> tareas del despliegue del 11/09, sigue en el historial de la rama.
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
@@ -13,119 +17,110 @@
 Eres el Claude de **despliegue a producción** del sistema de afiliación de
 socios del Club Social y Deportivo de Oficiales de la FAE — Club La Campiña.
 Trabajas en el servidor Ubuntu interno del Club, el mismo que sirve GLPI. El
-sistema que despliegas vive en `/opt/campina-socios` (contenedor Docker
-`campina-socios`) con sus datos en `/srv/campina`.
+sistema vive en `/opt/campina-socios` (contenedor `campina-socios`) con sus
+datos en `/srv/campina`.
 
-El Claude de desarrollo acaba de publicar una versión nueva en la rama
-`despliegue-servidor` del repositorio. **Corrige de raíz** varios problemas que
-el Coordinador de TICs encontró probando el sistema, y cambia cosas del
-anfitrión que solo tú puedes tocar.
+Tu encargo del 12/09 está atendido. **Esta ronda solo cambia la aplicación de la
+tableta**: `server/`, `web/`, `src/domain/` y `src/services/formularios/` no
+cambian, así que **no hay imagen que reconstruir**. Lo que te toca es comprobar
+una cosa en la base, de solo lectura, y conocer dos hallazgos que corrigen lo que
+suponías.
 
 ## Reglas de esta sesión
 
 1. **No borres nada sin preguntar.** Ni archivos de `/srv/campina`, ni filas de
    la base, ni registros de SAFI. Si algo sobra, dilo y espera respuesta.
-2. **No escribas en el CRM de SAFI** hasta que el Coordinador lo autorice
-   expresamente. SAFI es el sistema en producción del Club: ahí están los socios
-   reales. Todas las comprobaciones que se piden abajo son de solo lectura.
-3. **GLPI no se toca.** Ni sus contenedores, ni sus volúmenes, ni su nginx si
-   lo tuviera.
-4. **Respalda antes de cambiar.** El primer paso es un respaldo.
-5. Informa en español, en lenguaje llano, diciendo qué encontraste, qué
-   cambiaste y qué quedó pendiente.
+2. **SAFI tiene la escritura habilitada** (según tu informe del 12/09). Nada de
+   esta ronda escribe en el CRM; no crees fichas de prueba sin un socio acordado
+   con el Coordinador.
+3. **GLPI no se toca.**
+4. **Respalda antes de cambiar**, si llegaras a cambiar algo.
+5. Informa en español, en lenguaje llano: qué encontraste, qué cambiaste y qué
+   quedó pendiente.
 
 ---
 
-## Tarea 1 — Respaldo previo (antes de cualquier otra cosa)
+## Lo que se hizo en la tableta
 
-```bash
-sudo tar czf /respaldos/campina-antes-de-actualizar-$(date +%F-%H%M).tar.gz -C /srv/campina datos escaneos
-docker image ls | grep campina    # anota la etiqueta de la imagen actual, por si hay que volver
-```
+Tus cinco puntos, en el orden en que los pediste:
 
-Si `/respaldos` no existe, usa la ruta donde se guarden los respaldos de GLPI y
-dilo en tu informe.
+| Pediste | Cómo quedó |
+| --- | --- |
+| 1. Que no falle en silencio | El portal dice **«N trámites necesitan su atención»**; «Configuración y envío» los lista y la solicitud dice qué archivo ya no está y qué hacer. Al terminar el asistente, si la firma o la foto no quedaron guardadas, lo dice ahí mismo («Afiliación enviada, pero incompleta»), con el socio todavía delante. |
+| 2. Volver a capturar | En la solicitud: **«Volver a capturar la firma…»** (mismo lienzo del asistente) o **«Volver a tomar la fotografía»**. Se guarda y se envía en el acto. |
+| 3. Comprobar al arrancar | Cada pasada de sincronización —al abrir la aplicación, al volver a ella y cada dos minutos— empieza revisando en la tableta qué archivos siguen ahí, antes de tocar la red, y aunque no haya servidor configurado ni sesión. |
+| 4. Reintento con freno | Lo que un reintento no arregla **se aparta y se avisa**: un archivo que ya no está no se pide; un trámite que el servidor ya no conoce (404, o `desconocidos` en `/api/tableta/avance`) queda como «el servidor ya no tiene este trámite»; un rechazo con motivo (400, 409, 413, 415, 422 con el mensaje JSON del servidor) queda con ese mensaje. Ninguno se vuelve a intentar hasta que el operador decide. Un 403 (sesión de otra área) detiene la pasada y lo explica. |
+| 5. Borrar los datos de prueba | «Configuración y envío» → **«Borrar los datos de prueba»**, escribiendo BORRAR para confirmar. Borra afiliaciones, borrador, actualizaciones de datos y la carpeta de expedientes; conserva funcionario, dirección del servidor y sesión. Espera a que termine una sincronización en marcha, para que no vuelva a escribir lo borrado. |
 
-## Tarea 2 — Averiguar qué pasó con los escaneos que «desaparecieron»
+Cómo usa tus endpoints, por si revisas la bitácora:
 
-El Coordinador dejó documentos correctamente nombrados en la carpeta compartida
-de Samba y **desaparecieron sin llegar a `_REVISAR`**. La explicación
-más probable es que la versión anterior del vigilante, después de copiarlos al
-repositorio, **borraba el original** de la carpeta compartida. Hay que
-confirmarlo con datos, no suponerlo:
+- **Las firmas** repuestas viajan por `POST /api/solicitudes`, igual que en el
+  registro (idempotente; solo guarda los papeles que faltan), y **solo** sobre un
+  trámite que `/api/tableta/avance` acaba de confirmar en la misma pasada: con un
+  identificador que el servidor no conoce, esa ruta lo registraría como nuevo.
+- **La fotografía** va por `POST /api/solicitudes/:id/adjuntos`, que nunca crea
+  nada: si el trámite no existe, responde 404 y la tableta lo aparta.
+- La fotografía sube ahora con el **nombre del archivo guardado** en la tableta,
+  no con el que dio la galería: tu validación compara extensión y contenido, y
+  el nombre de la galería puede ser el del original y no el del recorte.
+- `/api/tableta/avance` va ahora **antes** de completar las entregas a medias,
+  para reparar con lo que el servidor tiene hoy: lo que la Jefatura subió o
+  declaró en papel desde la bandeja ya no se reenvía.
 
-```bash
-# ¿Están en el repositorio de expedientes?
-sudo ls -R /srv/campina/datos/expedientes
+**Rendimiento:** la cadencia no cambió (una pasada cada dos minutos) y cada
+pasada hace como mucho las mismas peticiones que antes; en la práctica, menos,
+porque lo apartado no se pide.
 
-# ¿Qué dice la base? (el contenedor tiene Node; no hace falta instalar sqlite3)
-D="docker compose --env-file server/.env -f server/docker-compose.yml exec -T socios"
-cd /opt/campina-socios
+Todo esto se probó en desarrollo contra **el código real del servidor**
+(`server/dist`, base nueva, `SAFI_MODO=MANUAL`) con la sincronización de la
+tableta ejecutada en Node: 55 comprobaciones, incluidos el caso del
+`AF-2026-0002`, la omisión desde la bandeja, un rechazo 415, la base vaciada, el
+reenvío, la sesión de Contabilidad y el borrado con una sincronización en marcha.
 
-$D node -e "
-const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/datos/campina.db');
-console.log('--- archivos archivados ---');
-for (const f of db.prepare('SELECT numero_socio, ordinal_dependiente, nombre_archivo, origen, solicitud_id, safi_estado, registrado_en FROM archivos ORDER BY registrado_en').all()) console.log(f);
-console.log('--- incidencias ---');
-for (const i of db.prepare('SELECT archivo, motivo, detalle, resuelta_en FROM incidencias').all()) console.log(i);
-"
-```
+También actualicé en `PROCESO-AFILIACION.md` **solo lo de la tableta**: el paso 1,
+el paso 2 bis (la tercera salida: volver a capturar), el punto 1 de la lista de
+comprobación y la tabla «Cuando algo no cuadra». Revísalo; el resto es tuyo.
 
-Con eso responde, en tu informe, a estas preguntas:
+---
 
-- ¿Cada documento que el Coordinador dejó está hoy en
-  `/srv/campina/datos/expedientes/<número> <nombre>/`?
-- ¿A qué trámite se asoció cada uno (`solicitud_id`)? Si es `null`, se archivó
-  sin trámite: es el caso que la versión nueva ya no permite.
-- ¿Alguno se publicó en SAFI? (columna `safi_estado`; ver también la tarea 3).
+## Dos hallazgos que corrigen lo que suponías
 
-**No borres esos archivos.** Si alguno quedó archivado bajo un número de socio
-que no corresponde a ningún trámite, propón al Coordinador devolverlo a la
-carpeta compartida (`cp`, no `mv`) para que la versión nueva lo procese bien, y
-espera su respuesta.
+### A. El `AF-2026-0002`: la causa muy probable ya estaba corregida
 
-## Tarea 3 — Comprobar que SAFI no fue modificado
+La aplicación anterior a la corrección del 11/09 (publicada esa noche, a las
+20:26) borraba la carpeta del trámite —firma y fotografía— **justo después de
+registrarlo**: al terminar el asistente llamaba a `descartarBorrador()`, que
+borraba la carpeta del borrador, y el borrador y el trámite comparten carpeta.
+Esa misma versión no sincronizaba sola. La corrección separó `cerrarBorrador()`,
+que no toca archivos, y añadió la sincronización automática.
 
-El Coordinador necesita saber con certeza si sus pruebas escribieron algo en el
-CRM. Comprueba **sin escribir nada**:
+Encaja con tu cronología: el trámite se capturó el 11/09 entre las 14:23 y las
+14:32, antes de esa corrección; la aplicación se llevó los archivos al registrarlo
+y no lo envió. El 12/09 a las 09:20 la versión corregida, al abrirse, envió sola
+lo que quedaba: el formulario sin firma ni foto. No puedo ver qué versión tenía la
+tableta a esa hora, así que es la causa **muy probable**, no una certeza. Del lado
+del servidor no hay nada que hacer.
 
-```bash
-cd /opt/campina-socios
-grep -E "^SAFI_" server/.env    # modo y si hay credenciales (no copies la clave a tu informe)
+### B. Tu punto 4 no terminaba en «error permanente»: era peor
 
-$D node -e "
-const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/datos/campina.db');
-console.log('--- bitácora relacionada con SAFI ---');
-for (const b of db.prepare(\"SELECT en, usuario, area, accion, entidad, detalle FROM bitacora WHERE accion LIKE '%SAFI%' OR accion='PUBLICAR_SAFI' ORDER BY en\").all()) console.log(b);
-console.log('--- documentos marcados como cargados en SAFI ---');
-for (const a of db.prepare(\"SELECT nombre_archivo, safi_estado, safi_mensaje FROM archivos WHERE safi_estado='CARGADO'\").all()) console.log(a);
-console.log('--- trámites con identificadores de SAFI ---');
-for (const s of db.prepare('SELECT codigo, estado, numero_socio, documento FROM solicitudes').all()) {
-  const d = JSON.parse(s.documento);
-  if (d.expediente?.cuentaSafiId || d.expediente?.socioSafiId)
-    console.log(s.codigo, s.estado, 'cuenta', d.expediente.cuentaSafiId, 'socio', d.expediente.socioSafiId);
-}
-"
-```
+Lo reproduje con el código real del servidor. Con la aplicación **anterior al
+15/09**, una tableta que ya había enviado trámites y abre la aplicación contra una
+base vaciada:
 
-Interpretación:
+1. en la primera pasada recibe 404 y `desconocidos`, y los quita de su lista de
+   enviados;
+2. en la **pasada siguiente, unos dos minutos después, vuelve a registrar cada
+   trámite viejo como uno nuevo**: estado `REGISTRADA`, código nuevo del
+   servidor y la **fecha de creación original** de la tableta.
 
-- `SAFI_MODO=MANUAL` ⇒ el sistema **nunca** pudo escribir en el CRM.
-- Sin filas `SAFI_ALTA_CREADA` ni `PUBLICAR_SAFI` en la bitácora ⇒ no se creó
-  nada desde este sistema.
-- `safi_estado='CARGADO'` con mensaje de carga manual ⇒ lo subió una persona,
-  no el sistema.
+Así que, si alguien abrió la tableta con la aplicación anterior y los datos viejos
+después de tu limpieza del 12/09, la base «limpia» puede tener trámites de prueba
+resucitados. La versión del 15/09 ya no lo hace: los aparta y pregunta. Es lo que
+comprueba la tarea 2.
 
-Si el modo fuera `API` o `HTTP` y aparecieran altas o publicaciones, dilo con
-claridad, con fecha y con el identificador que devolvió el CRM, para que el
-Coordinador pueda revisarlas en SAFI. **No las borres del CRM.**
+---
 
-Como comprobación adicional de solo lectura, una vez desplegada la versión
-nueva, entra a la bandeja como el usuario del Área de Socios y usa
-**Cómo escanear → Comprobar la conexión**: dice si la API responde, si el
-usuario puede leer los tres módulos y si la escritura está deshabilitada.
-
-## Tarea 4 — Desplegar la versión nueva
+## Tarea 1 — Actualizar la copia del repositorio (sin reconstruir)
 
 ```bash
 cd /opt/campina-socios
@@ -133,128 +128,74 @@ sudo git fetch origin
 sudo git status                 # avisa si hay cambios locales sin guardar
 sudo git log --oneline -3 origin/despliegue-servidor
 sudo git pull origin despliegue-servidor
+sudo git diff --stat ORIG_HEAD HEAD -- server web src/domain src/services/formularios
 ```
 
-Novedades que afectan al despliegue (todas documentadas en `server/README.md`):
+**El último comando no debe mostrar nada**: esta ronda no toca lo que va dentro de
+la imagen. Si mostrara algo, detente y dilo antes de reconstruir.
 
-- **El contenedor ahora lleva Chromium**: el servidor imprime el formulario
-  final del trámite en PDF y lo archiva en el expediente. La imagen crece unos
-  300 MB y el límite de memoria del servicio sube de 512 MB a 1 GB (en reposo
-  ocupa ~80 MB).
-- **El usuario del contenedor pasa a UID/GID 1500**, el mismo que documenta el
-  README para `/srv/campina`. Comprueba que los volúmenes sean de `1500:1500`.
-- **Nuevas variables en `server/.env`** (ver `server/.env.example`):
-  `HORAS_SESION_TABLETA=720`, `SAFI_ESCRITURA=false` y `SAFI_CLAVE_WEB=` (vacía).
-- **Nueva carpeta `_ARCHIVADOS`** dentro de la carpeta compartida de escaneos.
-- La base migra sola al esquema 3 al arrancar (añade columnas y una tabla). El
-  respaldo de la tarea 1 es la red por si algo saliera mal.
+## Tarea 2 — ¿Hay trámites resucitados en la base? (solo lectura)
+
+El servidor guarda como `creada_en` la fecha en que la tableta creó el trámite.
+Uno creado **antes** de tu limpieza y presente en la base limpia llegó después de
+ella: resucitado por la aplicación anterior, o capturado antes y enviado tarde. En
+los dos casos es un dato de prueba.
+
+El corte es la hora del respaldo previo a la limpieza,
+`campina_20260912_102340_antes-de-limpiar-pruebas` (10:23:40 en Ecuador, 15:23:40
+UTC). Si la limpieza fue más tarde, usa esa hora.
 
 ```bash
-sudo mkdir -p /srv/campina/escaneos/_ARCHIVADOS /srv/campina/escaneos/_REVISAR
-sudo chown -R 1500:1500 /srv/campina
-sudo chmod 2770 /srv/campina/escaneos /srv/campina/escaneos/_ARCHIVADOS /srv/campina/escaneos/_REVISAR
+cd /opt/campina-socios
+D="sudo docker compose --env-file server/.env -f server/docker-compose.yml exec -T socios"
 
-# Variables nuevas, si no están
-grep -q HORAS_SESION_TABLETA server/.env || echo "HORAS_SESION_TABLETA=720" | sudo tee -a server/.env
-grep -q SAFI_ESCRITURA server/.env       || echo "SAFI_ESCRITURA=false"     | sudo tee -a server/.env
-
-C="sudo docker compose --env-file server/.env -f server/docker-compose.yml"
-$C down && $C up -d --build
-$C logs --tail 50 socios
-curl -s http://127.0.0.1:8080/api/salud
+$D node -e "
+const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/datos/campina.db');
+const corte='2026-09-12T15:23:40Z';
+console.log('--- creados en la tableta ANTES de la limpieza ---');
+for (const s of db.prepare('SELECT codigo, estado, numero_socio, creada_en, documento FROM solicitudes WHERE creada_en < ? ORDER BY creada_en').all(corte)) {
+  const e = JSON.parse(s.documento).expediente ?? {};
+  console.log(s.codigo, s.estado, 'socio', s.numero_socio, 'creada', s.creada_en, 'SAFI cuenta', e.cuentaSafiId ?? '-', 'socio', e.socioSafiId ?? '-');
+}
+console.log('--- registros recibidos desde la limpieza ---');
+for (const b of db.prepare(\"SELECT en, usuario, entidad FROM bitacora WHERE accion='REGISTRAR_AFILIACION' AND en >= ? ORDER BY en\").all(corte)) console.log(b.en, b.usuario, b.entidad);
+"
 ```
 
-En `/api/salud` deben verse `"pdfDisponible":true`, `"vigilanciaActiva":true` y
-`"safiEscritura":false`. Si `pdfDisponible` fuera `false`, revisa que el
-Chromium del contenedor exista (`$C exec socios ls -l /usr/bin/chromium*`) y
-dilo en tu informe: el sistema funciona igual, pero el formulario final habría
-que guardarlo a mano.
+Cómo leerlo:
 
-## Tarea 5 — Revisar Samba de verdad
+- **La primera lista vacía** ⇒ no resucitó nada.
+- **Con filas** ⇒ son trámites de prueba. **No los borres.** Informa los códigos
+  al Coordinador y propón anularlos desde la bandeja del Área de Socios (deja
+  constancia de quién y por qué), o borrarlos de raíz con su confirmación expresa
+  y con respaldo hecho.
+- **Si alguno tiene identificadores de SAFI** ⇒ alguien lo creó en el CRM, con la
+  escritura habilitada. Dilo con claridad, con el código y los identificadores,
+  para que el Coordinador lo revise en SAFI. **No lo borres del CRM.**
 
-El Coordinador instaló Samba, pero el flujo no funcionaba. Ahora que el
-servidor ya no borra nada, hay que dejar la carpeta compartida impecable:
+Y en cualquier caso, recuérdale al Coordinador que antes de la próxima prueba la
+tableta debe quedar en limpio (punto 1 de la lista de comprobación de
+`PROCESO-AFILIACION.md`); con la aplicación anterior y datos viejos, los trámites
+volverían.
 
-1. Comprueba la configuración (`testparm -s`) contra la de `server/README.md`,
-   sección 3.4: `path = /srv/campina/escaneos`, `read only = no`,
-   `force group = campina`, `create mask = 0660`, `directory mask = 2770`.
-2. Comprueba que el usuario de la Jefatura pertenece a los grupos `socios-club`
-   y `campina`, y que tiene contraseña de Samba (`sudo pdbedit -L`).
-3. Publica también el repositorio en **solo lectura** (sección 3.5): es la
-   tercera vista del expediente y evita que un borrado accidental desde un
-   escritorio se lleve un expediente entero.
-4. Desde el equipo de la Jefatura, deja un archivo de prueba con el nombre
-   correcto de un trámite existente y comprueba en la bandeja que aparece
-   archivado (pestaña Pendientes → «Revisar la carpeta ahora»). Verifica los
-   tres destinos: `_ARCHIVADOS`, `_REVISAR` y el archivo que se queda en espera.
-5. Comprueba que el contenedor puede **mover** archivos dentro de la carpeta
-   compartida (no solo leerlos): si no pudiera, el vigilante lo avisa en el log
-   con «no se pudo trasladar a _ARCHIVADOS».
+## Tarea 3 — Cuando la tableta tenga la aplicación nueva
 
-## Tarea 6 — Usuarios y datos de prueba
+La compilación nueva la instala el Coordinador desde el equipo de desarrollo; no
+es algo que se haga desde el servidor. Cuando esté, la prueba en limpio de
+`PROCESO-AFILIACION.md` vale tal cual, empezando por «Borrar los datos de
+prueba». Dos comprobaciones rápidas que puedes pedirle:
 
-```bash
-$C exec socios node dist/server/src/cli/usuario.js listar
-$C exec socios node dist/server/src/cli/usuario.js sesiones
-```
+1. Tras «Borrar los datos de prueba», la tableta sigue conectada (no pide
+   contraseña) y el portal no muestra trámites.
+2. En la afiliación de prueba, la bandeja del Área de Socios **no** muestra
+   «Faltan archivos de la tableta».
 
-- Deben existir los tres usuarios (`socios`, `contabilidad`, `gerencia`) con el
-  **nombre real** del funcionario: es el que se imprime en el reverso del
-  formulario.
-- Los trámites de prueba que quedaron de los ensayos anteriores **no se borran
-  de la base**: se anulan desde la bandeja del Área de Socios («Atender la
-  observación» → «Anular el trámite», o el botón de anular de la tarea), que
-  deja constancia de quién y por qué. Si el Coordinador prefiere borrarlos de
-  raíz, pídele confirmación explícita y hazlo con el respaldo hecho.
+## Sugerencia, no urgente
 
-## Tarea 7 — Prueba de extremo a extremo en producción (sin tocar SAFI)
-
-Con `SAFI_ESCRITURA=false`, recorre el circuito completo con una afiliación de
-prueba y confírmalo por escrito:
-
-1. En la tableta: **Nueva afiliación** de un socio de prueba, con firma y
-   fotografía. Al terminar, la app debe decir «registrada y enviada».
-2. Bandeja del **Área de Socios**: aparece «Crear en SAFI a …». Ábrela: el panel
-   muestra el número de socio, las listas y —si hay credenciales— lo que el CRM
-   ya tiene con ese número. Crea el socio a mano en SAFI si el Coordinador lo
-   autoriza, o registra identificadores de prueba.
-3. Bandeja de **Contabilidad**: la afiliación aparece ahora en «Pendientes».
-   Antes de eso debe verse en «En camino». Abre «Ver expediente»: el formulario
-   se ve en pantalla, **con la firma**.
-4. Marca REVISADA (con número de factura si aplica).
-5. Bandeja de **Gerencia**: aparece para aprobar; aprueba.
-6. Comprueba que en `/srv/campina/datos/expedientes/<número> <nombre>/` quedaron
-   el formulario en PDF y la fotografía.
-7. Deja un escaneo de cédula con el nombre exacto que indica la tarea y
-   comprueba que se archiva y que el original pasa a `_ARCHIVADOS`.
-
-## Tarea 8 — Encender la escritura en SAFI (solo con autorización)
-
-Cuando el Coordinador lo autorice expresamente:
-
-```bash
-sudo sed -i 's/^SAFI_ESCRITURA=.*/SAFI_ESCRITURA=true/' server/.env
-$C up -d
-```
-
-Y entonces, **una sola alta real**, acompañada: crear un socio desde el panel y
-verificar en el CRM que la Cuenta y la ficha quedaron con los datos correctos
-(número de socio, secuencia, cédula, tipo de socio, cuotas). Si algo sale mal,
-el panel devuelve el mensaje del CRM; cópialo tal cual en tu informe.
-
-Recuerda que falta, del lado del Club: crear `CORRESPONSAL A` en la lista
-`cf_917` y sus cuotas `480` y `40`. Hasta entonces, un Corresponsal A no se
-puede crear y el panel lo avisa.
-
-## Tarea 9 — Respaldo diario
-
-Incorpora `/srv/campina` al respaldo diario que ya existe para GLPI:
-
-```bash
-sudo tar czf /respaldos/campina-socios-$(date +%F).tar.gz -C /srv/campina datos
-```
-
-Comprueba que la tarea programada exista y funcione, y dilo en tu informe.
+La tarea «Faltan archivos de la tableta» (`src/domain/tareas.ts`, instrucción y
+detalle) no menciona que ahora el archivo también se puede **volver a capturar en
+la tableta** si la persona está presente. No lo cambié para no obligarte a
+reconstruir la imagen por un texto; si tocas ese archivo por otra razón, añádelo.
 
 ---
 
@@ -262,9 +203,8 @@ Comprueba que la tarea programada exista y funcione, y dilo en tu informe.
 
 Un informe corto, en español, con:
 
-1. Qué pasó con los documentos que desaparecieron (dónde están hoy) y qué se
-   hizo con ellos.
-2. Si SAFI fue modificado o no, con la evidencia en la que te basas.
-3. Qué cambió en el servidor (versión desplegada, permisos, Samba, variables).
-4. El resultado de la prueba de extremo a extremo, paso por paso.
-5. Lo que quedó pendiente y de quién depende.
+1. El resultado de la tarea 1 (el último `git diff` debe salir vacío).
+2. El resultado de la tarea 2: códigos de los trámites anteriores a la limpieza,
+   si los hay, con sus identificadores de SAFI si los tienen, y qué decidió el
+   Coordinador.
+3. Lo que quedó pendiente y de quién depende.

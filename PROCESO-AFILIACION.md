@@ -56,13 +56,19 @@ Lo que la tableta captura y el servidor necesita aparte del formulario:
 
 Al terminar debe decir **«Afiliación registrada y enviada»**. Si dijera
 «registrada» y nada más, quedó en la tableta: abra «Configuración y envío» y
-pulse **«Sincronizar ahora»**.
+pulse **«Sincronizar ahora»**. Si dijera **«Afiliación enviada, pero
+incompleta»**, la firma o la fotografía no quedaron en la tableta: vuelva a
+capturarlas desde la solicitud antes de que el socio se retire.
 
 > **Ojo con esto.** La firma y la fotografía viven en el almacenamiento privado
 > de la aplicación y viajan aparte del formulario. Si se reinstala la aplicación
 > o se borran sus datos entre la captura y el envío, el formulario llega y las
 > imágenes no: el trámite aparece en la bandeja con **«Faltan archivos de la
-> tableta»**. Desde el 12/09/2026 eso ya no bloquea el trámite (ver paso 2 bis).
+> tableta»**. Desde el 12/09/2026 eso ya no bloquea el trámite (ver paso 2 bis),
+> y desde el 15/09/2026 **la tableta tampoco lo calla**: el portal dice
+> «N trámites necesitan su atención», la solicitud dice qué archivo falta y
+> ofrece volver a capturarlo, y la tableta deja de reintentar lo que ya no
+> tiene.
 
 **Cómo se comprueba:** el trámite aparece en la bandeja del Área de Socios con
 su código `AF-2026-####`.
@@ -110,8 +116,17 @@ ofrece dos salidas, ambas en la propia tarjeta:
   caracteres, y queda en el expediente y en la bitácora con su nombre. El
   trámite continúa.
 
-Antes de decidir, vale la pena pulsar «Sincronizar ahora» en la tableta: si el
-archivo sigue allí, llega solo.
+Antes de decidir, abra la solicitud en la tableta («Expediente digital»). Si el
+archivo sigue allí, llega solo con «Enviar ahora». Si ya no está, la tarjeta
+«Envío al servidor del Club» lo dice y ofrece una tercera salida, la mejor
+cuando la persona sigue presente:
+
+- **«Volver a capturar la firma…»** o **«Volver a tomar la fotografía»** — la
+  misma persona firma otra vez en el lienzo, o se toma la foto, y la tableta la
+  envía en el acto. La tarea de la bandeja desaparece sola.
+
+Lo que la Jefatura declare en la bandeja («Consta en papel») también llega a la
+tableta: la solicitud lo muestra con el motivo y la tableta deja de avisar.
 
 ---
 
@@ -242,10 +257,15 @@ queda constancia en la bitácora.
 Ambiente del 12/09/2026: base a cero (solo los tres usuarios), carpetas vacías,
 SAFI en API con escritura habilitada.
 
-1. [ ] **Borrar los datos de la aplicación en la tableta** antes de empezar. La
-       base del servidor se vació: si la tableta conserva los trámites viejos,
-       intentará completar adjuntos de trámites que ya no existen y la
-       sincronización dará error.
+1. [ ] **Dejar la tableta en limpio antes de abrir la aplicación contra este
+       servidor.** Con la versión de la aplicación del 15/09/2026:
+       «Configuración y envío» → **«Borrar los datos de prueba»** (se escribe
+       BORRAR para confirmar; conserva la dirección del servidor y la sesión).
+       Con una versión anterior, borrar los datos de la aplicación desde los
+       ajustes de Android **antes** de abrirla: esa versión, ante una base
+       vaciada, no da error sino que **vuelve a registrar sola cada trámite
+       viejo como uno nuevo**, en un par de minutos. La versión del 15/09
+       ya no lo hace: aparta esos trámites y pregunta.
 2. [ ] Entrar a la bandeja con los tres usuarios (la limpieza cerró todas las
        sesiones).
 3. [ ] Tableta: **Nueva afiliación** completa, con firma y fotografía →
@@ -272,7 +292,9 @@ SAFI en API con escritura habilitada.
 
 | Síntoma | Dónde mirar |
 |---|---|
-| La tableta no envía | «Configuración y envío» → Sincronizar ahora. Si dice «sesión vencida», iniciar sesión otra vez |
+| La tableta no envía | «Configuración y envío» → Sincronizar ahora. Si dice que no hay una sesión válida, iniciar sesión otra vez con el usuario del Área de Socios |
+| La tableta dice «N trámites necesitan su atención» | «Configuración y envío» los lista. Cada solicitud dice qué pasa: un archivo que ya no está en la tableta (volver a capturarlo, o subirlo o declararlo en papel desde la bandeja) o un envío que el servidor rechazó |
+| La tableta dice «el servidor ya no tiene este trámite» | La base del servidor se vació o se restauró. Desde la solicitud: «Volver a enviar al servidor» (entra como trámite nuevo, con otro código) o eliminarla de la tableta si era de prueba. La tableta no lo reenvía por su cuenta |
 | Una afiliación no llega a Contabilidad | ¿Está creado el socio en SAFI? Es la condición para que aparezca su tarea |
 | El expediente no se publica en SAFI | Bandeja de Socios → «Reintentar la carga». El mensaje del CRM viene tal cual |
 | Un escaneo no se archiva | Pestaña «Cómo escanear» → «Comprobar un nombre antes de escanear» |
