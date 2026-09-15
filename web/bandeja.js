@@ -142,6 +142,13 @@ const ETIQUETA_TAREA = {
   CARGA_SAFI_PENDIENTE: "Pendiente en SAFI",
 };
 
+/** Nombre de cada área, para las observaciones del trámite. */
+const ETIQUETA_AREA = {
+  SOCIOS: "Área de Socios",
+  CONTABILIDAD: "Contabilidad",
+  GERENCIA: "Gerencia",
+};
+
 const ETIQUETA_ESTADO = {
   BORRADOR: "Borrador",
   REGISTRADA: "Registrada",
@@ -530,7 +537,7 @@ function hayDialogoAbierto() {
 const CLASE_PESO = { principal: "primario", secundaria: "sutil", destructiva: "peligro" };
 
 /**
- * Salidas que se ejercen sobre una pieza concreta (una firma, la fotografía, un
+ * Salidas que se ejercen sobre una pieza concreta (una firma, un
  * documento por escanear). Se dibuja un botón por pieza pendiente.
  */
 const SALIDAS_POR_PIEZA = new Set([
@@ -639,6 +646,19 @@ async function abrirAsignacion(nombreArchivo) {
   }
 
   const documentos = estado.bandeja.catalogoDocumentos || [];
+  const porTramite = estado.bandeja.documentosPorTramite || {};
+
+  /** Los tipos que caben en ese trámite; si no se sabe, todos. */
+  const documentosDe = (solicitudId) => {
+    const permitidos = porTramite[solicitudId];
+    if (!permitidos || permitidos.length === 0) return documentos;
+    return documentos.filter((d) => permitidos.includes(d.tipo));
+  };
+  const opcionesDeTipo = (solicitudId) =>
+    documentosDe(solicitudId)
+      .map((d) => `<option value="${escapar(d.tipo)}">${escapar(d.nombre)}</option>`)
+      .join("");
+
   const dialogo = document.createElement("dialog");
   dialogo.className = "dialogo";
   dialogo.innerHTML = `<form method="dialog">
@@ -657,9 +677,7 @@ async function abrirAsignacion(nombreArchivo) {
     </select>
     <label for="asignar-tipo">Qué documento es</label>
     <select id="asignar-tipo">
-      ${documentos
-        .map((d) => `<option value="${escapar(d.tipo)}">${escapar(d.nombre)}</option>`)
-        .join("")}
+      ${opcionesDeTipo(candidatas[0] ? candidatas[0].id : "")}
     </select>
     <p class="error" id="asignar-error" hidden></p>
     <div class="dialogo-acciones">
@@ -673,6 +691,12 @@ async function abrirAsignacion(nombreArchivo) {
     dialogo.close();
     dialogo.remove();
   };
+  // Cada tipo de socio admite unos documentos y no otros: al cambiar de trámite
+  // se rehace la lista, para no archivar en un Socio Activo la cédula del
+  // oficial del que depende, que no existe.
+  dialogo.querySelector("#asignar-tramite").addEventListener("change", (evento) => {
+    dialogo.querySelector("#asignar-tipo").innerHTML = opcionesDeTipo(evento.target.value);
+  });
   dialogo.querySelector("#asignar-cancelar").addEventListener("click", cerrar);
   dialogo.querySelector("#asignar-aceptar").addEventListener("click", async (evento) => {
     const boton = evento.currentTarget;
@@ -938,6 +962,34 @@ function filas(pares) {
     .join("")}</div>`;
 }
 
+/**
+ * Todas las observaciones del trámite, en orden y con su fecha.
+ *
+ * Se acumulan: la Gerencia ve la que Contabilidad escribió al devolver el
+ * trámite y también la que escribió al pasarlo a aprobación, cada una con su
+ * día y su autor. Antes solo se veía la última devolución.
+ */
+function observacionesHtml(observaciones) {
+  const lista = observaciones || [];
+  if (lista.length === 0) return "";
+
+  const filas = lista
+    .map(
+      (nota) => `<li>
+        <span class="pista">${escapar(fechaHora(nota.en))} · ${escapar(
+          ETIQUETA_AREA[nota.area] || nota.area
+        )} · ${escapar(nota.responsable)}</span>
+        <div>${escapar(nota.observacion)}</div>
+      </li>`
+    )
+    .join("");
+
+  return `<div class="bloque">
+    <h3>Observaciones del trámite</h3>
+    <ul class="lista-observaciones">${filas}</ul>
+  </div>`;
+}
+
 function constanciaHtml(titulo, cargo, constancia, extra) {
   return `<div class="constancia ${constancia ? "cumplida" : "pendiente"}">
     <strong>${escapar(titulo)}</strong>
@@ -1032,14 +1084,16 @@ async function abrirExpediente(id) {
         <a href="/api/expediente/documentos/${encodeURIComponent(archivo.id)}" target="_blank" rel="noopener">
           ${escapar(archivo.nombreArchivo)}
         </a>
-        <span class="pista">${escapar(tamano(archivo.bytes))} · ${escapar(archivo.safiEstado)}</span>
+        <span class="pista">${
+          archivo.nombreOrigen ? `llegó como «${escapar(archivo.nombreOrigen)}» · ` : ""
+        }${escapar(tamano(archivo.bytes))} · ${escapar(archivo.safiEstado)}</span>
       </li>`
     )
     .join("");
 
   $("exp-documentos").innerHTML = `
     <div class="bloque">
-      <h3>Firmas y fotografía de la tableta</h3>
+      <h3>Firmas de la tableta</h3>
       <ul class="lista-documentos">${adjuntos || ""}${faltantes || ""}${
         !adjuntos && !faltantes ? "<li><span class='pista'>Sin archivos registrados.</span></li>" : ""
       }</ul>
@@ -1078,6 +1132,7 @@ async function abrirExpediente(id) {
             )} el ${escapar(fechaHora(s.tramite.anulacion.en))}: ${escapar(s.tramite.anulacion.observacion)}</div>`
           : ""
       }
+      ${observacionesHtml(s.tramite.observaciones)}
     </div>`;
 
   // El formulario, tal como está ahora mismo: es lo que hay que mirar antes de
@@ -1391,6 +1446,8 @@ async function abrirDialogoSafi(solicitudId) {
     vacio: "— no se acoge a la mensual —",
   });
 
+  sincronizarCuotas();
+  $("safi-observacion").value = "";
   dibujarAvisosSafi(ficha.avisos);
   dibujarFichasSafi(ficha);
   $("error-safi").hidden = true;
@@ -1434,13 +1491,39 @@ function dibujarFichasSafi(ficha) {
     .join(" · ")}</p>`;
 }
 
-// Las dos cuotas son excluyentes: al fijar una se vacía la otra, para que la
-// ficha no acabe declarando dos cobros distintos.
-$(CAMPOS_SAFI.cuotaAnual).addEventListener("change", (evento) => {
-  if (evento.target.value) $(CAMPOS_SAFI.cuotaMensual).value = "";
+/**
+ * Las dos cuotas son excluyentes: el socio se acoge a la anual o a la mensual.
+ *
+ * Antes solo se vaciaba la otra al elegir una, y el aviso lo explicaba con una
+ * frase; ahora la que no aplica queda **bloqueada** hasta que se suelte la
+ * elegida. Se ve lo que pasa en vez de leerlo.
+ */
+function sincronizarCuotas() {
+  const anual = $(CAMPOS_SAFI.cuotaAnual);
+  const mensual = $(CAMPOS_SAFI.cuotaMensual);
+
+  anual.disabled = Boolean(mensual.value);
+  mensual.disabled = Boolean(anual.value);
+
+  for (const [select, otro] of [
+    [anual, mensual],
+    [mensual, anual],
+  ]) {
+    select.title = select.disabled
+      ? `El socio se acogió a la otra modalidad. Vacíe «${
+          otro === anual ? "Cuota Anual" : "Cuota Mensual"
+        }» para poder elegir aquí.`
+      : "";
+  }
+}
+
+$(CAMPOS_SAFI.cuotaAnual).addEventListener("change", () => {
+  if ($(CAMPOS_SAFI.cuotaAnual).value) $(CAMPOS_SAFI.cuotaMensual).value = "";
+  sincronizarCuotas();
 });
-$(CAMPOS_SAFI.cuotaMensual).addEventListener("change", (evento) => {
-  if (evento.target.value) $(CAMPOS_SAFI.cuotaAnual).value = "";
+$(CAMPOS_SAFI.cuotaMensual).addEventListener("change", () => {
+  if ($(CAMPOS_SAFI.cuotaMensual).value) $(CAMPOS_SAFI.cuotaAnual).value = "";
+  sincronizarCuotas();
 });
 
 $("safi-cancelar").addEventListener("click", () => dialogoSafi.close());
@@ -1465,6 +1548,7 @@ $("safi-confirmar").addEventListener("click", async () => {
           numeroSocio: $("safi-numero-socio").value.trim(),
           ordinalDependiente: estado.safi.ficha.esTitular ? null : $("safi-ordinal").value,
           confirmacion,
+          observacion: $("safi-observacion").value.trim(),
           cuentaSafiId: $("safi-cuenta-id").value.trim(),
           socioSafiId: $("safi-socio-id").value.trim(),
         }),

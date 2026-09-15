@@ -4,6 +4,7 @@ import type { ModoFirma } from "./firmaElectronica";
 import type { ClaveConsentimiento } from "./privacidad";
 import {
   bloquesPara,
+  PAIS_POR_DEFECTO,
   type Fuerza,
   type ModeloCarta,
   type Sexo,
@@ -26,8 +27,13 @@ export type TonoEstado = "neutral" | "info" | "success" | "warning" | "danger" |
  *          devoluciones con observación dejaron de escribirse sobre las
  *          constancias de revisión y aprobación (`tramite.devolucion`), y el
  *          expediente registra qué firmas y fotografía entregó ya la tableta.
+ *   7 → 8  Se retiró la fotografía tipo carnet (ver
+ *          `docs/RETIRADO-fotografia-carnet.md`), el domicilio incorpora el
+ *          país, la forma de pago dejó de pedirse en la tableta —la elige la
+ *          Jefatura al confirmar el registro— y cada constancia del reverso
+ *          guarda la firma del funcionario que la selló.
  */
-export const ESQUEMA_SOLICITUD = 7;
+export const ESQUEMA_SOLICITUD = 8;
 
 /* ------------------------------------------------------------------ */
 /* Áreas que intervienen en el trámite                                 */
@@ -321,6 +327,17 @@ export type DatosAfiliacion = {
   tipoSangre: string;
 
   /** Contacto y domicilio. */
+  /**
+   * País del domicilio. Viaja al «País (Factura)» de la ficha del Socio
+   * (`mailingcountry`) y de la Cuenta (`bill_country`), que hasta el 15/09/2026
+   * quedaban vacíos porque nadie lo preguntaba.
+   *
+   * Casi siempre es Ecuador, y así viene por defecto. Con otro país, la
+   * provincia y la ciudad dejan de ser la lista cerrada del Ecuador y se
+   * escriben libres: un corresponsal diplomático no vive en una provincia
+   * ecuatoriana.
+   */
+  pais: string;
   ciudad: string;
   /**
    * Provincia del domicilio. Viaja al campo «Provincia (Factura)» de la Cuenta
@@ -394,6 +411,7 @@ export function datosVacios(): DatosAfiliacion {
     fechaNacimiento: "",
     estadoCivil: "",
     tipoSangre: "",
+    pais: PAIS_POR_DEFECTO,
     ciudad: "",
     provincia: "",
     direccion: "",
@@ -457,7 +475,6 @@ export const ROLES_ADJUNTO = [
   "FIRMA_SOLICITANTE",
   "FIRMA_GARANTE_1",
   "FIRMA_GARANTE_2",
-  "FOTO_CARNET",
 ] as const;
 
 export type RolAdjunto = (typeof ROLES_ADJUNTO)[number];
@@ -466,7 +483,6 @@ export const ROL_ADJUNTO_META: Record<RolAdjunto, { etiqueta: string; esFirma: b
   FIRMA_SOLICITANTE: { etiqueta: "Firma del solicitante", esFirma: true },
   FIRMA_GARANTE_1: { etiqueta: "Firma del socio garante", esFirma: true },
   FIRMA_GARANTE_2: { etiqueta: "Firma del segundo socio garante", esFirma: true },
-  FOTO_CARNET: { etiqueta: "Fotografía tipo carnet", esFirma: false },
 };
 
 /** Rol de la firma de un garante, por su posición en `datos.garantes`. */
@@ -476,15 +492,17 @@ export function rolFirmaGarante(indice: number): RolAdjunto {
 
 /**
  * Archivos que el servidor debe tener de una solicitud para que su expediente
- * esté completo: siempre la firma del solicitante, la de cada garante que su
- * hoja de solicitud exige y la fotografía.
+ * esté completo: la firma del solicitante y la de cada garante que su hoja de
+ * solicitud exige.
+ *
+ * La fotografía tipo carnet estuvo aquí hasta el 15/09/2026; ver
+ * `docs/RETIRADO-fotografia-carnet.md`.
  */
 export function adjuntosEsperados(solicitud: SolicitudAfiliacion): RolAdjunto[] {
   const roles: RolAdjunto[] = ["FIRMA_SOLICITANTE"];
   const bloques = bloquesPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
   const garantes = Math.min(bloques?.garantes ?? 0, solicitud.datos.garantes.length);
   for (let indice = 0; indice < garantes; indice += 1) roles.push(rolFirmaGarante(indice));
-  if (solicitud.documentos.some((d) => d.tipo === "FOTO_CARNET")) roles.push("FOTO_CARNET");
   return roles;
 }
 
@@ -563,6 +581,15 @@ export type ConstanciaTramite = {
   responsable: string;
   en: string;
   observacion: string;
+  /**
+   * Firma del funcionario, copiada a la carpeta del trámite en el momento de la
+   * acción (`firma-socios.png`…). `null` o ausente si no tenía firma cargada:
+   * entonces la constancia se imprime solo con su nombre.
+   *
+   * Se congela como el nombre: si el funcionario vuelve a trazar su firma, las
+   * constancias ya emitidas conservan la que se estampó.
+   */
+  firmaArchivo?: string | null;
 };
 
 /**
@@ -642,15 +669,18 @@ export function tramiteVacio(): TramiteInterno {
 }
 
 /**
- * Observaciones de un área para el reverso del formulario: la de su constancia
- * y las de sus devoluciones o respuestas, con su fecha.
+ * Observaciones de un área, en orden y con su fecha, para el reverso del
+ * formulario y para la bandeja del área siguiente.
+ *
+ * Todas salen de `tramite.observaciones`, donde cada paso deja la suya: la que
+ * escribe el Área de Socios al confirmar el registro, la de Contabilidad al
+ * revisar o devolver, la de la Gerencia al aprobar o devolver, y la respuesta
+ * de Socios al reenviar. Se acumulan: la Gerencia ve las dos observaciones de
+ * Contabilidad —la que devolvió el trámite y la que lo pasó a aprobación—, cada
+ * una con su día.
  */
 export function observacionesDeArea(tramite: TramiteInterno, area: Area): string[] {
-  const constancia =
-    area === "SOCIOS" ? tramite.registro : area === "CONTABILIDAD" ? tramite.revision : tramite.aprobacion;
-
   const textos: string[] = [];
-  if (constancia?.observacion?.trim()) textos.push(constancia.observacion.trim());
   for (const nota of tramite.observaciones ?? []) {
     if (nota.area === area && nota.observacion.trim()) {
       textos.push(`${nota.en.slice(0, 10).split("-").reverse().join("/")}: ${nota.observacion.trim()}`);
@@ -904,8 +934,16 @@ export function migrarSolicitud(guardada: SolicitudAfiliacion): SolicitudAfiliac
       titularApellidos: conservados.titularApellidos ?? titularNombre ?? "",
       titularNombres: conservados.titularNombres ?? "",
       provincia: conservados.provincia ?? "",
+      // Lo guardado antes del 15/09/2026 no traía país: hasta entonces el
+      // asistente no lo preguntaba y todos los socios registrados eran del
+      // Ecuador.
+      pais: conservados.pais || PAIS_POR_DEFECTO,
     },
-    documentos: guardada.documentos ?? [],
+    // Un trámite antiguo puede traer la fotografía tipo carnet, que ya no es un
+    // tipo de documento del sistema: se descarta al migrar.
+    documentos: (guardada.documentos ?? []).filter(
+      (documento) => (documento.tipo as string) !== "FOTO_CARNET"
+    ),
     identidad: guardada.identidad ?? identidadVacia(),
     tramite,
     expediente: { ...expedienteVacio(), ...(guardada.expediente ?? {}) },
@@ -936,6 +974,7 @@ export const CAMPOS_ACTUALIZABLES = [
   "nombres",
   "tipoMiembro",
   "estadoCivil",
+  "pais",
   "ciudad",
   "provincia",
   "direccion",
@@ -955,6 +994,7 @@ export const ETIQUETA_CAMPO: Record<CampoActualizable | "fotografia", string> = 
   nombres: "Nombres",
   tipoMiembro: "Tipo de socio",
   estadoCivil: "Estado civil",
+  pais: "País",
   ciudad: "Ciudad",
   provincia: "Provincia",
   direccion: "Dirección",

@@ -113,6 +113,13 @@ export const config = {
    * las firmas del formulario y la fotografía que se archiva al aprobarse.
    */
   tramitesDir: path.join(datosDir, "tramites"),
+  /**
+   * Firma de cada funcionario, la que se estampa en las constancias del
+   * reverso. Un archivo por usuario, cargado una sola vez desde la tableta.
+   * Al actuar sobre un trámite se copia a su carpeta, para que una firma
+   * cambiada después no reescriba constancias ya emitidas.
+   */
+  firmasDir: path.join(datosDir, "firmas"),
 
   /**
    * Carpeta compartida (SMB) donde la Jefatura de Socios deposita los escaneos.

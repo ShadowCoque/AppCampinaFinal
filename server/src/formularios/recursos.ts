@@ -3,10 +3,12 @@ import path from "node:path";
 
 import {
   rolFirmaGarante,
+  type ConstanciaTramite,
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
 import { recursosVacios, type RecursosFormulario } from "../../../src/services/formularios";
 import { adjuntoComoDataUri } from "../db/adjuntos";
+import { rutaFirmaEstampada } from "../db/firmasFuncionarios";
 import { localizarWeb } from "../web";
 
 /**
@@ -41,7 +43,25 @@ export function logoInstitucional(): string {
   return logoCache;
 }
 
+/**
+ * Firma que se estampó en una constancia, leída de la carpeta del trámite.
+ *
+ * Es una copia congelada en el momento de la acción: si el funcionario vuelve a
+ * trazar su firma, este formulario sigue mostrando la que firmó entonces.
+ */
+function firmaDeConstancia(
+  solicitudId: string,
+  constancia: ConstanciaTramite | null | undefined
+): string | null {
+  if (!constancia?.firmaArchivo) return null;
+  const ruta = rutaFirmaEstampada(solicitudId, constancia.firmaArchivo);
+  if (!fs.existsSync(ruta)) return null;
+  const tipo = ruta.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+  return `data:${tipo};base64,${fs.readFileSync(ruta).toString("base64")}`;
+}
+
 export function recursosDe(solicitud: SolicitudAfiliacion): RecursosFormulario {
+  const { tramite } = solicitud;
   return {
     ...recursosVacios(),
     logo: logoInstitucional(),
@@ -49,6 +69,10 @@ export function recursosDe(solicitud: SolicitudAfiliacion): RecursosFormulario {
     firmasGarantes: solicitud.datos.garantes.map((_garante, indice) =>
       adjuntoComoDataUri(solicitud.id, rolFirmaGarante(indice))
     ),
-    fotoCarnet: adjuntoComoDataUri(solicitud.id, "FOTO_CARNET"),
+    firmasFuncionarios: {
+      SOCIOS: firmaDeConstancia(solicitud.id, tramite.registro),
+      CONTABILIDAD: firmaDeConstancia(solicitud.id, tramite.revision),
+      GERENCIA: firmaDeConstancia(solicitud.id, tramite.aprobacion),
+    },
   };
 }

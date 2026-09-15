@@ -14,6 +14,7 @@ import {
   type EstadoSolicitud,
   type RolAdjunto,
   type SolicitudAfiliacion,
+  type TramiteInterno,
 } from "../../../src/domain/solicitud";
 import { creadoEnSafi, tareasDeSolicitud } from "../../../src/domain/tareas";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
@@ -278,10 +279,14 @@ function depurarEntrante(
     modoFirma: entrante.modoFirma ?? "MANUSCRITA_EN_PANTALLA",
     identidad: { ...identidadVacia(), ...(entrante.identidad ?? {}), fotoRegistroCivilUri: null },
     consentimiento: entrante.consentimiento ?? null,
+    // La constancia de «Registrado» NO se sella aquí. La afiliación llega de la
+    // tableta, pero el socio no queda registrado hasta que la Jefatura de
+    // Socios lo hace explícitamente en su bandeja —con la cuota, la forma de
+    // pago y el grupo de facturación—, y es entonces cuando se firma
+    // (`guardarAltaSafi`). Lo corrigió el Coordinador el 15/09/2026.
     tramite: {
       ...tramiteVacio(),
       fechaRegistro: hoy,
-      registro: { area: "SOCIOS", responsable: actor.nombre, en: momento, observacion: "" },
     },
     expediente: {
       ...expedienteVacio(),
@@ -341,7 +346,17 @@ export type ResultadoAvance =
   | { ok: true; solicitud: SolicitudAfiliacion }
   | { ok: false; codigo: number; error: string };
 
-type Actor = { usuario: string; area: Area; nombre: string };
+type Actor = {
+  usuario: string;
+  area: Area;
+  nombre: string;
+  /**
+   * Nombre del archivo de firma ya copiado a la carpeta del trámite, si el
+   * funcionario tenía firma cargada. Lo resuelve la capa HTTP con
+   * `estamparFirma`, para que este módulo no toque el sistema de archivos.
+   */
+  firmaArchivo?: string | null;
+};
 
 function fallo(codigo: number, error: string): ResultadoAvance {
   return { ok: false, codigo, error };
@@ -384,7 +399,24 @@ function aplicar(
 }
 
 function constancia(actor: Actor, observacion: string): ConstanciaTramite {
-  return { area: actor.area, responsable: actor.nombre, en: ahora(), observacion };
+  return {
+    area: actor.area,
+    responsable: actor.nombre,
+    en: ahora(),
+    observacion,
+    firmaArchivo: actor.firmaArchivo ?? null,
+  };
+}
+
+/**
+ * Añade la observación de este paso a la lista acumulada del trámite, si trae
+ * texto. Todas las observaciones —las de cada constancia y las de las
+ * devoluciones— viven en la misma lista, con área, responsable y fecha: es lo
+ * que el reverso imprime y lo que ve el área siguiente.
+ */
+function acumular(tramite: TramiteInterno, nota: ConstanciaTramite): ConstanciaTramite[] {
+  const previas = tramite.observaciones ?? [];
+  return nota.observacion.trim() ? [...previas, nota] : previas;
 }
 
 /**
@@ -411,13 +443,15 @@ export function revisar(
     );
   }
 
+  const nota = constancia(actor, entrada.observacion);
   return aplicar(
     actual,
     {
       estado: "REVISADA",
       tramite: {
         ...actual.tramite,
-        revision: { ...constancia(actor, entrada.observacion), numeroFactura: entrada.numeroFactura },
+        revision: { ...nota, numeroFactura: entrada.numeroFactura },
+        observaciones: acumular(actual.tramite, nota),
         devolucion: null,
       },
     },
@@ -437,13 +471,15 @@ export function aprobar(id: string, entrada: { observacion: string }, actor: Act
     );
   }
 
+  const nota = constancia(actor, entrada.observacion);
   return aplicar(
     actual,
     {
       estado: "APROBADA",
       tramite: {
         ...actual.tramite,
-        aprobacion: constancia(actor, entrada.observacion),
+        aprobacion: nota,
+        observaciones: acumular(actual.tramite, nota),
         devolucion: null,
       },
     },
@@ -479,7 +515,7 @@ export function devolver(id: string, entrada: { observacion: string }, actor: Ac
       tramite: {
         ...actual.tramite,
         devolucion: nota,
-        observaciones: [...(actual.tramite.observaciones ?? []), nota],
+        observaciones: acumular(actual.tramite, nota),
       },
     },
     { estado: "OBSERVADA", nota: entrada.observacion, accion: "TRAMITE_OBSERVADA" },
@@ -510,7 +546,7 @@ export function reenviar(id: string, entrada: { observacion: string }, actor: Ac
       tramite: {
         ...actual.tramite,
         devolucion: null,
-        observaciones: [...(actual.tramite.observaciones ?? []), nota],
+        observaciones: acumular(actual.tramite, nota),
       },
     },
     {
@@ -595,13 +631,34 @@ export function guardarAltaSafi(
     cuentaSafiId?: string | null;
     socioSafiId?: string | null;
     mensaje?: string;
+    /** Observación que la Jefatura escribe al registrar, opcional. */
+    observacion?: string;
   },
-  actor: { usuario: string; area: Area }
+  actor: Actor
 ): SolicitudAfiliacion | null {
   const actual = obtenerSolicitud(id);
   if (!actual) return null;
 
   const momento = ahora();
+
+  // Aquí —y no cuando la tableta envía la afiliación— queda REGISTRADO el
+  // socio: es el momento en que la Jefatura confirma la cuota, la forma de pago
+  // y el grupo de facturación, y firma esa constancia.
+  const registro: ConstanciaTramite = actual.tramite.registro ?? {
+    area: "SOCIOS",
+    responsable: actor.nombre,
+    en: momento,
+    observacion: (alta.observacion ?? "").trim(),
+    firmaArchivo: actor.firmaArchivo ?? null,
+  };
+
+  const nota: ConstanciaTramite = {
+    area: "SOCIOS",
+    responsable: actor.nombre,
+    en: momento,
+    observacion: (alta.observacion ?? "").trim(),
+    firmaArchivo: actor.firmaArchivo ?? null,
+  };
 
   const actualizada: SolicitudAfiliacion = {
     ...actual,
@@ -610,6 +667,8 @@ export function guardarAltaSafi(
       ...actual.tramite,
       numeroSocio: normalizarNumeroSocio(alta.numeroSocio),
       ordinalDependiente: alta.ordinalDependiente,
+      registro,
+      observaciones: acumular(actual.tramite, nota),
     },
     expediente: {
       ...actual.expediente,

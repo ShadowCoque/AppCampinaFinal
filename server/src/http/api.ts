@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
-import { TIPOS_DOCUMENTO, nombreDocumento } from "../../../src/domain/documentos";
+import { TIPOS_DOCUMENTO, nombreDocumento, requisitosPara } from "../../../src/domain/documentos";
 import { INSTRUCTIVO_ESCANEO, analizarNombreArchivo } from "../../../src/domain/expediente";
 import {
   AREA_META,
@@ -45,6 +45,13 @@ import {
   porId,
   resolverIncidencia,
 } from "../db/archivos";
+import {
+  estamparFirma,
+  extensionDeFirma,
+  firmaDeFuncionario,
+  guardarFirmaFuncionario,
+  MAXIMO_BYTES_FIRMA,
+} from "../db/firmasFuncionarios";
 import { registrarBitacora } from "../db/indice";
 import {
   actualizarExpediente,
@@ -67,7 +74,13 @@ import {
   solicitudesConTareas,
   solicitudesRecientes,
 } from "../db/solicitudes";
-import { abrirSesion, autenticar, cerrarSesion, usuarioDeSesion } from "../db/usuarios";
+import {
+  abrirSesion,
+  autenticar,
+  cerrarSesion,
+  usuarioDeSesion,
+  type Usuario,
+} from "../db/usuarios";
 import { archivarFormularioFinal, htmlDeSolicitud, pdfDeSolicitud } from "../formularios/expediente";
 import { pdfDisponible } from "../formularios/pdf";
 import { archivarContenido, rutaSegura } from "../expediente/repositorio";
@@ -294,7 +307,61 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       nombre: usuario.nombre,
       area: usuario.area,
       etiquetaArea: AREA_META[usuario.area].etiqueta,
+      firmaCargada: Boolean(firmaDeFuncionario(usuario.usuario)),
     });
+  });
+
+  /**
+   * Firma del funcionario, la que se estampa en su constancia del reverso.
+   *
+   * La carga **cada funcionario desde la tableta**, autenticado con su propio
+   * usuario y una sola vez: es la decisión del Coordinador del 15/09/2026.
+   * Quien no la cargue sigue trabajando igual; su constancia se imprime solo
+   * con su nombre.
+   */
+  app.get("/api/mi-firma", async (peticion, respuesta) => {
+    const usuario = exigirSesion(peticion, respuesta);
+    if (!usuario) return respuesta;
+
+    const firma = firmaDeFuncionario(usuario.usuario);
+    if (!firma) return respuesta.send({ cargada: false, en: null });
+    return respuesta.send({ cargada: true, en: usuario.firmaEn });
+  });
+
+  app.post("/api/mi-firma", async (peticion, respuesta) => {
+    const usuario = exigirSesion(peticion, respuesta);
+    if (!usuario) return respuesta;
+
+    const parte = await peticion.file();
+    if (!parte) return respuesta.code(400).send({ error: "No se recibió ninguna firma." });
+
+    const contenido = await parte.toBuffer();
+    if (contenido.length === 0) {
+      return respuesta.code(400).send({ error: "La firma llegó vacía." });
+    }
+    if (contenido.length > MAXIMO_BYTES_FIRMA) {
+      return respuesta
+        .code(413)
+        .send({ error: "La firma es demasiado grande: envíe una imagen de menos de 2 MB." });
+    }
+
+    const extension = extensionDeFirma(parte.mimetype ?? "");
+    if (!extension) {
+      return respuesta
+        .code(415)
+        .send({ error: "La firma debe ser una imagen PNG o JPG trazada en la tableta." });
+    }
+
+    const en = guardarFirmaFuncionario({ usuario: usuario.usuario, contenido, extension });
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "CARGAR_FIRMA_FUNCIONARIO",
+      detalle: `${usuario.nombre} cargó su firma desde la tableta.`,
+    });
+
+    return respuesta.code(201).send({ cargada: true, en });
   });
 
   /* ---------------------------------------------------------------- */
@@ -328,6 +395,22 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         usuario.area === "SOCIOS"
           ? TIPOS_DOCUMENTO.map((tipo) => ({ tipo, nombre: nombreDocumento(tipo) }))
           : [],
+      /**
+       * Documentos que caben en cada trámite abierto, por su tipo de socio.
+       *
+       * Sin esto el diálogo de asignación ofrecía todos los tipos y se podía
+       * archivar «Cédula del oficial FAE del que depende» en el expediente de un
+       * Socio Activo, que no depende de nadie. Pasó en la prueba del 15/09/2026.
+       */
+      documentosPorTramite:
+        usuario.area === "SOCIOS"
+          ? Object.fromEntries(
+              pendientesConTareas.map((solicitud) => [
+                solicitud.id,
+                requisitosPara(solicitud.datos.tipoMiembro).map((requisito) => requisito.tipo),
+              ])
+            )
+          : {},
       sistema: estadoDelSistema(),
     });
   });
@@ -384,6 +467,7 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         tipoDocumento: a.tipoDocumento,
         nombre: nombreDocumento(a.tipoDocumento),
         nombreArchivo: a.nombreArchivo,
+        nombreOrigen: a.nombreOrigen,
         bytes: a.bytes,
         origen: a.origen,
         registradoEn: a.registradoEn,
@@ -779,6 +863,28 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     resultado: { ok: true; solicitud: SolicitudAfiliacion } | { ok: false; codigo: number; error: string }
   ) => (resultado.ok ? respuesta.send(resultado.solicitud) : respuesta.code(resultado.codigo).send({ error: resultado.error }));
 
+  /**
+ * El actor de una acción, con su firma ya copiada a la carpeta del trámite.
+ *
+ * Se llama solo en las acciones que pasan el trámite al área siguiente —el
+ * registro de la Jefatura, la revisión de Contabilidad y la aprobación de la
+ * Gerencia—, que son las tres constancias firmadas del reverso. Si el
+ * funcionario no ha cargado su firma desde la tableta, devuelve `null` y la
+ * constancia se imprime solo con su nombre, como se venía haciendo.
+ */
+function actorConFirma(usuario: Usuario, solicitudId: string) {
+  return {
+    usuario: usuario.usuario,
+    area: usuario.area,
+    nombre: usuario.nombre,
+    firmaArchivo: estamparFirma({
+      usuario: usuario.usuario,
+      solicitudId,
+      area: usuario.area,
+    }),
+  };
+}
+
   /** Contabilidad marca REVISADO y registra la casilla FC del formulario. */
   app.post("/api/solicitudes/:id/revisar", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "CONTABILIDAD");
@@ -795,7 +901,7 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
           observacion: recortarObservacion(cuerpo.observacion),
           numeroFactura: recortarObservacion(cuerpo.numeroFactura, 60),
         },
-        { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+        actorConFirma(usuario, id)
       )
     );
   });
@@ -814,7 +920,7 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     const resultado = aprobar(
       id,
       { observacion: recortarObservacion(cuerpo.observacion) },
-      { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
+      actorConFirma(usuario, id)
     );
     if (!resultado.ok) return respuesta.code(resultado.codigo).send({ error: resultado.error });
 
@@ -846,6 +952,8 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       devolver(
         id,
         { observacion: observacion.valor },
+        // Una devolución no estampa firma: solo se firma al pasar el trámite al
+        // área siguiente. Quien devuelve, no da su visto bueno.
         { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
       )
     );
@@ -1110,8 +1218,9 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         cuentaSafiId: cuentaFinal,
         socioSafiId: socioFinal,
         mensaje: alta.ok || socioFinal ? undefined : alta.mensaje,
+        observacion: recortarObservacion((peticion.body as CuerpoAccion | undefined)?.observacion),
       },
-      { usuario: usuario.usuario, area: usuario.area }
+      actorConFirma(usuario, id)
     );
 
     const creado = alta.ok || Boolean(socioFinal);

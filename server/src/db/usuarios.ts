@@ -18,6 +18,8 @@ export type Usuario = {
   nombre: string;
   area: Area;
   activo: boolean;
+  /** Cuándo cargó su firma desde la tableta; `null` si todavía no la tiene. */
+  firmaEn: string | null;
 };
 
 type FilaUsuario = {
@@ -28,6 +30,7 @@ type FilaUsuario = {
   clave_hash: string;
   clave_sal: string;
   activo: number;
+  firma_en: string | null;
 };
 
 const LONGITUD_HASH = 64;
@@ -64,6 +67,7 @@ function aUsuario(fila: FilaUsuario): Usuario {
     nombre: fila.nombre,
     area: fila.area,
     activo: fila.activo === 1,
+    firmaEn: fila.firma_en ?? null,
   };
 }
 
@@ -99,7 +103,14 @@ export function crearUsuario(datos: {
       ahora()
     );
 
-  return { id, usuario: datos.usuario.trim().toLowerCase(), nombre: datos.nombre.trim(), area: datos.area, activo: true };
+  return {
+    id,
+    usuario: datos.usuario.trim().toLowerCase(),
+    nombre: datos.nombre.trim(),
+    area: datos.area,
+    activo: true,
+    firmaEn: null,
+  };
 }
 
 export function cambiarClave(usuario: string, clave: string): boolean {

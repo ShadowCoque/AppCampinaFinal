@@ -12,6 +12,8 @@ export type ArchivoExpediente = {
   nombrePersona: string;
   tipoDocumento: TipoDocumento;
   nombreArchivo: string;
+  /** Nombre con el que llegó, si la Jefatura lo asignó a mano con otro nombre. */
+  nombreOrigen: string | null;
   ruta: string;
   bytes: number;
   origen: "APP" | "ESCANEO";
@@ -30,6 +32,7 @@ type Fila = {
   nombre_persona: string;
   tipo_documento: string;
   nombre_archivo: string;
+  nombre_origen: string | null;
   ruta: string;
   bytes: number;
   origen: string;
@@ -49,6 +52,7 @@ function aArchivo(fila: Fila): ArchivoExpediente {
     nombrePersona: fila.nombre_persona,
     tipoDocumento: fila.tipo_documento as TipoDocumento,
     nombreArchivo: fila.nombre_archivo,
+    nombreOrigen: fila.nombre_origen ?? null,
     ruta: fila.ruta,
     bytes: fila.bytes,
     origen: fila.origen as "APP" | "ESCANEO",
@@ -68,6 +72,8 @@ export function registrarArchivo(entrada: {
   ruta: string;
   bytes: number;
   origen: "APP" | "ESCANEO";
+  /** Nombre con el que llegó, cuando no es el estándar del expediente. */
+  nombreOrigen?: string | null;
 }): ArchivoExpediente {
   const id = nuevoId();
   const momento = ahora();
@@ -79,12 +85,13 @@ export function registrarArchivo(entrada: {
     .prepare(
       `INSERT INTO archivos
          (id, solicitud_id, numero_socio, ordinal_dependiente, nombre_persona, tipo_documento,
-          nombre_archivo, ruta, bytes, origen, registrado_en, safi_estado, safi_intentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0)
+          nombre_archivo, nombre_origen, ruta, bytes, origen, registrado_en, safi_estado, safi_intentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0)
        ON CONFLICT(ruta) DO UPDATE SET
          solicitud_id = excluded.solicitud_id,
          nombre_persona = excluded.nombre_persona,
          tipo_documento = excluded.tipo_documento,
+         nombre_origen = excluded.nombre_origen,
          bytes = excluded.bytes,
          registrado_en = excluded.registrado_en,
          safi_estado = 'PENDIENTE',
@@ -99,6 +106,7 @@ export function registrarArchivo(entrada: {
       entrada.clave.apellidosNombres,
       entrada.tipoDocumento,
       entrada.nombreArchivo,
+      entrada.nombreOrigen ?? null,
       entrada.ruta,
       entrada.bytes,
       entrada.origen,

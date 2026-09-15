@@ -1,8 +1,9 @@
 import type { SolicitudAfiliacion } from "../../domain/solicitud";
 import {
   CATALOGO_TIPOS,
-  FORMULARIO_PRINCIPAL,
-  hojaSolicitudPara,
+  formularioPrincipalPara,
+  hojaAdicionalPara,
+  HOJA_GENERAL,
   tituloFormularioPrincipal,
   type HojaSolicitud,
 } from "../../domain/tiposMiembro";
@@ -20,10 +21,12 @@ export type { RecursosFormulario } from "./tipos";
 /**
  * Construye el trámite completo de una solicitud, tal como se archiva:
  *
- *   1. El R-PGS1-1, formulario principal común a todas las categorías.
+ *   1. El formulario principal de la categoría, y solo uno: el R-PGS1-1 si es
+ *      Socio Activo, el PGS1-11 en cualquier otro caso.
  *   2. La hoja de solicitud de ingreso de su categoría, con los recuadros de
- *      cónyuge, hijos y garantes que esa hoja tenga. El Socio Activo no lleva:
- *      su R-PGS1-1 ya es su solicitud.
+ *      cónyuge, hijos y garantes que esa hoja tenga. No la llevan ni el Socio
+ *      Activo ni los dependientes de un socio titular: su formulario principal
+ *      ya es su solicitud.
  *   3. La carta de compromiso, cuando la categoría la exige.
  *   4. El reverso con la INFORMACIÓN INTERNA DEL CLUB y las tres constancias.
  *
@@ -43,9 +46,9 @@ export type ResultadoFormulario = {
   paginas: number;
 };
 
-/** Hoja de solicitud que acompaña al R-PGS1-1 de esta solicitud, si lleva. */
+/** Hoja de solicitud que acompaña al formulario principal, si lleva. */
 export function hojaDe(solicitud: SolicitudAfiliacion): HojaSolicitud | null {
-  return hojaSolicitudPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
+  return hojaAdicionalPara(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil);
 }
 
 export function construirFormulario(
@@ -55,20 +58,23 @@ export function construirFormulario(
   const tipo = solicitud.datos.tipoMiembro;
   if (!tipo) return null;
 
+  // Un solo formulario principal por categoría: el R-PGS1-1 del Socio Activo o
+  // el PGS1-11 de las demás, nunca los dos.
+  const principal = formularioPrincipalPara(tipo);
+  const paginasPrincipal = principal.general
+    ? paginasGeneral(solicitud, HOJA_GENERAL, recursos)
+    : [paginaPrincipal(solicitud, recursos)];
+
   const hoja = hojaDe(solicitud);
-  const hojas = hoja
-    ? hoja.layout === "GENERAL"
-      ? paginasGeneral(solicitud, hoja, recursos)
-      : paginasSolicitud(solicitud, hoja, recursos)
-    : [];
+  const hojas = hoja ? paginasSolicitud(solicitud, hoja, recursos) : [];
 
   const carta = CATALOGO_TIPOS[tipo].cartaCompromiso ? paginaCarta(solicitud, recursos) : null;
 
   const paginas = [
-    paginaPrincipal(solicitud, recursos),
+    ...paginasPrincipal,
     ...hojas,
     ...(carta ? [carta] : []),
-    paginaReverso(solicitud, recursos, FORMULARIO_PRINCIPAL.codigo),
+    paginaReverso(solicitud, recursos, principal.codigo),
   ];
 
   const cuerpo = paginas
@@ -82,7 +88,7 @@ export function construirFormulario(
     .join("");
 
   const titulo = tituloFormularioPrincipal(tipo);
-  const codigos = [FORMULARIO_PRINCIPAL.codigo, ...(hoja ? [hoja.codigo] : [])].join(" · ");
+  const codigos = [principal.codigo, ...(hoja ? [hoja.codigo] : [])].join(" · ");
 
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8" />
     <title>${escaparTitulo(`${solicitud.codigo} · ${codigos}`)}</title>

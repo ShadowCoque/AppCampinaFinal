@@ -1,3 +1,5 @@
+import type { Area } from "../../domain/solicitud";
+
 /**
  * Recursos gráficos que necesita el generador de formularios.
  *
@@ -14,10 +16,15 @@ export type RecursosFormulario = {
   firmaSolicitante: string | null;
   /** Firmas de los socios garantes, en el mismo orden que `datos.garantes`. */
   firmasGarantes: (string | null)[];
-  /** Fotografía tipo carnet, cuando el documento la incorpora. */
-  fotoCarnet?: string | null;
+  /**
+   * Firma del funcionario de cada área, para las constancias del reverso.
+   *
+   * Solo las resuelve el servidor, que es quien tiene los archivos: la tableta
+   * imprime el formulario antes de que exista ninguna constancia y pasa `{}`.
+   */
+  firmasFuncionarios: Partial<Record<Area, string | null>>;
 };
 
 export function recursosVacios(): RecursosFormulario {
-  return { logo: "", firmaSolicitante: null, firmasGarantes: [], fotoCarnet: null };
+  return { logo: "", firmaSolicitante: null, firmasGarantes: [], firmasFuncionarios: {} };
 }

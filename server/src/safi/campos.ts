@@ -90,6 +90,9 @@ export const CAMPOS_CUENTA = {
   direccion: "bill_street",
   ciudad: "bill_city",
   provincia: "bill_state",
+  pais: "bill_country",
+  /** «No Enviar Email»: 1 cuando el socio no acepta comunicaciones del Club. */
+  noEnviarEmail: "emailoptout",
   descripcion: "description",
 } as const;
 
@@ -132,6 +135,15 @@ export const CAMPOS_SOCIO = {
   direccion: "mailingstreet",
   ciudad: "mailingcity",
   provincia: "mailingstate",
+  pais: "mailingcountry",
+  /**
+   * «Edad.» del CRM. La calculamos nosotros a partir de la fecha de nacimiento:
+   * dejada al CRM, la primera ficha real salió con «25.15» para alguien de 24
+   * años. Es la edad al registrarse, no se recalcula sola.
+   */
+  edad: "cf_1151",
+  /** «No Enviar Email»: 1 cuando el socio no acepta comunicaciones del Club. */
+  noEnviarEmail: "emailoptout",
   asignadoA: "assigned_user_id",
 } as const;
 

@@ -1,6 +1,5 @@
 import { calcularEdad } from "./fechas";
 import { cuotaAnualSugerida, cuotaMensualSugerida, formatearValor } from "./cuotas";
-import { requisitosCapturables } from "./documentos";
 import { CONSENTIMIENTOS, type ClaveConsentimiento } from "./privacidad";
 import {
   VINCULO_POR_TIPO,
@@ -141,7 +140,6 @@ export const CLAVES_PASO = [
   "laboral",
   "familia",
   "garantes",
-  "fotografia",
   "compromiso",
   "consentimiento",
   "revision",
@@ -159,7 +157,6 @@ const TODOS_LOS_PASOS: DefinicionPaso[] = [
   { key: "laboral", title: "Ocupación e información institucional", shortTitle: "Ocupación" },
   { key: "familia", title: "Cónyuge e hijos", shortTitle: "Familia" },
   { key: "garantes", title: "Socios que le garantizan", shortTitle: "Garantes" },
-  { key: "fotografia", title: "Fotografía del socio", shortTitle: "Fotografía" },
   { key: "compromiso", title: "Carta de compromiso", shortTitle: "Compromiso" },
   { key: "consentimiento", title: "Protección de datos y firma", shortTitle: "Consentimiento" },
   { key: "revision", title: "Revisión y registro", shortTitle: "Revisión" },
@@ -315,6 +312,11 @@ function validarContacto(estado: EstadoFormulario): Errores {
   const { datos } = estado;
   const errores: Errores = {};
 
+  // El país viaja al «País (Factura)» del Socio y de la Cuenta en SAFI, que
+  // hasta el 15/09/2026 quedaban vacíos porque nadie lo preguntaba.
+  const pais = validarObligatorio(datos.pais, "Indique el país del domicilio.");
+  if (pais) errores.pais = pais;
+
   const ciudad = validarObligatorio(datos.ciudad, "Ingrese la ciudad de residencia.");
   if (ciudad) errores.ciudad = ciudad;
 
@@ -340,11 +342,10 @@ function validarContacto(estado: EstadoFormulario): Errores {
   const correo = validarCorreo(datos.correo);
   if (correo) errores.correo = correo;
 
-  // La forma de pago es un dato de la Cuenta. El cónyuge, los padres y el
-  // juvenil no tienen Cuenta propia: los factura la de su titular.
-  if (tieneCuentaPropia(datos.tipoMiembro) && !datos.formaPago) {
-    errores.formaPago = "Seleccione la forma de pago acordada con el socio.";
-  }
+  // La forma de pago ya no se pregunta en la tableta: la elige la Jefatura de
+  // Socios en su bandeja, al confirmar el registro junto con la cuota y el
+  // grupo de facturación (decisión del Coordinador, 15/09/2026). Se pedía dos
+  // veces y ganaba la de la bandeja, así que la de la tableta solo confundía.
 
   return errores;
 }
@@ -360,7 +361,10 @@ function validarLaboral(estado: EstadoFormulario): Errores {
     if (grado) errores.gradoMilitar = grado;
 
     if (!datos.situacion) errores.situacion = "Indique la situación: activo o pasivo.";
-    if (reglas.requiereFuerza && !datos.fuerza) {
+    // La fuerza se pregunta a todo militar. Hasta el 15/09/2026 solo se pedía a
+    // los corresponsales B y C, así que la ficha de un Socio Activo —oficial de
+    // la FAE— llegaba a SAFI con «NO APLICA» en el campo Fuerza.
+    if (!datos.fuerza) {
       errores.fuerza = "Indique la fuerza a la que pertenece.";
     }
   }
@@ -467,23 +471,6 @@ function validarGarantes(estado: EstadoFormulario): Errores {
   return errores;
 }
 
-/**
- * La aplicación solo captura la fotografía del socio. La documentación de
- * respaldo llega escaneada a la carpeta compartida, y la bandeja del Área de
- * Socios avisa de la que falte.
- */
-function validarFotografia(estado: EstadoFormulario): Errores {
-  const errores: Errores = {};
-
-  for (const requisito of requisitosCapturables(estado.datos.tipoMiembro)) {
-    if (!requisito.obligatorio) continue;
-    const tiene = estado.documentos.some((d) => d.tipo === requisito.tipo);
-    if (!tiene) errores[requisito.tipo] = `Adjunte: ${requisito.nombre}.`;
-  }
-
-  return errores;
-}
-
 function validarCompromiso(estado: EstadoFormulario): Errores {
   const { datos } = estado;
   const errores: Errores = {};
@@ -541,7 +528,6 @@ const VALIDADORES: Record<ClavePaso, (estado: EstadoFormulario) => Errores> = {
   laboral: validarLaboral,
   familia: validarFamilia,
   garantes: validarGarantes,
-  fotografia: validarFotografia,
   compromiso: validarCompromiso,
   consentimiento: validarConsentimiento,
   revision: () => ({}),

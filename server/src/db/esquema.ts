@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
   clave_hash   TEXT NOT NULL,
   clave_sal    TEXT NOT NULL,
   activo       INTEGER NOT NULL DEFAULT 1,
-  creado_en    TEXT NOT NULL
+  creado_en    TEXT NOT NULL,
+  /* Cuándo cargó su firma desde la tableta. NULL: todavía no la ha cargado y
+     su constancia se imprime sin firma, como el formulario en papel. */
+  firma_en     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sesiones (
@@ -79,6 +82,10 @@ CREATE TABLE IF NOT EXISTS archivos (
   nombre_persona      TEXT NOT NULL,
   tipo_documento      TEXT NOT NULL,
   nombre_archivo      TEXT NOT NULL,
+  /* Nombre con el que llegó, si no es el estándar: el del escaneo que la
+     Jefatura asignó a mano desde la bandeja. Deja ver en el expediente por qué
+     un archivo se llama hoy de otra manera. */
+  nombre_origen       TEXT,
   ruta                TEXT NOT NULL,
   bytes               INTEGER NOT NULL DEFAULT 0,
   origen              TEXT NOT NULL CHECK (origen IN ('APP','ESCANEO')),
@@ -146,7 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_bitacora_en ON bitacora(en);
 `;
 
 /** Versión del esquema. Al subirla, añada la migración correspondiente. */
-export const VERSION_ESQUEMA = 3;
+export const VERSION_ESQUEMA = 4;
 
 /**
  * Migraciones para bases creadas con una versión anterior.
@@ -169,6 +176,13 @@ export const MIGRACIONES: { desde: number; sentencias: string[] }[] = [
       "ALTER TABLE solicitudes ADD COLUMN ordinal_dependiente INTEGER",
       "ALTER TABLE incidencias ADD COLUMN tipo TEXT NOT NULL DEFAULT 'RECHAZADO'",
       "ALTER TABLE incidencias ADD COLUMN ruta TEXT",
+    ],
+  },
+  {
+    desde: 3,
+    sentencias: [
+      "ALTER TABLE usuarios ADD COLUMN firma_en TEXT",
+      "ALTER TABLE archivos ADD COLUMN nombre_origen TEXT",
     ],
   },
 ];

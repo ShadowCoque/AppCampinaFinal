@@ -356,8 +356,42 @@ export function camposCuenta(
     [CAMPOS_CUENTA.direccion]: normalizarTextoInstitucional(datos.direccion).trim(),
     [CAMPOS_CUENTA.ciudad]: normalizarTextoInstitucional(datos.ciudad).trim(),
     [CAMPOS_CUENTA.provincia]: normalizarTextoInstitucional(datos.provincia).trim(),
+    [CAMPOS_CUENTA.pais]: normalizarTextoInstitucional(datos.pais).trim(),
+    [CAMPOS_CUENTA.noEnviarEmail]: noEnviarEmail(solicitud),
     [CAMPOS_CUENTA.descripcion]: `Afiliación ${solicitud.codigo} · registrada desde la aplicación del Área de Socios.`,
   });
+}
+
+/**
+ * Edad cumplida a día de hoy, en años enteros.
+ *
+ * La calculamos nosotros porque el CRM la rellenaba solo y con decimales: la
+ * primera ficha real salió con «25.15» para alguien de 24 años. Es la edad al
+ * momento del registro y no se recalcula después, igual que en el formulario
+ * en papel.
+ */
+export function edadCumplida(fechaNacimiento: string, hoy = new Date()): string {
+  const nacimiento = new Date(`${fechaNacimiento}T00:00:00`);
+  if (Number.isNaN(nacimiento.getTime())) return "";
+
+  let edad = hoy.getFullYear() - nacimiento.getFullYear();
+  const mes = hoy.getMonth() - nacimiento.getMonth();
+  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) edad -= 1;
+
+  return edad >= 0 && edad < 130 ? String(edad) : "";
+}
+
+/**
+ * «No Enviar Email» de SAFI: `1` cuando la persona **no** aceptó recibir
+ * comunicaciones del Club.
+ *
+ * Es la casilla opcional del consentimiento de la tableta. Hasta el 15/09/2026
+ * se guardaba en el expediente pero no viajaba al CRM, así que el Club no tenía
+ * cómo saber a quién no debía escribirle.
+ */
+export function noEnviarEmail(solicitud: SolicitudAfiliacion): string {
+  const acepta = solicitud.consentimiento?.valores?.comunicaciones === true;
+  return acepta ? "0" : "1";
 }
 
 /**
@@ -439,6 +473,9 @@ export function camposSocio(
     [CAMPOS_SOCIO.direccion]: normalizarTextoInstitucional(datos.direccion).trim(),
     [CAMPOS_SOCIO.ciudad]: normalizarTextoInstitucional(datos.ciudad).trim(),
     [CAMPOS_SOCIO.provincia]: normalizarTextoInstitucional(datos.provincia).trim(),
+    [CAMPOS_SOCIO.pais]: normalizarTextoInstitucional(datos.pais).trim(),
+    [CAMPOS_SOCIO.edad]: edadCumplida(datos.fechaNacimiento),
+    [CAMPOS_SOCIO.noEnviarEmail]: noEnviarEmail(solicitud),
   });
 }
 

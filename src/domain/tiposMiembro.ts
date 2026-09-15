@@ -1,28 +1,34 @@
 /**
  * Catálogo de tipos de socio del Club La Campiña.
  *
- * **El formulario principal es uno solo para todos: el R-PGS1-1.** Es el que
- * recoge la información del socio —datos personales, contacto, ocupación y,
- * cuando aplica, datos militares—, sea cual sea su categoría. La Jefatura de
- * Socios lo precisó el 11 de septiembre de 2026: la información no varía por
- * tipo de socio.
+ * **Hay dos formularios principales, y cada categoría lleva uno solo:**
  *
- * Lo que sí varía es lo que se adjunta al R-PGS1-1:
+ *   · El **R-PGS1-1** es exclusivo del **Socio Activo**. Su propio formulario
+ *     es a la vez su solicitud de ingreso.
+ *   · El **PGS1-11** es el formulario de todas las demás categorías:
+ *     fundador, dependientes del titular, dependientes, particulares,
+ *     corresponsales y suscriptores.
  *
- *   · La **hoja de solicitud de ingreso** de su categoría. Todos la tienen
- *     salvo el Socio Activo, cuyo R-PGS1-1 ya es su solicitud. Es la hoja que
- *     añade los recuadros propios de cada categoría: cónyuge, hijos y socios
- *     garantes.
+ * Lo corrigió el Coordinador de TICs el 15 de septiembre de 2026, al ver que un
+ * trámite de «Padres» generaba los dos: antes se imprimía el R-PGS1-1 para todos
+ * y encima la hoja de la categoría. **Nunca deben salir los dos juntos.**
+ *
+ * Al formulario principal se le añade, cuando la categoría lo tiene:
+ *
+ *   · La **hoja de solicitud de ingreso** propia de la categoría, la que suma
+ *     los recuadros de cónyuge, hijos y socios garantes. Los dependientes de un
+ *     socio titular —cónyuge, padres, juvenil— y el fundador no llevan ninguna:
+ *     su formulario es el PGS1-11 y basta.
  *   · La **carta de compromiso**, en los socios dependientes y particulares.
  *
- * La aplicación no inventa campos: pide lo que llevan el R-PGS1-1 y la hoja de
- * la categoría elegida, y el PDF que genera reproduce esos mismos documentos. Si
- * el Club modifica un formulario impreso, se ajusta aquí y tanto el asistente
- * como el documento generado se alinean solos.
+ * La aplicación no inventa campos: pide lo que llevan el formulario principal y
+ * la hoja de la categoría elegida, y el PDF que genera reproduce esos mismos
+ * documentos. Si el Club modifica un formulario impreso, se ajusta aquí y tanto
+ * el asistente como el documento generado se alinean solos.
  *
- * Fuente de cada hoja de solicitud:
- *   (ninguna)  El R-PGS1-1 es su solicitud ..................... Socio Activo
- *   PGS1-11    Formulario Ingreso Socios ....................... Fundador y dependientes del titular
+ * Fuente de cada hoja de solicitud (el formulario principal va aparte):
+ *   (ninguna)  El R-PGS1-1 es su formulario y su solicitud ..... Socio Activo
+ *   (ninguna)  El PGS1-11 es su formulario y su solicitud ...... Fundador y dependientes del titular
  *   R-PGS1-22  Solicitud de Ingreso Socios D-A ................. Dependiente A
  *   R-PGS1-23  Solicitud de Ingreso Socios DS .................. Dependiente B (soltero)
  *   R-PGS1-24  Solicitud de Ingreso Socios BC .................. Dependiente B (casado)
@@ -35,10 +41,10 @@
  *   R-PGS1-12  Formulario Suscriptor Tenis ..................... Suscriptor de tenis
  *   R-PGS1-13  Formulario Suscriptor GYM ....................... Suscriptor de gimnasio
  *
- * Para los dependientes del titular (cónyuge, padres, juvenil) y para el socio
- * fundador, la hoja es el PGS1-11: es el único formulario del Club que los
- * contempla, el que reposa en `DEPENDIENTES DE SOCIOS TITULARES/`, y el que
- * declara de qué socio principal depende la persona.
+ * El PGS1-11 es el único formulario del Club que contempla a la vez todas las
+ * categorías —su columna de tipos las lista—, el que reposa en
+ * `DEPENDIENTES DE SOCIOS TITULARES/`, y el que declara de qué socio principal
+ * depende la persona.
  */
 
 export const TIPOS_MIEMBRO = [
@@ -264,10 +270,14 @@ const MILITAR_OTRA_FUERZA: DatosDeCategoria = { ...SOLO_PRINCIPAL, datosMilitare
 const DEPENDIENTE_DEL_TITULAR: DatosDeCategoria = { ...SOLO_PRINCIPAL, vinculoTitular: true };
 
 /**
- * El PGS1-11 como hoja de solicitud: la de los dependientes del titular y la
- * del socio fundador. No añade recuadros de cónyuge, hijos ni garantes.
+ * El PGS1-11: el formulario principal de todas las categorías salvo el Socio
+ * Activo. No añade recuadros de cónyuge, hijos ni garantes.
+ *
+ * Se declara además como «hoja» de los dependientes del titular y del fundador
+ * para que su maqueta salga por el mismo camino que las demás; al ser el
+ * principal de esas categorías, no se imprime dos veces (ver `hojaAdicionalPara`).
  */
-const HOJA_GENERAL: HojaSolicitud = {
+export const HOJA_GENERAL: HojaSolicitud = {
   codigo: "PGS1-11",
   titulo: "FORMULARIO DE INGRESO DE SOCIOS",
   layout: "GENERAL",
@@ -686,6 +696,45 @@ export function hojaSolicitudPara(
 }
 
 /**
+ * El formulario principal de una categoría: el R-PGS1-1 del Socio Activo o el
+ * PGS1-11 de todas las demás. Nunca los dos.
+ *
+ * `general` distingue la maqueta: el R-PGS1-1 tiene la suya propia y el PGS1-11
+ * se dibuja con la maqueta GENERAL, encabezada por la columna de categorías.
+ */
+export function formularioPrincipalPara(codigo: TipoMiembro | null): {
+  codigo: string;
+  titulo: string;
+  general: boolean;
+} {
+  if (codigo === "SA") {
+    return {
+      codigo: FORMULARIO_PRINCIPAL.codigo,
+      titulo: "Formulario de ingreso (información del socio)",
+      general: false,
+    };
+  }
+  return { codigo: HOJA_GENERAL.codigo, titulo: HOJA_GENERAL.titulo, general: true };
+}
+
+/**
+ * Hoja de solicitud que se añade **detrás** del formulario principal, o `null`
+ * si la categoría no lleva ninguna.
+ *
+ * Devuelve `null` cuando la hoja de la categoría es el propio PGS1-11: en esas
+ * categorías el PGS1-11 ya es el formulario principal, y repetirlo era
+ * justamente el fallo corregido el 15/09/2026.
+ */
+export function hojaAdicionalPara(
+  codigo: TipoMiembro | null,
+  estadoCivil: string
+): HojaSolicitud | null {
+  const hoja = hojaSolicitudPara(codigo, estadoCivil);
+  if (!hoja) return null;
+  return hoja.codigo === HOJA_GENERAL.codigo ? null : hoja;
+}
+
+/**
  * Recuadros aplicables a una solicitud concreta. Es la función que consultan el
  * asistente (para decidir qué pasos mostrar), la validación y el generador del
  * PDF (para decidir qué recuadros dibujar), de modo que no puedan discrepar.
@@ -702,7 +751,8 @@ export type DocumentoGenerado = { codigo: string; titulo: string };
 
 /**
  * Los documentos que forman el trámite de una solicitud, en el orden en que se
- * generan: el R-PGS1-1, la hoja de solicitud de la categoría y la carta de
+ * generan: el formulario principal de la categoría —R-PGS1-1 en el Socio Activo,
+ * PGS1-11 en las demás—, su hoja de solicitud cuando la tiene y la carta de
  * compromiso. El reverso de INFORMACIÓN INTERNA DEL CLUB acompaña siempre y no
  * se enumera.
  */
@@ -711,10 +761,9 @@ export function documentosDelTramite(
   estadoCivil: string
 ): DocumentoGenerado[] {
   if (!codigo) return [];
-  const lista: DocumentoGenerado[] = [
-    { codigo: FORMULARIO_PRINCIPAL.codigo, titulo: "Formulario de ingreso (información del socio)" },
-  ];
-  const hoja = hojaSolicitudPara(codigo, estadoCivil);
+  const principal = formularioPrincipalPara(codigo);
+  const lista: DocumentoGenerado[] = [{ codigo: principal.codigo, titulo: principal.titulo }];
+  const hoja = hojaAdicionalPara(codigo, estadoCivil);
   if (hoja) lista.push({ codigo: hoja.codigo, titulo: hoja.titulo });
   const carta = CATALOGO_TIPOS[codigo].cartaCompromiso;
   if (carta) {
@@ -727,6 +776,16 @@ export function documentosDelTramite(
 }
 
 export const TIPOS_SANGRE = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"] as const;
+
+/**
+ * País del domicilio por defecto.
+ *
+ * Casi todos los socios viven en el Ecuador, así que el asistente lo trae
+ * puesto; quien viva fuera —un corresponsal diplomático, por ejemplo— lo cambia
+ * y entonces la provincia y la ciudad se escriben libres, porque la lista
+ * `PROVINCIAS` es la del Ecuador.
+ */
+export const PAIS_POR_DEFECTO = "Ecuador";
 
 /**
  * Provincias del Ecuador, en el orden de la División Político Administrativa.

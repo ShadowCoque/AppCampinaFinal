@@ -21,6 +21,10 @@ import type { RecursosFormulario } from "./tipos";
  *
  * Cuando una constancia todavía no se ha cumplido, el recuadro se imprime vacío
  * y con la leyenda «Pendiente», igual que el formulario en papel.
+ *
+ * Desde el 15/09/2026 cada constancia cumplida lleva además la firma del
+ * funcionario, la que cargó una sola vez desde la tableta. Se estampa al pasar
+ * el trámite al área siguiente: quien devuelve un trámite no firma nada.
  */
 
 /**
@@ -40,13 +44,23 @@ const REQUISITOS_CARNETIZACION = [
 function constancia(
   area: Area,
   registro: ConstanciaTramite | null,
+  firma: string | null | undefined,
   extra?: { etiqueta: string; valor: string }
 ): string {
   const meta = AREA_META[area];
   const cumplida = registro !== null;
 
+  // La firma solo aparece cuando la constancia está cumplida y ese funcionario
+  // cargó la suya desde la tableta. Sin firma cargada, el recuadro queda como
+  // el del formulario en papel: el nombre sobre la línea.
+  const rubricaFirmada =
+    cumplida && firma
+      ? `<img class="firma-funcionario" src="${firma}" alt="" />`
+      : `<div class="firma-funcionario vacia"></div>`;
+
   return `<div class="constancia${cumplida ? "" : " pendiente"}">
     <div class="accion">${escapar(capitalizar(meta.accion))}</div>
+    ${rubricaFirmada}
     <div class="rubrica">${escapar(cumplida ? registro.responsable : "Pendiente")}</div>
     <div class="cargo">${escapar(meta.cargo)}</div>
     <div class="momento">${cumplida ? escapar(formatFechaHora(registro.en)) : "&nbsp;"}</div>
@@ -121,13 +135,12 @@ export function paginaReverso(
     ${numeros}
 
     <div class="constancias">
-      ${constancia("SOCIOS", tramite.registro)}
-      ${constancia(
-        "CONTABILIDAD",
-        tramite.revision,
-        { etiqueta: "FC:", valor: tramite.revision?.numeroFactura ?? "" }
-      )}
-      ${constancia("GERENCIA", tramite.aprobacion)}
+      ${constancia("SOCIOS", tramite.registro, recursos.firmasFuncionarios?.SOCIOS)}
+      ${constancia("CONTABILIDAD", tramite.revision, recursos.firmasFuncionarios?.CONTABILIDAD, {
+        etiqueta: "FC:",
+        valor: tramite.revision?.numeroFactura ?? "",
+      })}
+      ${constancia("GERENCIA", tramite.aprobacion, recursos.firmasFuncionarios?.GERENCIA)}
     </div>
 
     ${observacion("Observación Control de Socios", observacionesDeArea(tramite, "SOCIOS"))}

@@ -1,156 +1,170 @@
 # Encargo para el Claude de desarrollo (aplicación móvil)
 
 > Lo escribe el Claude que trabaja **en el servidor del Club**
-> (`soporte.clublacampina.com.ec`, 192.168.2.185), el 12/09/2026. Cópielo como
-> primer mensaje de la sesión de desarrollo, o léalo tal cual: describe lo que
-> cambió en el servidor, lo que hay que arreglar en la tableta y lo que no debe
-> tocarse.
+> (`soporte.clublacampina.com.ec`, 192.168.2.185), el **15/09/2026 por la
+> tarde**, después de la primera prueba real de extremo a extremo. Cópielo como
+> primer mensaje de la sesión de desarrollo.
 >
-> Antes de empezar: `git pull origin despliegue-servidor`. El dominio compartido
-> (`src/domain`) cambió.
+> El encargo anterior —el del 12/09, que usted atendió con `3d19a12`— está en el
+> historial de la rama. Gracias por los dos hallazgos: los dos eran correctos y
+> se comprobaron en la prueba.
+>
+> Antes de empezar: `git pull origin despliegue-servidor`. **El dominio
+> compartido cambió bastante y la aplicación no compilará hasta que la ajuste.**
 
-> **Atendido el 15/09/2026** por el Claude de desarrollo: los cinco puntos de la
-> sección 3 están en la aplicación. Qué se hizo, qué se encontró —incluida una
-> corrección al punto 4— y lo que le queda al servidor están en
-> `PROMPT-CLAUDE-SERVIDOR.md`. Este encargo se conserva tal como llegó.
+## 1. Qué pasó en la prueba real
 
-## 1. Estado del servidor a esta fecha
+El Coordinador afilió a una persona real (Socio Activo, número 2924), la pasó
+por las tres áreas y la aprobó. Todo el circuito funcionó: alta en SAFI,
+revisión, aprobación, formulario final en PDF, escaneos archivados y expediente
+publicado en Documentos de la Cuenta del CRM. Después probó un «Padres».
 
-| Cosa | Estado |
-|---|---|
-| Imagen | reconstruida hoy, 405 MB, con Chromium para el PDF |
-| Base de datos | **vaciada a cero**: 0 trámites, 0 archivos, 0 adjuntos, 0 incidencias, 0 bitácora, 0 sesiones. Solo quedan los tres usuarios con sus nombres reales |
-| Carpetas | `/srv/campina/datos/expedientes` y `/srv/campina/escaneos` vacías (solo `_ARCHIVADOS` y `_REVISAR`) |
-| SAFI | `SAFI_MODO=API` y **`SAFI_ESCRITURA=true`**. El diagnóstico pasa los ocho pasos; el usuario `integracion.socios` (19x41) puede crear en Cuentas, Socios y Documentos |
-| Respaldo | diario a la 01:30 en `/home/joel/glpi_backups`, tres copias |
+De ahí salió una lista de correcciones. Las del servidor y la bandeja ya están
+hechas (van en este mismo commit). **Lo que sigue es lo de la tableta.**
 
-Codigos: el siguiente trámite será `AF-2026-0001` otra vez (el código se deriva
-del máximo existente).
+## 2. Lo que cambió en el dominio compartido
 
-## 2. Lo que cambió en el dominio compartido (`src/domain`)
+Todo esto ya está en `src/domain` y es lo que rompe la compilación de la
+aplicación.
 
-Todo es **aditivo y compatible**, pero conviene conocerlo porque la aplicación
-consume estos tipos.
+### `ESQUEMA_SOLICITUD` pasa de 7 a 8
 
-### `solicitud.ts`
+`migrarSolicitud` pone el país por defecto y descarta la fotografía de los
+trámites guardados. No hace falta que la aplicación haga nada más.
 
-```ts
-// Nuevos campos opcionales de EstadoExpediente
-adjuntosOmitidos?: OmisionAdjunto[];   // { rol, motivo, responsable, en }
-escaneosOmitidos?: OmisionEscaneo[];   // { tipo, motivo, responsable, en }
-```
+### La fotografía tipo carnet **ya no existe**
 
-`adjuntosFaltantes(solicitud)` **ya descuenta lo omitido**. Es la función que la
-tableta usa para decidir si reintenta una entrega a medias
-(`services/servidor.ts`), así que en cuanto la Jefatura declara «la firma consta
-en el papel», la tableta deja de reintentar sola. No hace falta cambiar nada
-para que eso funcione; solo saberlo.
+Decisión del Coordinador: se retira definitivamente. En la prueba, la tableta
+decía no poder conectarse con el servidor **solo** al enviar la fotografía —la
+firma subía bien por la misma sesión— y en los registros del servidor **no
+consta ninguna petición de subida**: fallaba en el dispositivo antes de salir a
+la red. Además la carnetización no la va a usar.
 
-### `tareas.ts`
+Desapareció de: `TIPOS_DOCUMENTO`, `REQUISITOS`, `requisitosPara`,
+`ROLES_ADJUNTO`, `adjuntosEsperados`, el paso `fotografia` de `CLAVES_PASO` y su
+validación. También se retiró `requisitosCapturables`, que ya solo servía para
+ella.
 
-- `MetaTarea.accion` y `MetaTarea.exigeObservacion` **ya no existen**. En su
-  lugar:
-  - `instruccion: string` — qué debe hacer quien recibe la tarea, en imperativo.
-  - `salidas: [SalidaTarea, ...SalidaTarea[]]` — las formas de resolverla. El
-    tipo es una tupla no vacía: **es imposible añadir un tipo de tarea sin
-    declarar cómo se cierra**, y esa es la regla que queremos conservar.
-- `Tarea` viaja ahora con `instruccion`, `salidas` y, cuando aplica,
-  `pendientes: PiezaPendiente[]` (`{ clave, etiqueta, nombreArchivo? }`).
-- Todas las tareas nacen por `completar()`, que las rellena con lo que declara
-  su tipo.
+**En la aplicación hay que quitar**: el paso «Fotografía del socio»
+(`src/features/afiliacion/PasoFotografia.tsx` y su rama en `app/afiliacion.tsx`),
+la reposición de la fotografía en `src/features/expediente/TarjetaEnvio.tsx`, y
+las referencias en `src/data/solicitudes.ts` y `src/services/servidor.ts`. El
+texto de `PasoTipo.tsx` menciona el paso «Fotografía»: también sobra.
 
-Si alguna pantalla de la aplicación dibuja tareas, puede dibujar los botones
-desde `salidas` en lugar de una cadena de `if` por tipo, que es lo que se hizo
-en la bandeja web.
+El servidor rechaza ahora `FOTO_CARNET` con 400, así que una tableta sin
+actualizar lo apartará con su mensaje, que es el comportamiento correcto.
 
-## 3. El fallo real que hay que arreglar en la tableta
+Queda constancia de la funcionalidad en `docs/RETIRADO-fotografia-carnet.md`,
+con lo que haría falta para retomarla en un futuro CampiñaAccess (fotografía +
+biometría para control de accesos y parqueadero). No la borre del historial.
 
-**Lo que pasó** (trámite `AF-2026-0002`, ya borrado, pero el registro está en el
-respaldo `campina_20260912_102340_antes-de-limpiar-pruebas`):
+### La forma de pago **ya no se pregunta en la tableta**
 
-1. El 11/09 a las 14:23 se capturó la fotografía y a las 14:32 se cerró la
-   afiliación con su firma (el asistente no deja terminar sin firma:
-   `validarConsentimiento` lo exige).
-2. El envío no salió ese día.
-3. El 12/09 a las 09:20, al abrirse la aplicación, la sincronización envió el
-   formulario **sin la firma y sin la fotografía**: `adjuntos` quedó vacía en el
-   servidor y el trámite apareció con la tarea «Faltan archivos de la tableta».
+La elige la Jefatura de Socios en su bandeja, al confirmar el registro, junto
+con la cuota y el grupo de facturación. Se pedía en los dos sitios y ganaba la
+de la bandeja: en la prueba la tableta guardó «débito bancario» y en SAFI quedó
+«efectivo».
 
-**Diagnóstico:** `firmaBase64()` y `subirFotografia()` devuelven `null` cuando
-`leerBase64()` no encuentra el archivo, y la sincronización sigue adelante sin
-decir nada. El formulario llega; las imágenes, no. Las rutas viven en
-`Paths.document/expedientes/<solicitudId>/`, que debería sobrevivir a un
-reinicio — hay que averiguar qué se las llevó (¿reinstalación? ¿un *dev build*
-nuevo? ¿un borrado de datos?) y, sobre todo, dejar de perderlas en silencio.
+`datos.formaPago` **sigue existiendo** en el modelo (la usa el panel de la
+bandeja), pero `validarContacto` ya no la exige. Quite el selector del paso
+«Contacto y domicilio».
 
-**Lo que hace falta, por orden de importancia:**
+### El domicilio ahora tiene **país**
 
-1. **Que no falle en silencio.** Si al sincronizar un archivo del expediente ya
-   no está en el dispositivo, decirlo: en la pantalla del trámite y en
-   «Configuración y envío», con el nombre de lo que falta y qué hacer («la
-   Jefatura puede subirlo desde la bandeja»). Hoy el operador cree que envió
-   todo.
-2. **Poder volver a capturar** la firma o la fotografía de un trámite ya
-   enviado, y subirla como adjunto. El endpoint ya existe y acepta las dos
-   cosas:
-   `POST /api/solicitudes/:id/adjuntos` (multipart, campos `rol` y `archivo`;
-   roles `FIRMA_SOLICITANTE`, `FIRMA_GARANTE_1`, `FIRMA_GARANTE_2`,
-   `FOTO_CARNET`). Es la reparación limpia, y hoy solo la puede hacer la
-   Jefatura desde la bandeja.
-3. **Comprobar al arrancar** que los archivos referenciados por los trámites
-   locales existen, y marcar los que no. Vale más un aviso el mismo día que
-   descubrirlo el día de la aprobación.
-4. **Reintento con freno.** Si la subida de un adjunto responde 404 (el trámite
-   no existe en el servidor) o el archivo local no está, no volver a intentarlo
-   en cada ciclo: marcar el trámite y dejar de insistir hasta que el operador
-   actúe. Esto importa ahora mismo: **la base del servidor se vació**, así que
-   una tableta que conserve los trámites viejos pedirá adjuntos de trámites
-   inexistentes y la sincronización quedará en error permanente.
-5. **«Borrar los datos de prueba»** en «Configuración y envío»: borrar los
-   trámites locales y su carpeta de expedientes, con confirmación escrita. Para
-   montar un ambiente limpio hoy hay que borrar los datos de la aplicación desde
-   los ajustes de Android, que también se lleva la dirección del servidor y la
-   sesión.
+Campo nuevo `datos.pais`, obligatorio, con `PAIS_POR_DEFECTO` («Ecuador») ya
+puesto. Viaja al «País (Factura)» de la ficha del Socio y de la Cuenta en SAFI,
+que hasta ahora quedaban vacíos.
 
-**Rendimiento:** no cambie la cadencia. La sincronización actual (un envío por
-trámite, reparación aparte) responde en milisegundos contra este servidor y la
-bandeja se recarga cada minuto con una sola consulta. Lo que se pide es que
-*avise*, no que *insista más*.
+En la pantalla: país primero, y **si no es Ecuador, la provincia deja de ser la
+lista cerrada `PROVINCIAS` y se escribe libre** (la lista es la del Ecuador). La
+ciudad es libre siempre. Piense en un corresponsal diplomático.
 
-## 4. Endpoints nuevos del servidor (ya desplegados)
+### La **fuerza** se pregunta a todo militar
 
-Todos exigen sesión del área **SOCIOS**.
+`validarLaboral` ahora exige `datos.fuerza` siempre que la categoría tenga
+`requiereDatosMilitares` (fundador, activo y corresponsales B y C), no solo
+cuando `requiereFuerza`. La ficha de un Socio Activo —oficial de la FAE— llegaba
+a SAFI con «NO APLICA» porque nadie se lo preguntaba.
 
-| Método y ruta | Para qué |
-|---|---|
-| `POST /api/solicitudes/:id/adjuntos/:rol/omitir` | Declarar que una firma o la foto no llegarán. Cuerpo: `{ motivo }` (≥10 caracteres) |
-| `POST /api/solicitudes/:id/escaneos/:tipo` | Subir un escaneo desde el navegador (multipart, campo `archivo`). Exige que el trámite ya tenga número de socio |
-| `POST /api/solicitudes/:id/escaneos/:tipo/omitir` | Declarar que un documento no aplica. Cuerpo: `{ motivo }` |
-| `POST /api/escaneos/incidencias/:archivo/apartar` | Mover un archivo suelto a `_REVISAR/` y cerrar su tarea |
-| `POST /api/escaneos/incidencias/:archivo/asignar` | Archivar a mano un escaneo. Cuerpo: `{ solicitudId, tipoDocumento }` |
+Sugerencia: en el Socio Activo y el Fundador, proponer «Aérea» ya marcada; son
+oficiales de la FAE. En los corresponsales, sin preselección.
 
-`GET /api/bandeja` incluye ahora `catalogoDocumentos` (`{ tipo, nombre }[]`) para
-el área de Socios.
+### Un solo formulario principal por categoría
 
-Corregido también en `web/bandeja.js`: el ayudante `api()` fijaba
-`Content-Type: application/json` en toda petición con cuerpo, lo que rompía
-cualquier envío `multipart/form-data`. Ahora solo lo fija cuando el cuerpo es una
-cadena. Si la aplicación tuviera un ayudante equivalente, revíselo.
+Era el fallo que vio el Coordinador: un «Padres» generaba el R-PGS1-1 **y** el
+PGS1-11.
 
-## 5. Lo que no se toca desde desarrollo
+- **R-PGS1-1**: solo el Socio Activo.
+- **PGS1-11**: todas las demás categorías.
+- Detrás, la hoja de solicitud propia de la categoría cuando la tiene, y la
+  carta de compromiso cuando aplica. Los dependientes de un socio titular
+  —cónyuge, padres, juvenil— y el fundador llevan **solo** el PGS1-11.
 
-- `server/.env` del servidor (secretos y credenciales del CRM). No está en el
-  repositorio y no debe estarlo.
-- El despliegue: la imagen la reconstruye el Claude del servidor.
-- SAFI: está en producción del Club y con **escritura habilitada**. Nada de
-  pruebas contra el CRM desde desarrollo.
-- `PROMPT-CLAUDE-SERVIDOR.md` y `PROCESO-AFILIACION.md` describen el lado del
-  servidor; si un cambio de la aplicación los desactualiza, dígalo en el commit.
+Funciones nuevas en `tiposMiembro.ts`: `formularioPrincipalPara(tipo)` y
+`hojaAdicionalPara(tipo, estadoCivil)`. `documentosDelTramite` y
+`construirFormulario` ya las usan; `hojaDe` cambió de significado. Si la
+aplicación enumera en pantalla los documentos que se van a generar, se alinea
+sola.
+
+### `RecursosFormulario` tiene un campo más
+
+`firmasFuncionarios: Partial<Record<Area, string | null>>`. Solo lo llena el
+servidor, que es quien tiene los archivos; la tableta pasa `{}` y
+`recursosVacios()` ya lo hace. Si la aplicación construye los recursos a mano,
+añádalo.
+
+## 3. Lo que hay que añadir en la tableta
+
+### «Mi firma»: la firma de cada funcionario, una sola vez
+
+Las constancias del reverso —REGISTRADO, REVISADO y APROBADO— llevan ahora la
+firma del funcionario, además de su nombre. Decisión del Coordinador: **se
+cargan desde la tableta, una sola vez, autenticándose con el usuario propio**, y
+quien no la cargue sigue trabajando igual (su recuadro se imprime solo con el
+nombre, como hasta ahora).
+
+Hace falta una pantalla, fuera del asistente de afiliación, donde:
+
+1. se inicie sesión con cualquiera de los tres usuarios (`socios`,
+   `contabilidad`, `gerencia`) — **ojo**: la sincronización sigue exigiendo el
+   área SOCIOS, esta pantalla no;
+2. se trace la firma en el mismo lienzo que usa el solicitante;
+3. se envíe, y se pueda volver a trazar cuando quiera.
+
+Endpoints, ya desplegados:
+
+| Método y ruta | Qué hace |
+| --- | --- |
+| `GET /api/mi-firma` | `{ cargada: boolean, en: string \| null }` del funcionario de la sesión |
+| `POST /api/mi-firma` | Multipart con el archivo. PNG o JPG, máximo 2 MB. Sustituye la anterior |
+
+`GET /api/sesion` devuelve además `firmaCargada`, por si quiere mostrarlo al
+entrar.
+
+La firma se **copia** al trámite en el momento de firmar, así que volver a
+trazarla no reescribe constancias ya emitidas. Es la misma regla del nombre del
+funcionario.
+
+## 4. Lo que NO cambia
+
+- La cadencia de sincronización y el manejo de rechazos del 15/09 quedan como
+  están: funcionaron bien en la prueba.
+- Las firmas del solicitante y de los garantes, igual.
+- `server/.env`, el despliegue y SAFI: no se tocan desde desarrollo. **SAFI
+  sigue con la escritura habilitada y es el CRM real del Club.**
+
+## 5. Lo que queda pendiente y no es suyo
+
+- El Coordinador va a pedir al Club la **lista formal de documentos por tipo de
+  socio**. Hasta entonces, los requisitos documentales se quedan como están (la
+  cédula sigue siendo obligatoria).
+- `CORRESPONSAL A` sigue sin existir en la lista `cf_917` de SAFI.
+- La cuenta de Samba de la Jefatura de Socios.
 
 ## 6. Cómo coordinamos
 
-La rama es `despliegue-servidor` y la usamos los dos. El Claude del servidor
-sube los cambios de `server/`, `web/` y `src/domain` cuando ajusta el
-despliegue; desarrollo sube `app/`, `src/` y el dominio cuando cambia el
-formulario. Antes de trabajar, `git pull`; si el dominio cambió, mire este
-archivo y `git log --oneline -5`.
+Rama `despliegue-servidor`, como siempre. Deje su nota «Atendido el …» al
+principio de este archivo sin reescribir el encargo, y las tareas que me tocan a
+mí en `PROMPT-CLAUDE-SERVIDOR.md`. Si un cambio suyo toca `server/`, `web/`,
+`src/domain/` o `src/services/formularios/`, dígalo: eso obliga a reconstruir la
+imagen del servidor.

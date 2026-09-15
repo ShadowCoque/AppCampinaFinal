@@ -211,8 +211,18 @@ export const ESTILOS_FORMULARIO = `
     letter-spacing: .4px; font-size: 8.4pt; margin-bottom: 4px;
   }
   .constancia .cargo { font-size: 7pt; color: ${GRIS_TEXTO}; text-transform: uppercase; }
+  /* La firma del funcionario se apoya sobre la línea del nombre. Sin firma
+     cargada queda el mismo hueco, para que los tres recuadros midan igual. */
+  .constancia .firma-funcionario {
+    display: block;
+    height: 34px;
+    margin: 4px auto -2px;
+    object-fit: contain;
+    max-width: 100%;
+  }
+  .constancia .firma-funcionario.vacia { height: 34px; }
   .constancia .rubrica {
-    border-top: 1px solid #101820; margin-top: 26px; padding-top: 3px;
+    border-top: 1px solid #101820; padding-top: 3px;
     font-size: 7.6pt; font-weight: bold; color: #101820; min-height: 14px;
   }
   .constancia .momento { font-size: 7pt; color: ${GRIS_TEXTO}; margin-top: 2px; }

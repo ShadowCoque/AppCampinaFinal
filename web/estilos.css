@@ -904,3 +904,25 @@ dialog h2 {
     padding: 4px 14px 20px;
   }
 }
+
+/* Observaciones acumuladas del trámite, en el expediente. */
+.lista-observaciones {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lista-observaciones li {
+  border-left: 3px solid var(--dorado);
+  background: var(--superficie-alt);
+  border-radius: 0 var(--radio) var(--radio) 0;
+  padding: 6px 10px;
+}
+
+.lista-observaciones .pista {
+  display: block;
+  margin-bottom: 2px;
+}

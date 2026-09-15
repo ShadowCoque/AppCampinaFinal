@@ -19,7 +19,6 @@ export const TIPOS_DOCUMENTO = [
   "FORMULARIO_FIRMADO",
   "CARTA_COMPROMISO",
   "CEDULA_SOLICITANTE",
-  "FOTO_CARNET",
   "CEDULA_TITULAR",
   "TARJETA_MILITAR",
   "PARTIDA_MATRIMONIO",
@@ -94,18 +93,6 @@ const REQUISITOS: Record<TipoDocumento, Omit<RequisitoDocumental, "obligatorio">
     etiquetaEscaneo: "CEDULA",
     aliasEscaneo: ["CEDULA DE CIUDADANIA", "CI"],
     llegaPorEscaneo: true,
-    generadoPorElSistema: false,
-  },
-  FOTO_CARNET: {
-    tipo: "FOTO_CARNET",
-    nombre: "Fotografía tipo carnet",
-    descripcion:
-      "Fondo blanco, rostro descubierto y de frente. Se usará para la credencial de acceso.",
-    multiple: false,
-    preferirCamara: true,
-    etiquetaEscaneo: "FOTO",
-    aliasEscaneo: ["FOTOGRAFIA"],
-    llegaPorEscaneo: false,
     generadoPorElSistema: false,
   },
   CEDULA_TITULAR: {
@@ -203,10 +190,6 @@ export function requisitosPara(tipo: TipoMiembro | null): RequisitoDocumental[] 
     lista.push({ ...REQUISITOS.CARTA_COMPROMISO, obligatorio: true });
   }
 
-  if (reglas.generaCredencial) {
-    lista.push({ ...REQUISITOS.FOTO_CARNET, obligatorio: true });
-  }
-
   // El formulario exige la cédula del oficial FAE para los dependientes del
   // titular y para los socios D-A y D-B.
   if (reglas.requiereSocioTitular || reglas.requiereNumeroSocioActivo) {
@@ -242,18 +225,13 @@ export function escaneosEsperados(tipo: TipoMiembro | null): TipoDocumento[] {
     .map((r) => r.tipo);
 }
 
-/**
- * Lo que la aplicación captura durante la afiliación.
- *
- * Es únicamente **la fotografía del socio**, que el informe CLC-TI-010 versión 6
- * sitúa en el módulo Afiliación: «la fotografía del socio, que puede ser la
- * oficial (de su cédula) o una nueva tomada en el momento». Las cédulas, las
- * partidas y la tarjeta militar llegan escaneadas a la carpeta compartida desde
- * el equipo de la Jefatura; el formulario y la carta los genera el sistema.
+/*
+ * Aquí vivía `requisitosCapturables`: lo que la tableta capturaba durante la
+ * afiliación. Era únicamente la fotografía tipo carnet, retirada el 15/09/2026
+ * (ver `docs/RETIRADO-fotografia-carnet.md`), así que la lista quedaba siempre
+ * vacía y la función se eliminó. Hoy la tableta solo captura firmas; todo lo
+ * demás llega escaneado a la carpeta compartida o lo genera el sistema.
  */
-export function requisitosCapturables(tipo: TipoMiembro | null): RequisitoDocumental[] {
-  return requisitosPara(tipo).filter((r) => !r.llegaPorEscaneo && !r.generadoPorElSistema);
-}
 
 export function requisitoDe(tipo: TipoDocumento): Omit<RequisitoDocumental, "obligatorio"> {
   return REQUISITOS[tipo];

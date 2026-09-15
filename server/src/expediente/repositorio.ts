@@ -163,11 +163,17 @@ export function archivar(entrada: {
     }
   }
 
+  // Si llegó con otro nombre —un escaneo que la Jefatura asignó a mano—, queda
+  // anotado: en el expediente se ve con qué nombre entró y con cuál está
+  // archivado, sin tener que abrir la bitácora ni `_ARCHIVADOS`.
+  const nombreLlegada = path.basename(entrada.origenRuta);
+
   const archivo = registrarArchivo({
     solicitudId: solicitud.id,
     clave,
     tipoDocumento: entrada.tipoDocumento,
     nombreArchivo: nombre,
+    nombreOrigen: nombreLlegada === nombre ? null : nombreLlegada,
     ruta: destino,
     bytes: bytesOrigen,
     origen: entrada.origen,

@@ -233,7 +233,7 @@ export type IncidenciaEscaneo = {
 };
 
 /**
- * Pieza concreta que una tarea reclama: una firma, la fotografía o un documento
+ * Pieza concreta que una tarea reclama: una firma o un documento
  * por escanear. La salida de la tarea actúa sobre una de ellas.
  */
 export type PiezaPendiente = {
@@ -407,9 +407,9 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
     });
   }
 
-  // Sin la firma, el formulario no se puede componer; sin la fotografía, la
-  // credencial no se puede emitir. La tableta los envía sola: si no llegan, es
-  // que no pudo, y conviene saberlo aquí y no el día de la aprobación.
+  // Sin la firma, el formulario no se puede componer. La tableta la envía sola:
+  // si no llega, es que no pudo, y conviene saberlo aquí y no el día de la
+  // aprobación.
   const faltantes = adjuntosFaltantes(solicitud);
   if (faltantes.length > 0) {
     tareas.push({

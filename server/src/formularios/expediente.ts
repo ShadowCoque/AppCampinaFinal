@@ -75,18 +75,6 @@ export async function archivarFormularioFinal(
       tipoDocumento: "FORMULARIO_FIRMADO",
     });
 
-    // La fotografía que capturó la tableta entra al expediente con el mismo
-    // criterio de nombres que el resto de la documentación.
-    const foto = adjuntoDe(solicitud.id, "FOTO_CARNET");
-    if (foto && fs.existsSync(foto.ruta)) {
-      archivarContenido({
-        contenido: fs.readFileSync(foto.ruta),
-        extension: foto.nombreArchivo.slice(foto.nombreArchivo.lastIndexOf(".")) || ".jpg",
-        solicitud,
-        tipoDocumento: "FOTO_CARNET",
-      });
-    }
-
     actualizarExpediente(solicitudId, {
       formularioFinal: {
         archivadoEn: new Date().toISOString(),

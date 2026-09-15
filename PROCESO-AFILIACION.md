@@ -1,7 +1,8 @@
 # El trámite de afiliación, de principio a fin
 
 > Guía de operación del sistema de afiliación de socios del Club Social y
-> Deportivo de Oficiales de la FAE — Club La Campiña. Escrita el 12/09/2026,
+> Deportivo de Oficiales de la FAE — Club La Campiña. Escrita el 12/09/2026 y
+> corregida el 15/09/2026 tras la primera prueba real,
 > sobre el ambiente limpio con el CRM de SAFI en modo **API** y **escritura
 > habilitada**.
 >
@@ -14,11 +15,16 @@
 |---|---|---|---|
 | Área de Socios | `socios` | MICHELLE DONOSO | Registra la afiliación en la tableta, crea al socio en SAFI, escanea la documentación |
 | Contabilidad | `contabilidad` | MARITZA RAURA | Revisa el ingreso y registra la factura |
-| Gerencia | `gerencia` | Crnl. S.P. EDGAR MUÑOZ | Aprueba el ingreso |
+| Gerencia | `gerencia` | CRNL. S. P. EDGAR MUÑOZ | Aprueba el ingreso |
 
 El nombre del funcionario se **congela** en el trámite en el momento de cada
 acción: es el que se imprime en el reverso del formulario. Cambiarlo después no
 reescribe las constancias ya emitidas.
+
+Cada funcionario carga **su firma una sola vez desde la tableta**, entrando con
+su propio usuario. El sistema la estampa en su constancia al pasar el trámite al
+área siguiente; quien devuelve un trámite no firma nada. Sin firma cargada, el
+recuadro sale solo con el nombre, como en el formulario en papel.
 
 - Bandeja de tareas: **http://soporte.clublacampina.com.ec:8080** (solo LAN).
 - Tableta: la misma dirección en «Configuración y envío». Su sesión dura 30 días.
@@ -43,32 +49,42 @@ Los estados por los que pasa el trámite: `REGISTRADA` → `REVISADA` →
 
 **Quién:** el Área de Socios, en la tableta. **Pantalla:** «Nueva afiliación».
 
-Diez pasos, con validación en cada uno: identificación, tipo de socio, datos
-personales, contacto, datos laborales, familia, garantes, fotografía,
-compromiso y consentimiento. El asistente no deja avanzar sin lo obligatorio;
+Nueve pasos, con validación en cada uno: identificación, tipo de socio, datos
+personales, contacto, datos laborales, familia, garantes, compromiso y
+consentimiento. El asistente no deja avanzar sin lo obligatorio;
 en particular, **no se puede terminar sin la firma del solicitante**.
 
 Lo que la tableta captura y el servidor necesita aparte del formulario:
 
 - **la firma del solicitante** trazada en pantalla (y la de cada garante que el
-  tipo de socio exija),
-- **la fotografía tipo carnet**.
+  tipo de socio exija).
+
+La **fotografía tipo carnet se retiró el 15/09/2026**: no llegaba al servidor y
+la carnetización no la usa. Queda constancia en
+`docs/RETIRADO-fotografia-carnet.md` por si vuelve con el control de accesos.
+
+La tableta **no pregunta la forma de pago**: la elige la Jefatura de Socios en su
+bandeja. Sí pregunta el **país del domicilio** —Ecuador por defecto— y, a los
+militares, la **fuerza** a la que pertenecen.
+
+El formulario que se genera es **uno solo por categoría**: el R-PGS1-1 si es
+Socio Activo, el PGS1-11 en cualquier otro caso, más la hoja de solicitud y la
+carta de compromiso cuando la categoría las lleva.
 
 Al terminar debe decir **«Afiliación registrada y enviada»**. Si dijera
 «registrada» y nada más, quedó en la tableta: abra «Configuración y envío» y
 pulse **«Sincronizar ahora»**. Si dijera **«Afiliación enviada, pero
-incompleta»**, la firma o la fotografía no quedaron en la tableta: vuelva a
-capturarlas desde la solicitud antes de que el socio se retire.
+incompleta»**, la firma no quedó guardada en la tableta: vuelva a capturarla
+desde la solicitud antes de que el socio se retire.
 
-> **Ojo con esto.** La firma y la fotografía viven en el almacenamiento privado
-> de la aplicación y viajan aparte del formulario. Si se reinstala la aplicación
-> o se borran sus datos entre la captura y el envío, el formulario llega y las
-> imágenes no: el trámite aparece en la bandeja con **«Faltan archivos de la
-> tableta»**. Desde el 12/09/2026 eso ya no bloquea el trámite (ver paso 2 bis),
-> y desde el 15/09/2026 **la tableta tampoco lo calla**: el portal dice
-> «N trámites necesitan su atención», la solicitud dice qué archivo falta y
-> ofrece volver a capturarlo, y la tableta deja de reintentar lo que ya no
-> tiene.
+> **Ojo con esto.** Las firmas viven en el almacenamiento privado de la
+> aplicación y viajan aparte del formulario. Si se reinstala la aplicación o se
+> borran sus datos entre la captura y el envío, el formulario llega y las firmas
+> no: el trámite aparece en la bandeja con **«Faltan archivos de la tableta»**.
+> Desde el 12/09/2026 eso ya no bloquea el trámite (ver paso 2 bis), y desde el
+> 15/09/2026 **la tableta tampoco lo calla**: el portal dice «N trámites
+> necesitan su atención», la solicitud dice qué archivo falta y ofrece volver a
+> capturarlo, y la tableta deja de reintentar lo que ya no tiene.
 
 **Cómo se comprueba:** el trámite aparece en la bandeja del Área de Socios con
 su código `AF-2026-####`.
@@ -84,6 +100,12 @@ Es lo primero que se hace, y va antes de Contabilidad a propósito: Contabilidad
 revisa comprobando el ingreso en el CRM, así que para entonces la ficha ya tiene
 que existir. Además, sin número de socio no hay nombre de carpeta para el
 expediente ni nombre de archivo para los escaneos.
+
+Hasta que la Jefatura confirma aquí, **el socio no está registrado**: la
+constancia «REGISTRADO» del reverso se sella en este momento, no cuando la
+tableta envía la afiliación. En el panel puede escribir además una
+**«Observación Control de Socios»**, que se imprime en el formulario con su fecha
+y la ven Contabilidad y la Gerencia.
 
 1. Pulse **«Confirmar y crear en SAFI»**. El panel:
    - lee del CRM las listas cerradas vigentes (membresía, suscripción, forma de
@@ -111,7 +133,7 @@ La tarea **«Faltan archivos de la tableta»** dice exactamente qué no llegó y
 ofrece dos salidas, ambas en la propia tarjeta:
 
 - **«Subir el archivo»** — elija la imagen desde el equipo (la firma escaneada o
-  recortada, la fotografía). Se guarda como si hubiera llegado de la tableta.
+  recortada). Se guarda como si hubiera llegado de la tableta.
 - **«Consta en papel: continuar sin él»** — pide un motivo de al menos diez
   caracteres, y queda en el expediente y en la bitácora con su nombre. El
   trámite continúa.
@@ -121,9 +143,9 @@ archivo sigue allí, llega solo con «Enviar ahora». Si ya no está, la tarjeta
 «Envío al servidor del Club» lo dice y ofrece una tercera salida, la mejor
 cuando la persona sigue presente:
 
-- **«Volver a capturar la firma…»** o **«Volver a tomar la fotografía»** — la
-  misma persona firma otra vez en el lienzo, o se toma la foto, y la tableta la
-  envía en el acto. La tarea de la bandeja desaparece sola.
+- **«Volver a capturar la firma…»** — la misma persona firma otra vez en el
+  lienzo y la tableta la envía en el acto. La tarea de la bandeja desaparece
+  sola.
 
 Lo que la Jefatura declare en la bandeja («Consta en papel») también llega a la
 tableta: la solicitud lo muestra con el motivo y la tableta deja de avisar.
@@ -147,6 +169,11 @@ hay nada» de «algo se quedó atascado antes de llegarme».
 4. O **«Devolver con observación»** (mínimo diez caracteres): el trámite vuelve
    al Área de Socios como *Devuelta con observaciones*.
 
+La observación al marcar revisada es **opcional**, y **todas se acumulan**: si
+Contabilidad devolvió el trámite y después lo pasó a la Gerencia, la Gerencia ve
+las dos, cada una con su fecha y su autor, en el expediente y en el reverso del
+formulario.
+
 **Cómo se comprueba:** el trámite pasa a `REVISADA`, sale de Pendientes de
 Contabilidad y entra en **Pendientes de Gerencia**.
 
@@ -164,8 +191,8 @@ Al aprobar, el servidor hace dos cosas **por su cuenta**, sin hacer esperar a la
 Gerencia:
 
 - imprime el **formulario final en PDF** con las tres constancias (registro,
-  revisión y aprobación, cada una con su funcionario y su fecha) y lo archiva en
-  `/srv/campina/datos/expedientes/<número> <nombre>/`;
+  revisión y aprobación, cada una con su funcionario, su fecha y **su firma**) y
+  lo archiva en `/srv/campina/datos/expedientes/<número> <nombre>/`;
 - **publica el expediente** en la sección Documentos de la Cuenta del socio en
   SAFI.
 
@@ -174,8 +201,8 @@ Socios como «Falta archivar el formulario final» o «Pendiente de cargar al CR
 de SAFI», cada una con su botón para reintentar.
 
 **Cómo se comprueba:** el trámite queda `APROBADA` y en **Atendidas** de
-Gerencia; en la carpeta del expediente están el formulario final en PDF y la
-fotografía.
+Gerencia; en la carpeta del expediente está el formulario final en PDF, con las
+tres constancias firmadas, junto a los escaneos que se hayan archivado.
 
 ---
 
@@ -269,18 +296,19 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
        ya no lo hace: aparta esos trámites y pregunta.
 2. [ ] Entrar a la bandeja con los tres usuarios (la limpieza cerró todas las
        sesiones).
-3. [ ] Tableta: **Nueva afiliación** completa, con firma y fotografía →
-       «registrada y enviada».
+3. [ ] Tableta: **Nueva afiliación** completa, con su firma, el país del
+       domicilio y —si es militar— la fuerza → «registrada y enviada».
 4. [ ] Bandeja de Socios: aparece `AF-2026-0001` y **no** hay tarea de «faltan
-       archivos» (si la hay, la firma o la foto no llegaron: revisar antes de
-       seguir).
+       archivos» (si la hay, la firma no llegó: revisar antes de seguir).
 5. [ ] Crear en SAFI con el número de socio acordado. Comprobar en el CRM la
        Cuenta y la ficha.
 6. [ ] Contabilidad: «En camino» primero, «Pendientes» después de crearlo en
        SAFI. Ver expediente **con la firma**. Marcar revisada.
 7. [ ] Gerencia: aprobar.
-8. [ ] Expediente: formulario final en PDF + fotografía en
-       `/srv/campina/datos/expedientes/<número> <nombre>/`.
+8. [ ] Expediente: formulario final en PDF, con **un solo** formulario
+       principal y las constancias firmadas, en
+       `/srv/campina/datos/expedientes/<número> <nombre>/` (compartido
+       `expedientes-socios`).
 9. [ ] Escaneo de cédula con el nombre exacto en la carpeta compartida →
        archivado y original en `_ARCHIVADOS`.
 10. [ ] SAFI: el expediente publicado en Documentos de la Cuenta.
