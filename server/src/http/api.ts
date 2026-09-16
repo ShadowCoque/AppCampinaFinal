@@ -287,7 +287,14 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
 
     return respuesta
       .setCookie(COOKIE_SESION, sesion, { ...OPCIONES_COOKIE, maxAge: horas * 3600 })
-      .send({ usuario: usuario.usuario, nombre: usuario.nombre, area: usuario.area });
+      .send({
+        usuario: usuario.usuario,
+        nombre: usuario.nombre,
+        area: usuario.area,
+        // Igual que `GET /api/sesion`: la tableta no necesita una segunda
+        // petición para saber si este funcionario ya cargó su firma.
+        firmaCargada: Boolean(firmaDeFuncionario(usuario.usuario)),
+      });
   });
 
   app.delete("/api/sesion", async (peticion, respuesta) => {

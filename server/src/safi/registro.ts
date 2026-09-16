@@ -6,6 +6,7 @@ import {
   periodicidadesDe,
 } from "../../../src/domain/cuotas";
 import { FORMA_PAGO_META, type FormaPago } from "../../../src/domain/facturacion";
+import { calcularEdad } from "../../../src/domain/fechas";
 import {
   nombreCompleto,
   nombreTitular,
@@ -17,7 +18,13 @@ import {
   normalizarNumeroSocio,
   normalizarTextoInstitucional,
 } from "../../../src/domain/texto";
-import { esEstadoCivilCasado, tieneCuentaPropia } from "../../../src/domain/tiposMiembro";
+import {
+  esEstadoCivilCasado,
+  fuerzaFijaPara,
+  tieneCuentaPropia,
+  type Fuerza,
+  type TipoMiembro,
+} from "../../../src/domain/tiposMiembro";
 import {
   CAMPOS_CUENTA,
   CAMPOS_SOCIO,
@@ -371,14 +378,18 @@ export function camposCuenta(
  * en papel.
  */
 export function edadCumplida(fechaNacimiento: string, hoy = new Date()): string {
-  const nacimiento = new Date(`${fechaNacimiento}T00:00:00`);
-  if (Number.isNaN(nacimiento.getTime())) return "";
+  const edad = calcularEdad(fechaNacimiento, hoy);
+  return edad !== null && edad >= 0 && edad < 130 ? String(edad) : "";
+}
 
-  let edad = hoy.getFullYear() - nacimiento.getFullYear();
-  const mes = hoy.getMonth() - nacimiento.getMonth();
-  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) edad -= 1;
-
-  return edad >= 0 && edad < 130 ? String(edad) : "";
+/**
+ * Valor del campo Fuerza (`cf_955`). En el Socio Activo y el Fundador es
+ * siempre «FUERZA AEREA», aunque el trámite trajera otra cosa; en el resto, la
+ * que declaró la persona, o «NO APLICA» si no es militar.
+ */
+export function fuerzaSafi(tipo: TipoMiembro | null, declarada: Fuerza | null): string {
+  const fuerza = fuerzaFijaPara(tipo) ?? declarada;
+  return fuerza ? FUERZA_SAFI[fuerza] ?? SIN_DATO_MILITAR : SIN_DATO_MILITAR;
 }
 
 /**
@@ -454,7 +465,7 @@ export function camposSocio(
     // `cf_953` es lista cerrada y obligatoria: el grado llega ya elegido de esa
     // misma lista, y quien no es militar va con `NO APLICA`.
     [CAMPOS_SOCIO.gradoMilitar]: militar || SIN_DATO_MILITAR,
-    [CAMPOS_SOCIO.fuerza]: datos.fuerza ? FUERZA_SAFI[datos.fuerza] ?? SIN_DATO_MILITAR : SIN_DATO_MILITAR,
+    [CAMPOS_SOCIO.fuerza]: fuerzaSafi(datos.tipoMiembro, datos.fuerza),
     [CAMPOS_SOCIO.promocion]: datos.promocion.replace(/\D/g, ""),
     [CAMPOS_SOCIO.tipoSangre]: datos.tipoSangre.trim(),
     [CAMPOS_SOCIO.hobbie]: datos.hobbie.trim(),

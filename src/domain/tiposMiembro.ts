@@ -829,6 +829,23 @@ export type Sexo = (typeof SEXOS)[number];
 export const FUERZAS = ["Terrestre", "Naval", "Aérea"] as const;
 export type Fuerza = (typeof FUERZAS)[number];
 
+/**
+ * Fuerza fijada por la categoría, o `null` si la persona la declara.
+ *
+ * El Socio Activo y el Socio Fundador son oficiales de la Fuerza Aérea
+ * Ecuatoriana —por eso su formulario pide la promoción de la Escuela Superior
+ * Militar de Aviación—: su fuerza es **siempre la Aérea**. La tableta la muestra
+ * ya puesta y sin poder cambiarla, la validación rechaza cualquier otra y el
+ * servidor la impone aunque llegue distinta. Decisión del Coordinador de TICs,
+ * 16/09/2026.
+ *
+ * Los corresponsales B y C, que también son militares, sí la declaran: pueden
+ * venir de cualquier fuerza.
+ */
+export function fuerzaFijaPara(codigo: TipoMiembro | null): Fuerza | null {
+  return codigo === "SA" || codigo === "SF" ? "Aérea" : null;
+}
+
 export const SITUACIONES_MILITARES = ["Activo", "Pasivo"] as const;
 export type SituacionMilitar = (typeof SITUACIONES_MILITARES)[number];
 

@@ -140,7 +140,7 @@ export const TAREA_META: Record<TipoTarea, MetaTarea> = {
     area: "SOCIOS",
     tono: "danger",
     instruccion:
-      "Sincronice la tableta. Si el archivo ya no está en ella, súbalo aquí desde un escaneo o declare que consta en el formulario en papel.",
+      "Si la persona sigue presente, vuelva a capturar su firma en la tableta. Si no, súbala aquí escaneada o declare que consta en el formulario en papel.",
     salidas: [
       { clave: "subir-adjunto", etiqueta: "Subir el archivo", peso: "principal" },
       {
@@ -418,9 +418,13 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
       tipo: "ADJUNTOS_PENDIENTES",
       area: "SOCIOS",
       titulo: `Faltan archivos de la tableta para ${base.nombreSocio}`,
+      // Desde el 15/09/2026 lo único que la tableta envía aparte son firmas: la
+      // fotografía tipo carnet se retiró. Por eso el texto habla de firmas y
+      // pone primero la salida que resuelve de verdad —volver a firmar en la
+      // tableta—, que es la que el Área de Socios no conocía.
       detalle: `El servidor aún no recibió: ${faltantes
         .map((rol) => ROL_ADJUNTO_META[rol].etiqueta.toLowerCase())
-        .join(", ")}. La tableta los envía sola al sincronizar; abra en ella «Configuración y envío» y pulse «Sincronizar ahora». Si el archivo ya no está en la tableta, súbalo aquí o declare que consta en el formulario en papel.`,
+        .join(", ")}. Si la persona sigue presente, abra su solicitud en la tableta y pulse «Volver a capturar la firma…»: se envía en el acto y esta tarea desaparece. Si la firma sigue en la tableta, llega sola al sincronizar («Configuración y envío» → «Sincronizar ahora»). Si no hay forma de recuperarla, súbala aquí escaneada o declare que consta en el formulario en papel.`,
       pendientes: faltantes.map((rol) => ({
         clave: rol,
         etiqueta: ROL_ADJUNTO_META[rol].etiqueta,

@@ -13,6 +13,30 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 16/09/2026** por el Claude del servidor. Este encargo se conserva
+> tal como llegó.
+>
+> - **Tarea 1.** `git pull` en avance rápido; el diff de la imagen era solo la
+>   importación muerta. **Se reconstruyó**, pero no por ella: la misma ronda trajo
+>   cambios reales de servidor y dominio (ver abajo), y se hizo una sola
+>   reconstrucción para todo.
+> - **Tarea 2.** Pendiente de la tableta: a las 10:50 no había ninguna firma
+>   cargada (`/datos/firmas` no existía y `firma_en` vacío en los tres usuarios).
+>   Se comprobará cuando el Coordinador instale la compilación nueva.
+> - **Punto A.** El Coordinador decide que **no hace falta**: la tableta la usa
+>   solo la Jefatura, que es también quien registra. Se queda como está.
+> - **Punto B.** **No se imprime** la fuerza en el R-PGS1-1. Pero el Coordinador
+>   añadió una regla: en el Socio Activo y el Fundador la fuerza es **siempre la
+>   Aérea** y no se puede cambiar. Está en el dominio (`fuerzaFijaPara`), la
+>   validación rechaza otra, y el servidor la impone al registrar y al escribir en
+>   SAFI. Lo de la tableta —mostrarla fija— va en `PROMPT-CLAUDE-DESARROLLO.md`.
+> - **Punto C.** `POST /api/sesion` devuelve ya `firmaCargada`, como el `GET`. La
+>   pantalla puede ahorrarse la segunda petición si quiere; no es obligatorio.
+> - **La sugerencia de `tareas.ts`**, hecha: «Faltan archivos de la tableta»
+>   habla ya solo de firmas y pone primero «Volver a capturar la firma…».
+> - Aparte: el servidor tiene ahora **2 G de swap** (antes ninguno), para que un
+>   pico de memoria durante una compilación no afecte a MariaDB ni a GLPI.
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

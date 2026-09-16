@@ -17,6 +17,7 @@ import {
   type TramiteInterno,
 } from "../../../src/domain/solicitud";
 import { creadoEnSafi, tareasDeSolicitud } from "../../../src/domain/tareas";
+import { fuerzaFijaPara } from "../../../src/domain/tiposMiembro";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
 import { ahora, db, nuevoId, registrarBitacora } from "./indice";
 
@@ -261,6 +262,11 @@ function depurarEntrante(
 ): SolicitudAfiliacion {
   const datos = { ...datosVacios(), ...entrante.datos };
   const hoy = momento.slice(0, 10);
+
+  // En el Socio Activo y el Fundador la fuerza es siempre la Aérea, llegue lo
+  // que llegue de la tableta (decisión del Coordinador, 16/09/2026).
+  const fuerzaFija = fuerzaFijaPara(datos.tipoMiembro);
+  if (fuerzaFija) datos.fuerza = fuerzaFija;
 
   return {
     id: entrante.id,

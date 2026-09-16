@@ -5,6 +5,7 @@ import {
   VINCULO_POR_TIPO,
   bloquesPara,
   esEstadoCivilCasado,
+  fuerzaFijaPara,
   getTipo,
   reglasDe,
   type ModeloCarta,
@@ -362,8 +363,14 @@ function validarLaboral(estado: EstadoFormulario): Errores {
     if (!datos.situacion) errores.situacion = "Indique la situación: activo o pasivo.";
     // La fuerza se pregunta a todo militar. Hasta el 15/09/2026 solo se pedía a
     // los corresponsales B y C, así que la ficha de un Socio Activo —oficial de
-    // la FAE— llegaba a SAFI con «NO APLICA» en el campo Fuerza.
-    if (!datos.fuerza) {
+    // la FAE— llegaba a SAFI con «NO APLICA» en el campo Fuerza. En el activo y
+    // el fundador no se pregunta: es siempre la Aérea (`fuerzaFijaPara`).
+    const fija = fuerzaFijaPara(datos.tipoMiembro);
+    if (fija) {
+      if (datos.fuerza && datos.fuerza !== fija) {
+        errores.fuerza = `En esta categoría la fuerza es siempre la ${fija}.`;
+      }
+    } else if (!datos.fuerza) {
       errores.fuerza = "Indique la fuerza a la que pertenece.";
     }
   }

@@ -72,7 +72,9 @@ la carnetización no la usa. Queda constancia en
 
 La tableta **no pregunta la forma de pago**: la elige la Jefatura de Socios en su
 bandeja. Sí pregunta el **país del domicilio** —Ecuador por defecto— y, a los
-militares, la **fuerza** a la que pertenecen.
+corresponsales militares, la **fuerza** a la que pertenecen. Al **Socio Activo**
+y al **Fundador** no se les pregunta: son oficiales de la FAE y su fuerza es
+siempre la **Aérea**, que la tableta muestra fija y el sistema impone en SAFI.
 
 El formulario que se genera es **uno solo por categoría**: el R-PGS1-1 si es
 Socio Activo, el PGS1-11 en cualquier otro caso, más la hoja de solicitud y la
