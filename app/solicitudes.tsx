@@ -46,7 +46,7 @@ function avisoDeEnvio(
   }
   if (!enviada) return { etiqueta: "Sin enviar al servidor", tono: "danger", icono: "cloud-offline" };
   if (faltantes.length > 0) {
-    return { etiqueta: "Firmas o fotografía por enviar", tono: "warning", icono: "cloud-offline" };
+    return { etiqueta: "Firmas por enviar", tono: "warning", icono: "cloud-offline" };
   }
   return null;
 }

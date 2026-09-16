@@ -89,15 +89,16 @@ export async function crearSolicitud(
     }),
   }));
 
+  // La constancia «REGISTRADO» del reverso NO se sella aquí. El socio no queda
+  // registrado por capturar su afiliación en la tableta, sino cuando la
+  // Jefatura de Socios lo registra en su bandeja —con la cuota, la forma de
+  // pago y el grupo de facturación—, que es además cuando se firma esa
+  // constancia (decisión del Coordinador, 15/09/2026). El servidor la sella
+  // ahí y la tableta la recibe con el avance; quien capturó la afiliación
+  // consta en el historial del trámite.
   const tramite: TramiteInterno = {
     ...tramiteVacio(),
     fechaRegistro: hoy,
-    registro: {
-      area: "SOCIOS",
-      responsable,
-      en: ahora,
-      observacion: "",
-    },
   };
 
   const solicitud: SolicitudAfiliacion = {
@@ -216,10 +217,10 @@ export async function eliminarSolicitud(id: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Firmas y fotografía en la tableta                                   */
+/* Firmas en la tableta                                                */
 /* ------------------------------------------------------------------ */
 
-/** Dónde guarda la copia de la tableta el archivo de cada firma y de la fotografía. */
+/** Dónde guarda la copia de la tableta el archivo de cada firma. */
 export function rutaDelAdjunto(solicitud: SolicitudAfiliacion, rol: RolAdjunto): string | null {
   switch (rol) {
     case "FIRMA_SOLICITANTE":
@@ -228,14 +229,12 @@ export function rutaDelAdjunto(solicitud: SolicitudAfiliacion, rol: RolAdjunto):
       return solicitud.datos.garantes[0]?.firmaUri ?? null;
     case "FIRMA_GARANTE_2":
       return solicitud.datos.garantes[1]?.firmaUri ?? null;
-    case "FOTO_CARNET":
-      return solicitud.documentos.find((d) => d.tipo === "FOTO_CARNET")?.uri || null;
   }
 }
 
 /**
- * Sustituye el archivo de una firma o de la fotografía por uno recién
- * capturado, cuando el original ya no está en la tableta.
+ * Sustituye el archivo de una firma por uno recién capturado, cuando el
+ * original ya no está en la tableta.
  *
  * Solo cambia la ruta: la fecha de actualización es la del servidor y así se
  * queda, porque es la que decide si hay avance nuevo que traer.
@@ -243,7 +242,7 @@ export function rutaDelAdjunto(solicitud: SolicitudAfiliacion, rol: RolAdjunto):
 export async function reemplazarAdjunto(
   id: string,
   rol: RolAdjunto,
-  archivo: { uri: string; nombreArchivo?: string; mimeType?: string; tamanoBytes?: number }
+  archivo: { uri: string }
 ): Promise<SolicitudAfiliacion | null> {
   const lista = await listarSolicitudes();
   const indice = lista.findIndex((s) => s.id === id);
@@ -252,23 +251,7 @@ export async function reemplazarAdjunto(
   const actual = lista[indice];
   let actualizada: SolicitudAfiliacion;
 
-  if (rol === "FOTO_CARNET") {
-    actualizada = {
-      ...actual,
-      documentos: actual.documentos.map((documento) =>
-        documento.tipo === "FOTO_CARNET"
-          ? {
-              ...documento,
-              uri: archivo.uri,
-              nombreArchivo: archivo.nombreArchivo ?? documento.nombreArchivo,
-              mimeType: archivo.mimeType ?? documento.mimeType,
-              tamanoBytes: archivo.tamanoBytes ?? documento.tamanoBytes,
-              capturadoEn: new Date().toISOString(),
-            }
-          : documento
-      ),
-    };
-  } else if (rol === "FIRMA_SOLICITANTE") {
+  if (rol === "FIRMA_SOLICITANTE") {
     actualizada = { ...actual, firmaUri: archivo.uri };
   } else {
     const posicion = rol === "FIRMA_GARANTE_1" ? 0 : 1;
@@ -289,7 +272,7 @@ export async function reemplazarAdjunto(
 
 /**
  * Deja la tableta sin nada registrado: las afiliaciones, el borrador en curso,
- * las actualizaciones de datos y la carpeta con todas sus firmas y fotografías.
+ * las actualizaciones de datos y la carpeta con todas sus firmas.
  *
  * Conserva lo que se configura una sola vez por tableta —el funcionario y la
  * dirección del servidor— y la sesión. Existe para montar una prueba desde
@@ -347,9 +330,9 @@ export async function leerBorrador(): Promise<Borrador | null> {
  *
  * Solo olvida el borrador: **no toca los archivos**. La afiliación registrada
  * y su borrador comparten identificador —y por tanto carpeta—, así que borrar
- * aquí la carpeta se llevaba la firma del solicitante, las de sus garantes y su
- * fotografía justo después de registrarlas. Era la causa de que el formulario
- * generado saliera sin firma.
+ * aquí la carpeta se llevaba la firma del solicitante y las de sus garantes
+ * justo después de registrarlas. Era la causa de que el formulario generado
+ * saliera sin firma.
  */
 export async function cerrarBorrador(): Promise<void> {
   await escribirJSON(CLAVES.borradorAfiliacion, null);

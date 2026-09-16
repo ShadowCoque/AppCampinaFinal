@@ -12,6 +12,16 @@
 > Antes de empezar: `git pull origin despliegue-servidor`. **El dominio
 > compartido cambió bastante y la aplicación no compilará hasta que la ajuste.**
 
+> **Atendido el 16/09/2026** por el Claude de desarrollo. La aplicación compila
+> y pasa el lint. Está hecho todo lo de las secciones 2 y 3: fuera la fotografía
+> y el selector de forma de pago, el país (con provincia libre fuera del
+> Ecuador), la fuerza a todo militar —«Aérea» propuesta al fundador y al socio
+> activo— y la pantalla **«Mi firma»**, con el aviso de devolver la tableta al
+> Área de Socios, porque la tableta tiene una sola sesión. Se probó con el
+> servidor real compilado, en Node. Lo que le toca a usted —incluido un cambio
+> mínimo en `src/domain/formularioAfiliacion.ts`— está en
+> `PROMPT-CLAUDE-SERVIDOR.md`. Este encargo se conserva tal como llegó.
+
 ## 1. Qué pasó en la prueba real
 
 El Coordinador afilió a una persona real (Socio Activo, número 2924), la pasó

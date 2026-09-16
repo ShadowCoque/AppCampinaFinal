@@ -36,9 +36,9 @@ const PALABRA_BORRADO = "BORRAR";
  * Configuración del dispositivo del Área de Socios.
  *
  * Reúne lo único que hay que ajustar una vez por tableta: quién la opera —su
- * nombre queda en la constancia «Registrado» del reverso del formulario—, la
- * dirección del servidor institucional al que se envían las afiliaciones y lo
- * que la tableta no puede enviar sola.
+ * nombre queda en el historial de cada afiliación que captura—, la dirección
+ * del servidor institucional al que se envían las afiliaciones y lo que la
+ * tableta no puede enviar sola.
  */
 export default function ConfiguracionScreen() {
   const router = useRouter();
@@ -140,7 +140,7 @@ export default function ConfiguracionScreen() {
         "Sincronización terminada",
         [
           `Afiliaciones enviadas: ${resultado.enviadas}`,
-          `Firmas y fotografías entregadas: ${resultado.archivos}`,
+          `Firmas entregadas: ${resultado.archivos}`,
           `Trámites con avance nuevo: ${resultado.actualizadas}`,
           resultado.pendientes ? `Siguen pendientes: ${resultado.pendientes}` : null,
           resultado.atencion ? `Necesitan su atención: ${resultado.atencion}` : null,
@@ -162,7 +162,7 @@ export default function ConfiguracionScreen() {
       await cargar();
       Alert.alert(
         "Datos de prueba borrados",
-        `Se borraron ${borrados.afiliaciones} afiliaciones y ${borrados.actualizaciones} actualizaciones de datos, con sus firmas y fotografías. La tableta conserva el funcionario, la dirección del servidor y la sesión.`
+        `Se borraron ${borrados.afiliaciones} afiliaciones y ${borrados.actualizaciones} actualizaciones de datos, con sus firmas y sus archivos. La tableta conserva el funcionario, la dirección del servidor y la sesión.`
       );
     } finally {
       setOcupado(null);
@@ -172,7 +172,7 @@ export default function ConfiguracionScreen() {
   const confirmarBorrado = () => {
     Alert.alert(
       "Borrar los datos de prueba",
-      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y fotografías.${
+      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y sus archivos.${
         sinEnviar > 0
           ? `\n\n${sinEnviar === 1 ? "Una de ellas todavía no llegó" : `${sinEnviar} de ellas todavía no llegaron`} al servidor: se perderán para siempre.`
           : ""
@@ -190,7 +190,7 @@ export default function ConfiguracionScreen() {
     <ScrollView style={styles.pantalla} contentContainerStyle={styles.contenido}>
       <Card
         title="Funcionario que opera la tableta"
-        subtitle="Su nombre consta como responsable del registro en el reverso del formulario."
+        subtitle="Su nombre consta como responsable de la captura en el historial de cada afiliación."
         icon="person-circle"
       >
         <TextField
@@ -312,8 +312,8 @@ export default function ConfiguracionScreen() {
           {pendientes === 0
             ? "Todo lo registrado en este dispositivo ya está completo en el servidor."
             : pendientes === 1
-              ? "afiliación con envío pendiente (datos, firmas o fotografía)."
-              : "afiliaciones con envío pendiente (datos, firmas o fotografía)."}
+              ? "afiliación con envío pendiente (sus datos o sus firmas)."
+              : "afiliaciones con envío pendiente (sus datos o sus firmas)."}
         </Text>
         <InfoNote tone={avisoEnvio.tono} icon="pulse-outline">
           {avisoEnvio.detalle ? `${avisoEnvio.titulo}\n${avisoEnvio.detalle}` : avisoEnvio.titulo}
@@ -376,7 +376,7 @@ export default function ConfiguracionScreen() {
         icon="trash"
       >
         <InfoNote tone="warning" icon="information-circle-outline">
-          {`Borra de esta tableta las afiliaciones (${situaciones.length}), el borrador en curso y las actualizaciones de datos (${actualizaciones}), con todas sus firmas y fotografías. Conserva el funcionario, la dirección del servidor y la sesión. No borra nada del servidor.`}
+          {`Borra de esta tableta las afiliaciones (${situaciones.length}), el borrador en curso y las actualizaciones de datos (${actualizaciones}), con todas sus firmas y sus archivos. Conserva el funcionario, la dirección del servidor y la sesión. No borra nada del servidor.`}
         </InfoNote>
         {sinEnviar > 0 ? (
           <InfoNote tone="danger" icon="cloud-offline">

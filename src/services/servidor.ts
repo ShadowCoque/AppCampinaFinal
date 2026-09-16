@@ -23,13 +23,15 @@ import {
  * sesión— y el que trae de vuelta su avance: el número de socio, las
  * constancias de Contabilidad y de la Gerencia, y el estado del expediente.
  *
- * Entregar una afiliación son tres cosas, y el trámite no está completo en el
- * servidor hasta que llegan las tres:
+ * Entregar una afiliación son dos cosas, y el trámite no está completo en el
+ * servidor hasta que llegan las dos:
  *
- *   1. los datos del formulario,
- *   2. las firmas trazadas en pantalla (sin ellas el formulario no se puede
- *      componer), y
- *   3. la fotografía tipo carnet.
+ *   1. los datos del formulario, y
+ *   2. las firmas trazadas en pantalla, sin las cuales el formulario no se
+ *      puede componer.
+ *
+ * (La fotografía tipo carnet era la tercera hasta el 15/09/2026; ver
+ * `docs/RETIRADO-fotografia-carnet.md`.)
  *
  * Lo que un reintento no puede arreglar no se reintenta: una firma que ya no
  * está en la tableta, un trámite que el servidor dejó de conocer o un archivo
@@ -113,8 +115,8 @@ export type SituacionEntrega = {
   /** El servidor aceptó el trámite. */
   enviada: boolean;
   /**
-   * Firmas y fotografía que el servidor todavía no tiene y que nadie declaró
-   * resueltas de otro modo desde la bandeja.
+   * Firmas que el servidor todavía no tiene y que nadie declaró resueltas de
+   * otro modo desde la bandeja.
    */
   faltantes: RolAdjunto[];
   /** De las que faltan, las que tampoco están ya en la tableta: no llegarán solas. */
@@ -179,7 +181,7 @@ export async function pendientesDeEnvio(): Promise<SolicitudAfiliacion[]> {
   return (await situacionesDeEntrega()).filter(seEnviaSola).map((s) => s.solicitud);
 }
 
-/** «la firma del solicitante y la fotografía tipo carnet». */
+/** «la firma del solicitante y la firma del socio garante». */
 export function enumerarAdjuntos(roles: RolAdjunto[]): string {
   const nombres = roles.map((rol) => `la ${ROL_ADJUNTO_META[rol].etiqueta.toLowerCase()}`);
   if (nombres.length <= 1) return nombres[0] ?? "";
@@ -303,7 +305,14 @@ async function peticion<T>(
   return datos as T;
 }
 
-export type SesionServidor = { usuario: string; nombre: string; area: string };
+export type SesionServidor = {
+  usuario: string;
+  nombre: string;
+  area: string;
+  etiquetaArea?: string;
+  /** El funcionario ya cargó su firma para las constancias del reverso. */
+  firmaCargada?: boolean;
+};
 
 /**
  * Inicia sesión en el servidor. La contraseña se usa solo para esta petición y
@@ -314,13 +323,26 @@ export type SesionServidor = { usuario: string; nombre: string; area: string };
  * los navegadores, dejaba de enviar las afiliaciones cada mañana hasta que
  * alguien se acordaba de volver a iniciarla.
  */
-export async function iniciarSesion(usuario: string, clave: string): Promise<SesionServidor> {
+export async function iniciarSesion(
+  usuario: string,
+  clave: string,
+  opciones: {
+    /**
+     * Deja anotado el usuario como el de la tableta. Lo desactiva «Mi firma»,
+     * donde un funcionario de otra área entra un momento a cargar su firma: esa
+     * sesión es prestada y no debe cambiar con qué usuario trabaja la tableta.
+     */
+    recordar?: boolean;
+  } = {}
+): Promise<SesionServidor> {
   const sesion = await peticion<SesionServidor>("/api/sesion", {
     metodo: "POST",
     cuerpo: { usuario, clave, dispositivo: "tableta" },
   });
-  const config = await leerConfiguracion();
-  await guardarConfiguracion({ ...config, usuario: sesion.usuario });
+  if (opciones.recordar !== false) {
+    const config = await leerConfiguracion();
+    await guardarConfiguracion({ ...config, usuario: sesion.usuario });
+  }
   return sesion;
 }
 
@@ -338,6 +360,43 @@ export async function cerrarSesionServidor(): Promise<void> {
   } catch {
     // Cerrar sesión sin conexión no es un error: la cookie caduca sola.
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* La firma del funcionario                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Firma del funcionario que tiene la sesión abierta: la que se estampa en su
+ * constancia del reverso —REGISTRADO, REVISADO o APROBADO—.
+ *
+ * La carga cada uno desde la tableta, una sola vez y con su propio usuario.
+ * Quien no la cargue sigue trabajando igual: su recuadro se imprime solo con
+ * su nombre.
+ */
+export type EstadoMiFirma = { cargada: boolean; en: string | null };
+
+export async function miFirma(): Promise<EstadoMiFirma> {
+  return peticion<EstadoMiFirma>("/api/mi-firma");
+}
+
+/**
+ * Sustituye la firma del funcionario de la sesión por la recién trazada.
+ *
+ * Las constancias ya emitidas conservan la firma que se estampó en su momento:
+ * el servidor copia el archivo al trámite al sellarlas, igual que congela el
+ * nombre.
+ */
+export async function guardarMiFirma(uri: string): Promise<EstadoMiFirma> {
+  const formulario = new FormData();
+  // React Native admite este descriptor de archivo en FormData.
+  formulario.append("archivo", {
+    uri,
+    name: "mi-firma.png",
+    type: "image/png",
+  } as unknown as Blob);
+
+  return peticion<EstadoMiFirma>("/api/mi-firma", { metodo: "POST", formulario });
 }
 
 export async function comprobarServidor(): Promise<{ ok: boolean; safiModo?: string }> {
@@ -365,7 +424,7 @@ export type ResumenSincronizacion = {
   estado: EstadoSincronizacion;
   /** Afiliaciones que el servidor recibió en este intento. */
   enviadas: number;
-  /** Firmas y fotografías entregadas en este intento. */
+  /** Firmas entregadas en este intento. */
   archivos: number;
   /** Trámites cuyo avance cambió en la tableta. */
   actualizadas: number;
@@ -428,44 +487,6 @@ async function registrarEnServidor(solicitud: SolicitudAfiliacion): Promise<Soli
     metodo: "POST",
     cuerpo: { solicitud: sinRutasLocales(solicitud), firmas: { solicitante, garantes } },
   });
-}
-
-/**
- * Nombre con el que viaja la fotografía. El servidor comprueba que la
- * extensión corresponda al contenido, y el nombre que dio la galería puede ser
- * el del original, no el del recorte que se guardó: el de la ruta es el fiable.
- */
-function nombreDeSubida(uri: string, nombreOriginal: string): string {
-  const deLaRuta = uri.split("?")[0].split("/").pop() ?? "";
-  if (/\.(jpe?g|png)$/i.test(deLaRuta)) return deLaRuta;
-  if (/\.(jpe?g|png)$/i.test(nombreOriginal)) return nombreOriginal;
-  return "fotografia.jpg";
-}
-
-/**
- * Sube la fotografía tipo carnet capturada en la tableta y devuelve la
- * solicitud tal como queda en el servidor. Si el servidor no conoce el
- * trámite responde 404: esta ruta, a diferencia del registro, nunca lo crea.
- */
-async function subirFotografia(solicitud: SolicitudAfiliacion): Promise<SolicitudAfiliacion> {
-  const foto = solicitud.documentos.find((d) => d.tipo === "FOTO_CARNET");
-  if (!foto) throw new Error("La solicitud no tiene fotografía.");
-
-  const formulario = new FormData();
-  // El papel va antes que el archivo: el servidor solo lee los campos que
-  // preceden a la parte del archivo.
-  formulario.append("rol", "FOTO_CARNET");
-  // React Native admite este descriptor de archivo en FormData.
-  formulario.append("archivo", {
-    uri: foto.uri,
-    name: nombreDeSubida(foto.uri, foto.nombreArchivo),
-    type: foto.mimeType || "image/jpeg",
-  } as unknown as Blob);
-
-  return peticion<SolicitudAfiliacion>(
-    `/api/solicitudes/${encodeURIComponent(solicitud.id)}/adjuntos`,
-    { metodo: "POST", formulario }
-  );
 }
 
 function aAvance(solicitud: SolicitudAfiliacion): AvanceDelServidor {
@@ -706,14 +727,6 @@ async function ejecutarSincronizacion(): Promise<ResumenSincronizacion> {
           (rol) => !antes.has(rol)
         ).length;
       }
-
-      const foto = rutaDelAdjunto(solicitud, "FOTO_CARNET");
-      if (faltan.includes("FOTO_CARNET") && archivoDisponible(foto)) {
-        subiendo = "FOTO_CARNET";
-        const conFoto = await subirFotografia(solicitud);
-        await incorporarAvance([aAvance(conFoto)]);
-        resumen.archivos += 1;
-      }
     } catch (error) {
       if (error instanceof ErrorServidor && error.delServidor && error.codigo === 404) {
         await apartar(solicitud.id, { motivo: "NO_EXISTE_EN_SERVIDOR", en: ahora() });
@@ -756,8 +769,8 @@ export async function reanudarEnvio(id: string): Promise<ResumenSincronizacion> 
 }
 
 /**
- * Borra de la tableta todo lo registrado, con sus firmas y fotografías, y el
- * estado de los envíos. No toca el servidor, ni la configuración de la
+ * Borra de la tableta todo lo registrado, con sus firmas, y el estado de los
+ * envíos. No toca el servidor, ni la configuración de la
  * tableta, ni su sesión.
  */
 export async function borrarDatosDePrueba(): Promise<{

@@ -58,6 +58,10 @@ async function recursosDe(solicitud: SolicitudAfiliacion): Promise<RecursosFormu
     logo,
     firmaSolicitante: comoImagen(firma),
     firmasGarantes: firmasGarantes.map(comoImagen),
+    // Las firmas de los funcionarios solo las tiene el servidor, y la tableta
+    // imprime el formulario antes de que exista ninguna constancia: los
+    // recuadros del reverso salen con el nombre, sin firma.
+    firmasFuncionarios: {},
   };
 }
 

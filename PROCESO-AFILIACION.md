@@ -22,9 +22,16 @@ acción: es el que se imprime en el reverso del formulario. Cambiarlo después n
 reescribe las constancias ya emitidas.
 
 Cada funcionario carga **su firma una sola vez desde la tableta**, entrando con
-su propio usuario. El sistema la estampa en su constancia al pasar el trámite al
-área siguiente; quien devuelve un trámite no firma nada. Sin firma cargada, el
-recuadro sale solo con el nombre, como en el formulario en papel.
+su propio usuario: pantalla **«Mi firma»**, en el portal de la tableta. El
+sistema la estampa en su constancia al pasar el trámite al área siguiente; quien
+devuelve un trámite no firma nada. Sin firma cargada, el recuadro sale solo con
+el nombre, como en el formulario en papel. Se puede volver a trazar cuando se
+quiera: las constancias ya emitidas conservan la firma con la que se estamparon.
+
+> **Al terminar, devuelva la tableta al Área de Socios.** La tableta tiene una
+> sola sesión: mientras siga abierta la de Contabilidad o la de la Gerencia, no
+> envía las afiliaciones. La propia pantalla lo advierte y ofrece cerrarla; al
+> volver hay que iniciar sesión otra vez con el usuario `socios`.
 
 - Bandeja de tareas: **http://soporte.clublacampina.com.ec:8080** (solo LAN).
 - Tableta: la misma dirección en «Configuración y envío». Su sesión dura 30 días.
@@ -296,6 +303,9 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
        ya no lo hace: aparta esos trámites y pregunta.
 2. [ ] Entrar a la bandeja con los tres usuarios (la limpieza cerró todas las
        sesiones).
+2. bis [ ] Tableta, **«Mi firma»**: cada funcionario entra con su usuario y traza
+       su firma. Al terminar, cerrar esa sesión y volver a iniciar la de
+       `socios`, o la tableta no enviará nada.
 3. [ ] Tableta: **Nueva afiliación** completa, con su firma, el país del
        domicilio y —si es militar— la fuerza → «registrada y enviada».
 4. [ ] Bandeja de Socios: aparece `AF-2026-0001` y **no** hay tarea de «faltan
@@ -321,7 +331,7 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
 
 | Síntoma | Dónde mirar |
 |---|---|
-| La tableta no envía | «Configuración y envío» → Sincronizar ahora. Si dice que no hay una sesión válida, iniciar sesión otra vez con el usuario del Área de Socios |
+| La tableta no envía | «Configuración y envío» → Sincronizar ahora. Si dice que no hay una sesión válida, iniciar sesión otra vez con el usuario del Área de Socios. Suele ser que quedó abierta la sesión de otra área tras cargar una firma en «Mi firma» |
 | La tableta dice «N trámites necesitan su atención» | «Configuración y envío» los lista. Cada solicitud dice qué pasa: un archivo que ya no está en la tableta (volver a capturarlo, o subirlo o declararlo en papel desde la bandeja) o un envío que el servidor rechazó |
 | La tableta dice «el servidor ya no tiene este trámite» | La base del servidor se vació o se restauró. Desde la solicitud: «Volver a enviar al servidor» (entra como trámite nuevo, con otro código) o eliminarla de la tableta si era de prueba. La tableta no lo reenvía por su cuenta |
 | Una afiliación no llega a Contabilidad | ¿Está creado el socio en SAFI? Es la condición para que aparezca su tarea |

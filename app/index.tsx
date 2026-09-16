@@ -112,6 +112,14 @@ export default function Portal() {
         destino: "/actualizacion",
       },
       {
+        key: "mi-firma",
+        titulo: "Mi firma",
+        descripcion:
+          "Cargar la firma del funcionario para las constancias del reverso. Una sola vez, con su propio usuario.",
+        icono: "create",
+        destino: "/mi-firma",
+      },
+      {
         key: "configuracion",
         titulo: "Configuración y envío",
         descripcion:

@@ -7,7 +7,6 @@ import {
   esEstadoCivilCasado,
   getTipo,
   reglasDe,
-  tieneCuentaPropia,
   type ModeloCarta,
 } from "./tiposMiembro";
 import {

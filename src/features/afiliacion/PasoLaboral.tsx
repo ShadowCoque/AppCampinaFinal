@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
@@ -22,6 +22,17 @@ type Props = {
 
 export function PasoLaboral({ datos, errores, setDato }: Props) {
   const reglas = reglasDe(datos.tipoMiembro);
+
+  // Al socio fundador y al socio activo se les propone «Aérea» ya marcada: son
+  // oficiales de la Fuerza Aérea Ecuatoriana —es lo que significa que el
+  // formulario les pida promoción de la Escuela Superior Militar de Aviación—.
+  // A los corresponsales no se les propone ninguna: su fuerza es justamente el
+  // dato que los distingue.
+  const proponerAerea = Boolean(reglas?.requiereDatosMilitares && reglas.requierePromocion);
+
+  useEffect(() => {
+    if (proponerAerea && !datos.fuerza) setDato("fuerza", "Aérea");
+  }, [proponerAerea, datos.fuerza, setDato]);
 
   return (
     <>
@@ -71,23 +82,25 @@ export function PasoLaboral({ datos, errores, setDato }: Props) {
             error={errores.situacion}
           />
 
-          {reglas.requiereFuerza ? (
-            <OptionGroup<Fuerza>
-              label="Fuerza"
-              required
-              value={datos.fuerza}
-              options={FUERZAS.map((f) => ({ value: f, label: f }))}
-              onChange={(v) => setDato("fuerza", v)}
-              error={errores.fuerza}
-            />
-          ) : null}
+          {/* La fuerza se pregunta a todo militar. Hasta el 15/09/2026 solo se
+              pedía a los corresponsales, y la ficha de un Socio Activo llegaba
+              a SAFI con «NO APLICA» en el campo Fuerza. */}
+          <OptionGroup<Fuerza>
+            label="Fuerza"
+            required
+            value={datos.fuerza}
+            options={FUERZAS.map((f) => ({ value: f, label: f }))}
+            onChange={(v) => setDato("fuerza", v)}
+            error={errores.fuerza}
+          />
         </Card>
       ) : null}
 
-      {/* El R-PGS1-1 tiene estos recuadros para todas las categorías. La
-          profesión solo se exige a quien abre cuenta propia: a un hijo juvenil
-          o a los padres del titular no se les puede obligar a declarar una. */}
-      <Card title="Ocupación" subtitle="Recuadros del formulario R-PGS1-1." icon="briefcase">
+      {/* Los dos formularios principales —el R-PGS1-1 del Socio Activo y el
+          PGS1-11 de las demás categorías— tienen estos recuadros. La profesión
+          solo se exige a quien abre cuenta propia: a un hijo juvenil o a los
+          padres del titular no se les puede obligar a declarar una. */}
+      <Card title="Ocupación" subtitle="Recuadros del formulario de ingreso." icon="briefcase">
         <TextField
           label="Profesión u ocupación"
           required={reglas?.requiereDatosLaborales}

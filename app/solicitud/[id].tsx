@@ -148,10 +148,10 @@ export default function DetalleSolicitudScreen() {
     Alert.alert(
       "Eliminar solicitud de la tableta",
       situacion.detenido?.motivo === "NO_EXISTE_EN_SERVIDOR"
-        ? "El servidor ya no tiene este trámite: si lo elimina de la tableta, no queda en ninguna parte, con su firma y su fotografía. Esta acción no se puede deshacer."
+        ? "El servidor ya no tiene este trámite: si lo elimina de la tableta, no queda en ninguna parte, con sus firmas. Esta acción no se puede deshacer."
         : situacion.enviada
           ? "Se eliminará la copia de esta tableta. El trámite y su expediente siguen en el servidor del Club."
-          : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con la firma y la fotografía. Esta acción no se puede deshacer.",
+          : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con sus firmas. Esta acción no se puede deshacer.",
       [
         { text: "Cancelar", style: "cancel" },
         {

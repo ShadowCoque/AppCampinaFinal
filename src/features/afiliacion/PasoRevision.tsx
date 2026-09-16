@@ -3,8 +3,6 @@ import { Image } from "expo-image";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { nombreDocumento } from "../../domain/documentos";
-import { FORMA_PAGO_META } from "../../domain/facturacion";
 import type { EstadoFormulario } from "../../domain/formularioAfiliacion";
 import { formatFechaCorta } from "../../domain/fechas";
 import { CONSENTIMIENTOS, VERSION_AVISO } from "../../domain/privacidad";
@@ -18,7 +16,7 @@ type Props = {
 };
 
 export function PasoRevision({ estado }: Props) {
-  const { datos, documentos, firmaUri, consentimientos, identidad } = estado;
+  const { datos, firmaUri, consentimientos, identidad } = estado;
   const reglas = reglasDe(datos.tipoMiembro);
   const generados = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
 
@@ -93,6 +91,7 @@ export function PasoRevision({ estado }: Props) {
       </Card>
 
       <Card title="Contacto" icon="call">
+        <DataRow label="País" value={datos.pais} />
         <DataRow label="Provincia" value={datos.provincia} />
         <DataRow label="Ciudad" value={datos.ciudad} />
         <DataRow label="Dirección" value={datos.direccion} />
@@ -102,19 +101,12 @@ export function PasoRevision({ estado }: Props) {
         <DataRow label="Correo" value={datos.correo} />
       </Card>
 
-      <Card title="Forma de pago" icon="card">
-        <DataRow
-          label="Modalidad"
-          value={datos.formaPago ? FORMA_PAGO_META[datos.formaPago].etiqueta : null}
-        />
-      </Card>
-
       {reglas?.requiereDatosMilitares ? (
         <Card title="Información institucional" icon="shield">
           <DataRow label="Grado militar" value={datos.gradoMilitar} />
           <DataRow label="Promoción" value={datos.promocion} />
           <DataRow label="Situación" value={datos.situacion} />
-          {reglas.requiereFuerza ? <DataRow label="Fuerza" value={datos.fuerza} /> : null}
+          <DataRow label="Fuerza" value={datos.fuerza} />
         </Card>
       ) : null}
 
@@ -123,29 +115,6 @@ export function PasoRevision({ estado }: Props) {
         <DataRow label="Lugar de trabajo" value={datos.lugarTrabajo} />
         <DataRow label="Cargo" value={datos.cargo} />
         <DataRow label="Hobbie" value={datos.hobbie} />
-      </Card>
-
-      <Card
-        title="Fotografía del socio"
-        icon="documents"
-      >
-        {documentos.length === 0 ? (
-          <Text style={styles.vacio}>No se adjuntó la fotografía.</Text>
-        ) : (
-          documentos.map((documento) => (
-            <View key={documento.id} style={styles.documento}>
-              <Ionicons
-                name={documento.mimeType.startsWith("image/") ? "image" : "document-text"}
-                size={16}
-                color={colors.navy}
-              />
-              <Text style={styles.documentoTexto} numberOfLines={1}>
-                {nombreDocumento(documento.tipo)}
-              </Text>
-              <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-            </View>
-          ))
-        )}
       </Card>
 
       <Card title="Consentimiento y firma" icon="shield-checkmark">
@@ -177,17 +146,6 @@ export function PasoRevision({ estado }: Props) {
 }
 
 const styles = StyleSheet.create({
-  vacio: { ...typography.caption },
-  documento: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  documentoTexto: { flex: 1, fontSize: 13.5, color: colors.text, fontWeight: "600" },
-
   consentimiento: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: 5 },
   consentimientoTexto: { flex: 1, fontSize: 13, color: colors.text, lineHeight: 18 },
   version: { ...typography.caption, marginTop: spacing.sm, fontStyle: "italic" },

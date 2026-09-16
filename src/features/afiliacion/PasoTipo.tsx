@@ -94,8 +94,8 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
           </View>
           <InfoNote tone="info" icon="time-outline">
             El formulario y la carta de compromiso los genera el sistema con las firmas que se tracen
-            en la tableta. La fotografía se toma en el paso «Fotografía». Las cédulas y partidas las
-            escanea la Jefatura de Socios a la carpeta compartida.
+            en la tableta. Las cédulas y partidas las escanea la Jefatura de Socios a la carpeta
+            compartida.
           </InfoNote>
         </Card>
       ) : null}

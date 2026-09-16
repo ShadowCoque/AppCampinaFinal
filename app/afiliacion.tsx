@@ -43,11 +43,10 @@ import {
 } from "../src/domain/formularioAfiliacion";
 import type { ClaveConsentimiento } from "../src/domain/privacidad";
 import type { ValoresDesdeSnic } from "../src/domain/snic";
-import type { ArchivoAdjunto, DatosAfiliacion, RegistroIdentidad } from "../src/domain/solicitud";
+import type { DatosAfiliacion, RegistroIdentidad } from "../src/domain/solicitud";
 import { PasoCompromiso } from "../src/features/afiliacion/PasoCompromiso";
 import { PasoConsentimiento } from "../src/features/afiliacion/PasoConsentimiento";
 import { PasoContacto } from "../src/features/afiliacion/PasoContacto";
-import { PasoFotografia } from "../src/features/afiliacion/PasoFotografia";
 import { PasoFamilia } from "../src/features/afiliacion/PasoFamilia";
 import { PasoGarantes } from "../src/features/afiliacion/PasoGarantes";
 import { PasoIdentificacion } from "../src/features/afiliacion/PasoIdentificacion";
@@ -71,8 +70,9 @@ export default function AfiliacionScreen() {
   const [scrollHabilitado, setScrollHabilitado] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [cargando, setCargando] = useState(true);
-  // Nombre del funcionario que registra: es la constancia «Registrado» del
-  // reverso del formulario.
+  // Nombre del funcionario que captura la afiliación: queda en el historial
+  // del trámite. La constancia «REGISTRADO» del reverso la sella la Jefatura de
+  // Socios al registrar al socio en su bandeja, no la tableta.
   const [operador, setOperador] = useState("ÁREA DE SOCIOS");
 
   useEffect(() => {
@@ -221,20 +221,6 @@ export default function AfiliacionScreen() {
     [solicitudId]
   );
 
-  const agregarDocumento = useCallback((documento: ArchivoAdjunto) => {
-    setEstado((previo) => ({ ...previo, documentos: [...previo.documentos, documento] }));
-    setErrores((previos) =>
-      previos[documento.tipo] ? { ...previos, [documento.tipo]: undefined } : previos
-    );
-  }, []);
-
-  const eliminarDocumento = useCallback((id: string) => {
-    setEstado((previo) => ({
-      ...previo,
-      documentos: previo.documentos.filter((d) => d.id !== id),
-    }));
-  }, []);
-
   const setIdentidad = useCallback((identidad: RegistroIdentidad) => {
     setEstado((previo) => ({ ...previo, identidad }));
     setErrores((previos) =>
@@ -272,8 +258,8 @@ export default function AfiliacionScreen() {
     setEnviando(true);
     try {
       const solicitud = await crearSolicitud(solicitudId, estado, operador);
-      // Se cierra el borrador SIN tocar sus archivos: la firma, las de los
-      // garantes y la fotografía son ya las de la afiliación registrada.
+      // Se cierra el borrador SIN tocar sus archivos: la firma y las de los
+      // garantes son ya las de la afiliación registrada.
       await cerrarBorrador();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -454,17 +440,6 @@ export default function AfiliacionScreen() {
         );
       case "compromiso":
         return <PasoCompromiso datos={estado.datos} errores={errores} setDato={setDato} />;
-      case "fotografia":
-        return (
-          <PasoFotografia
-            solicitudId={solicitudId}
-            datos={estado.datos}
-            documentos={estado.documentos}
-            errores={errores}
-            onAgregar={agregarDocumento}
-            onEliminar={eliminarDocumento}
-          />
-        );
       case "consentimiento":
         return (
           <PasoConsentimiento

@@ -29,6 +29,7 @@ export default function RootLayout() {
         <Stack.Screen name="solicitud/[id]" options={{ title: "Detalle de la solicitud" }} />
         <Stack.Screen name="actualizacion" options={{ title: "Actualización de datos" }} />
         <Stack.Screen name="configuracion" options={{ title: "Configuración y envío" }} />
+        <Stack.Screen name="mi-firma" options={{ title: "Mi firma" }} />
         <Stack.Screen
           name="privacidad"
           options={{ title: "Protección de datos", presentation: "modal" }}

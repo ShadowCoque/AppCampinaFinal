@@ -1,9 +1,8 @@
 import React from "react";
 
-import { FORMAS_PAGO, FORMA_PAGO_META, type FormaPago } from "../../domain/facturacion";
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
-import { PROVINCIAS, tieneCuentaPropia } from "../../domain/tiposMiembro";
+import { PAIS_POR_DEFECTO, PROVINCIAS } from "../../domain/tiposMiembro";
 import { formatearNombre, normalizarCorreo, soloDigitos } from "../../domain/validaciones";
 import { Card, InfoNote, SelectField, TextField } from "../../ui";
 
@@ -13,20 +12,58 @@ type Props = {
   setDato: <K extends keyof DatosAfiliacion>(campo: K, valor: DatosAfiliacion[K]) => void;
 };
 
+/** La lista cerrada `PROVINCIAS` es la del Ecuador: fuera de él no significa nada. */
+function esEcuador(pais: string): boolean {
+  return pais.trim().toLocaleUpperCase("es-EC") === PAIS_POR_DEFECTO.toLocaleUpperCase("es-EC");
+}
+
 export function PasoContacto({ datos, errores, setDato }: Props) {
+  const enEcuador = esEcuador(datos.pais);
+
   return (
     <>
       <Card title="Domicilio" icon="home">
-        <SelectField
-          label="Provincia"
-          title="Provincia de residencia"
+        {/* El país va primero porque decide cómo se piden la provincia y la
+            ciudad. Viaja al «País (Factura)» de la ficha del Socio y de la
+            Cuenta en SAFI, que hasta el 15/09/2026 quedaban vacíos. */}
+        <TextField
+          label="País"
           required
-          icon="map-outline"
-          value={datos.provincia || null}
-          options={PROVINCIAS.map((p) => ({ value: p, label: p }))}
-          onChange={(v) => setDato("provincia", v as string)}
-          error={errores.provincia}
+          autoCapitalize="sentences"
+          icon="earth-outline"
+          value={datos.pais}
+          onChangeText={(v) => setDato("pais", v)}
+          onBlur={() => setDato("pais", formatearNombre(datos.pais).trim())}
+          error={errores.pais}
+          placeholder={PAIS_POR_DEFECTO}
+          helper={`Viene puesto como ${PAIS_POR_DEFECTO}. Cámbielo solo si el socio vive fuera del país.`}
         />
+
+        {enEcuador ? (
+          <SelectField
+            label="Provincia"
+            title="Provincia de residencia"
+            required
+            icon="map-outline"
+            value={datos.provincia || null}
+            options={PROVINCIAS.map((p) => ({ value: p, label: p }))}
+            onChange={(v) => setDato("provincia", v as string)}
+            error={errores.provincia}
+          />
+        ) : (
+          <TextField
+            label="Provincia, estado o región"
+            required
+            autoCapitalize="sentences"
+            icon="map-outline"
+            value={datos.provincia}
+            onChangeText={(v) => setDato("provincia", v)}
+            onBlur={() => setDato("provincia", formatearNombre(datos.provincia).trim())}
+            error={errores.provincia}
+            placeholder="Ej. Lombardía"
+            helper="La lista de provincias es la del Ecuador: fuera del país se escribe como conste en su domicilio."
+          />
+        )}
 
         <TextField
           label="Ciudad"
@@ -108,44 +145,16 @@ export function PasoContacto({ datos, errores, setDato }: Props) {
       </Card>
 
       {/*
-        La facturación no forma parte del alcance: la resuelve el Área de
-        Contabilidad en el CRM de SAFI a partir del registro ya creado (informe
-        CLC-TI-010 versión 6, numerales 1 y 10). Lo único que se captura aquí es
-        cómo paga el socio, porque es un dato de su ficha —el campo FORMA_PAGO
-        de su Cuenta en el CRM— y no un cálculo de cobro. Quien no abre Cuenta
-        propia (cónyuge, padres, juvenil) queda cubierto por la de su titular.
+        La forma de pago se preguntaba aquí hasta el 15/09/2026. Se pedía en la
+        tableta y otra vez en la bandeja, y ganaba la de la bandeja: en la
+        primera prueba real la tableta guardó «débito bancario» y en SAFI quedó
+        «efectivo». Ahora la elige una sola vez la Jefatura de Socios, al
+        confirmar el registro, junto con la cuota y el grupo de facturación.
       */}
-      {tieneCuentaPropia(datos.tipoMiembro) ? (
-        <Card
-          title="Forma de pago"
-          subtitle="Modalidad acordada con el socio para su cuota de mantenimiento."
-          icon="card"
-        >
-          <SelectField
-            label="Forma de pago"
-            title="Forma de pago"
-            required
-            icon="card-outline"
-            value={datos.formaPago}
-            options={FORMAS_PAGO.map((f) => ({
-              value: f,
-              label: FORMA_PAGO_META[f].etiqueta,
-              description: FORMA_PAGO_META[f].detalle,
-            }))}
-            onChange={(v) => setDato("formaPago", v as FormaPago)}
-            error={errores.formaPago}
-          />
-          <InfoNote tone="info" icon="information-circle-outline">
-            El grupo de facturación y el valor de la cuota los confirma la Jefatura del Área de Socios
-            en su bandeja web antes de crear al socio en el CRM.
-          </InfoNote>
-        </Card>
-      ) : (
-        <InfoNote tone="neutral" icon="card-outline">
-          Este tipo de socio no tiene cuenta propia: su cuota la cubre la cuenta del socio titular,
-          así que no se pide forma de pago.
-        </InfoNote>
-      )}
+      <InfoNote tone="neutral" icon="card-outline">
+        La forma de pago, el valor de la cuota y el grupo de facturación los confirma la Jefatura del
+        Área de Socios en su bandeja web, antes de crear al socio en el CRM del Club.
+      </InfoNote>
     </>
   );
 }

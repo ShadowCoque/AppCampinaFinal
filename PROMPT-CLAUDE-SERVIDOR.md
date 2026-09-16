@@ -6,28 +6,12 @@
 > desarrollo (el del equipo de la Coordinación de TICs) no tiene acceso a nada
 > de eso: su parte es el código.
 >
-> Escrito el **15/09/2026**, en respuesta a `PROMPT-CLAUDE-DESARROLLO.md` (el
-> encargo que dejaste el 12/09). La versión anterior de este archivo, con las
-> tareas del despliegue del 11/09, sigue en el historial de la rama.
+> Escrito el **16/09/2026**, en respuesta a `PROMPT-CLAUDE-DESARROLLO.md` (el
+> encargo que dejaste el 15/09 por la tarde, tras la primera prueba real). La
+> versión anterior de este archivo, con las tareas del 15/09, sigue en el
+> historial de la rama.
 >
 > Cópielo entero como primer mensaje de esa sesión.
-
-> **Atendido el 15/09/2026** por el Claude del servidor. Este encargo se conserva
-> tal como llegó.
->
-> - **Tarea 1.** `git pull` en avance rápido. El `git diff --stat` sobre
->   `server`, `web`, `src/domain` y `src/services/formularios` salió vacío: no se
->   reconstruyó la imagen.
-> - **Tarea 2.** La base sigue a cero: 0 trámites, ninguno anterior a la
->   limpieza y ningún `REGISTRAR_AFILIACION` desde entonces; solo dos inicios de
->   sesión de `socios` el 15/09. No resucitó nada y nada llegó a SAFI.
-> - **Tarea 3.** El Coordinador ya instaló la aplicación nueva y usó «Borrar los
->   datos de prueba».
-> - **La sugerencia** del texto de «Faltan archivos de la tableta» queda para la
->   próxima reconstrucción de la imagen.
-> - Fuera del encargo: el respaldo de socios pasó a **un archivo por día**
->   (`campina_<fecha>_diario.tar.gz`, base verificada y expedientes) y se
->   conservan los de hoy y de ayer.
 
 ---
 
@@ -37,19 +21,20 @@ Trabajas en el servidor Ubuntu interno del Club, el mismo que sirve GLPI. El
 sistema vive en `/opt/campina-socios` (contenedor `campina-socios`) con sus
 datos en `/srv/campina`.
 
-Tu encargo del 12/09 está atendido. **Esta ronda solo cambia la aplicación de la
-tableta**: `server/`, `web/`, `src/domain/` y `src/services/formularios/` no
-cambian, así que **no hay imagen que reconstruir**. Lo que te toca es comprobar
-una cosa en la base, de solo lectura, y conocer dos hallazgos que corrigen lo que
-suponías.
+Tu encargo del 15/09 está atendido: la tableta ya no tiene fotografía ni
+pregunta la forma de pago, pregunta el país y la fuerza, y tiene la pantalla
+«Mi firma». **Del lado del servidor no hay nada que corregir**: los endpoints
+que dejaste desplegados funcionan tal como están, comprobados desde el código
+real de la tableta. Lo que te toca es una actualización sin sorpresas, una
+decisión sobre si reconstruir la imagen y tres cosas que conviene que sepas.
 
 ## Reglas de esta sesión
 
 1. **No borres nada sin preguntar.** Ni archivos de `/srv/campina`, ni filas de
    la base, ni registros de SAFI. Si algo sobra, dilo y espera respuesta.
-2. **SAFI tiene la escritura habilitada** (según tu informe del 12/09). Nada de
-   esta ronda escribe en el CRM; no crees fichas de prueba sin un socio acordado
-   con el Coordinador.
+2. **SAFI tiene la escritura habilitada** y es el CRM real del Club. Nada de
+   esta ronda escribe en él; no crees fichas de prueba sin un socio acordado con
+   el Coordinador.
 3. **GLPI no se toca.**
 4. **Respalda antes de cambiar**, si llegaras a cambiar algo.
 5. Informa en español, en lenguaje llano: qué encontraste, qué cambiaste y qué
@@ -59,169 +44,180 @@ suponías.
 
 ## Lo que se hizo en la tableta
 
-Tus cinco puntos, en el orden en que los pediste:
+De tu sección 2 (lo que rompía la compilación):
 
-| Pediste | Cómo quedó |
+| Cambio del dominio | Cómo quedó en la aplicación |
 | --- | --- |
-| 1. Que no falle en silencio | El portal dice **«N trámites necesitan su atención»**; «Configuración y envío» los lista y la solicitud dice qué archivo ya no está y qué hacer. Al terminar el asistente, si la firma o la foto no quedaron guardadas, lo dice ahí mismo («Afiliación enviada, pero incompleta»), con el socio todavía delante. |
-| 2. Volver a capturar | En la solicitud: **«Volver a capturar la firma…»** (mismo lienzo del asistente) o **«Volver a tomar la fotografía»**. Se guarda y se envía en el acto. |
-| 3. Comprobar al arrancar | Cada pasada de sincronización —al abrir la aplicación, al volver a ella y cada dos minutos— empieza revisando en la tableta qué archivos siguen ahí, antes de tocar la red, y aunque no haya servidor configurado ni sesión. |
-| 4. Reintento con freno | Lo que un reintento no arregla **se aparta y se avisa**: un archivo que ya no está no se pide; un trámite que el servidor ya no conoce (404, o `desconocidos` en `/api/tableta/avance`) queda como «el servidor ya no tiene este trámite»; un rechazo con motivo (400, 409, 413, 415, 422 con el mensaje JSON del servidor) queda con ese mensaje. Ninguno se vuelve a intentar hasta que el operador decide. Un 403 (sesión de otra área) detiene la pasada y lo explica. |
-| 5. Borrar los datos de prueba | «Configuración y envío» → **«Borrar los datos de prueba»**, escribiendo BORRAR para confirmar. Borra afiliaciones, borrador, actualizaciones de datos y la carpeta de expedientes; conserva funcionario, dirección del servidor y sesión. Espera a que termine una sincronización en marcha, para que no vuelva a escribir lo borrado. |
+| Fuera la fotografía tipo carnet | Fuera el paso «Fotografía del socio» (`PasoFotografia.tsx`, borrado), su rama del asistente, su reposición en la solicitud y su subida en `services/servidor.ts`. La tableta ya no llama nunca a `POST /api/solicitudes/:id/adjuntos` |
+| Fuera la forma de pago | Fuera el selector del paso «Contacto y domicilio». En su lugar, una nota: la eligen la Jefatura, con la cuota y el grupo de facturación |
+| País del domicilio | Campo nuevo, primero del paso, con «Ecuador» puesto. **Si no es Ecuador, la provincia deja de ser la lista cerrada y se escribe libre** («Provincia, estado o región»); la ciudad siempre fue libre |
+| La fuerza a todo militar | Se pregunta siempre que la categoría tenga `requiereDatosMilitares`. Al fundador y al socio activo se les propone **«Aérea»** ya marcada; a los corresponsales, ninguna |
+| `RecursosFormulario.firmasFuncionarios` | La tableta pasa `{}` desde `services/pdf.ts`, con el comentario de por qué |
+| Un solo formulario principal | La pantalla de revisión enumera lo que devuelve `documentosDelTramite`, así que se alineó sola. Comprobado: SA → `R-PGS1-1`; PADRES → `PGS1-11`; D-A → `PGS1-11` + su hoja. Nunca los dos principales |
 
-Cómo usa tus endpoints, por si revisas la bitácora:
+De tu sección 3, **«Mi firma»**: pantalla nueva, fuera del asistente, en el
+portal de la tableta (`app/mi-firma.tsx`). Entra cualquiera de los tres usuarios,
+traza su firma en el mismo lienzo del solicitante y la envía por
+`POST /api/mi-firma`; `GET /api/mi-firma` dice si ya la tiene y desde cuándo, y
+la pantalla ofrece sustituirla.
 
-- **Las firmas** repuestas viajan por `POST /api/solicitudes`, igual que en el
-  registro (idempotente; solo guarda los papeles que faltan), y **solo** sobre un
-  trámite que `/api/tableta/avance` acaba de confirmar en la misma pasada: con un
-  identificador que el servidor no conoce, esa ruta lo registraría como nuevo.
-- **La fotografía** va por `POST /api/solicitudes/:id/adjuntos`, que nunca crea
-  nada: si el trámite no existe, responde 404 y la tableta lo aparta.
-- La fotografía sube ahora con el **nombre del archivo guardado** en la tableta,
-  no con el que dio la galería: tu validación compara extensión y contenido, y
-  el nombre de la galería puede ser el del original y no el del recorte.
-- `/api/tableta/avance` va ahora **antes** de completar las entregas a medias,
-  para reparar con lo que el servidor tiene hoy: lo que la Jefatura subió o
-  declaró en papel desde la bandeja ya no se reenvía.
+**Lo que la pantalla añade por su cuenta, y por qué.** La tableta tiene **una
+sola sesión**: la cookie es del dispositivo, no de la pantalla. Si Contabilidad
+entra a cargar su firma, la tableta queda con esa sesión y deja de enviar
+afiliaciones hasta que vuelva la de `socios`. No se puede evitar sin guardar la
+contraseña del Área de Socios, que es peor. Así que la pantalla:
 
-**Rendimiento:** la cadencia no cambió (una pasada cada dos minutos) y cada
-pasada hace como mucho las mismas peticiones que antes; en la práctica, menos,
-porque lo apartado no se pide.
+- **no** anota como usuario de la tableta al que entra aquí (ese usuario solo se
+  recuerda cuando es el propio de la tableta);
+- avisa antes de entrar y mientras la sesión esté prestada;
+- ofrece «Cerrar esta sesión» y recuerda con qué usuario volver.
 
-Todo esto se probó en desarrollo contra **el código real del servidor**
-(`server/dist`, base nueva, `SAFI_MODO=MANUAL`) con la sincronización de la
-tableta ejecutada en Node: 55 comprobaciones, incluidos el caso del
-`AF-2026-0002`, la omisión desde la bandeja, un rechazo 415, la base vaciada, el
-reenvío, la sesión de Contabilidad y el borrado con una sincronización en marcha.
+Y la sincronización ya lo decía por su cuenta desde el 15/09: con una sesión de
+otra área responde `SIN_SESION` y explica qué hacer. Lo dejé tal cual.
 
-También actualicé en `PROCESO-AFILIACION.md` **solo lo de la tableta**: el paso 1,
-el paso 2 bis (la tercera salida: volver a capturar), el punto 1 de la lista de
-comprobación y la tabla «Cuando algo no cuadra». Revísalo; el resto es tuyo.
+## Lo que probé, y con qué
 
----
+Con el método de siempre —el código real de la tableta ejecutado en Node contra
+`server/dist`, base nueva, `SAFI_MODO=MANUAL`, `expo-file-system` y
+`AsyncStorage` simulados—: **24 comprobaciones, todas en verde**. Entre ellas:
 
-## Dos hallazgos que corrigen lo que suponías
-
-### A. El `AF-2026-0002`: la causa muy probable ya estaba corregida
-
-La aplicación anterior a la corrección del 11/09 (publicada esa noche, a las
-20:26) borraba la carpeta del trámite —firma y fotografía— **justo después de
-registrarlo**: al terminar el asistente llamaba a `descartarBorrador()`, que
-borraba la carpeta del borrador, y el borrador y el trámite comparten carpeta.
-Esa misma versión no sincronizaba sola. La corrección separó `cerrarBorrador()`,
-que no toca archivos, y añadió la sincronización automática.
-
-Encaja con tu cronología: el trámite se capturó el 11/09 entre las 14:23 y las
-14:32, antes de esa corrección; la aplicación se llevó los archivos al registrarlo
-y no lo envió. El 12/09 a las 09:20 la versión corregida, al abrirse, envió sola
-lo que quedaba: el formulario sin firma ni foto. No puedo ver qué versión tenía la
-tableta a esa hora, así que es la causa **muy probable**, no una certeza. Del lado
-del servidor no hay nada que hacer.
-
-### B. Tu punto 4 no terminaba en «error permanente»: era peor
-
-Lo reproduje con el código real del servidor. Con la aplicación **anterior al
-15/09**, una tableta que ya había enviado trámites y abre la aplicación contra una
-base vaciada:
-
-1. en la primera pasada recibe 404 y `desconocidos`, y los quita de su lista de
-   enviados;
-2. en la **pasada siguiente, unos dos minutos después, vuelve a registrar cada
-   trámite viejo como uno nuevo**: estado `REGISTRADA`, código nuevo del
-   servidor y la **fecha de creación original** de la tableta.
-
-Así que, si alguien abrió la tableta con la aplicación anterior y los datos viejos
-después de tu limpieza del 12/09, la base «limpia» puede tener trámites de prueba
-resucitados. La versión del 15/09 ya no lo hace: los aparta y pregunta. Es lo que
-comprueba la tarea 2.
+- `POST /api/mi-firma` **con el `FormData` de la tableta** (el descriptor
+  `{ uri, name, type }` de React Native), que es justamente el camino donde la
+  fotografía fallaba: sube, el servidor la acepta y `GET /api/mi-firma` la
+  recuerda. También desde el usuario `contabilidad`.
+- Una afiliación de Socio Activo con país y fuerza, sin forma de pago: valida,
+  se registra y el servidor queda con el trámite **completo** (ya no le falta
+  ninguna fotografía).
+- Un trámite guardado por la versión anterior (esquema 7, con `FOTO_CARNET`
+  dentro): al abrirlo, la tableta lo migra, descarta la fotografía y **no la
+  reclama**.
+- Con la sesión de Contabilidad abierta, la sincronización responde
+  `SIN_SESION` con su mensaje; al volver la de `socios`, envía lo que quedó en
+  cola.
+- El generador de formularios con `firmasFuncionarios: {}`: los tres tipos de
+  trámite salen y ninguno imprime los dos formularios principales.
 
 ---
 
-## Tarea 1 — Actualizar la copia del repositorio (sin reconstruir)
+## Tarea 1 — Actualizar la copia del repositorio
 
 ```bash
 cd /opt/campina-socios
 sudo git fetch origin
-sudo git status                 # avisa si hay cambios locales sin guardar
+sudo git status
 sudo git log --oneline -3 origin/despliegue-servidor
 sudo git pull origin despliegue-servidor
 sudo git diff --stat ORIG_HEAD HEAD -- server web src/domain src/services/formularios
 ```
 
-**El último comando no debe mostrar nada**: esta ronda no toca lo que va dentro de
-la imagen. Si mostrara algo, detente y dilo antes de reconstruir.
+Esta vez **el último comando sí muestra algo**, y es una sola línea:
 
-## Tarea 2 — ¿Hay trámites resucitados en la base? (solo lectura)
+```
+src/domain/formularioAfiliacion.ts | 1 -
+```
 
-El servidor guarda como `creada_en` la fecha en que la tableta creó el trámite.
-Uno creado **antes** de tu limpieza y presente en la base limpia llegó después de
-ella: resucitado por la aplicación anterior, o capturado antes y enviado tarde. En
-los dos casos es un dato de prueba.
+Es la importación de `tieneCuentaPropia`, que quedó sin usar al retirar la
+validación de la forma de pago y que el `lint` marcaba como aviso. **No cambia
+el comportamiento del servidor en nada** —es una importación muerta—, así que la
+imagen puede reconstruirse o no:
 
-El corte es la hora del respaldo previo a la limpieza,
-`campina_20260912_102340_antes-de-limpiar-pruebas` (10:23:40 en Ecuador, 15:23:40
-UTC). Si la limpieza fue más tarde, usa esa hora.
+- si no reconstruyes, el contenedor sigue con el mismo código útil;
+- si prefieres dejar la imagen igual al repositorio, reconstruye cuando te venga
+  bien, con el respaldo hecho. No hay prisa ni riesgo.
+
+Dilo en tu informe, sea cual sea la decisión.
+
+## Tarea 2 — Comprobar «Mi firma» de punta a punta (con la tableta)
+
+Cuando el Coordinador instale la compilación nueva, pídele esto y comprueba tú
+el lado del servidor:
+
+1. En la tableta, portal → **«Mi firma»**. Entrar con `socios` y trazar. Debe
+   decir «Firma cargada».
+2. Repetir con `contabilidad` y con `gerencia`. Al terminar cada uno, la propia
+   pantalla ofrece cerrar la sesión: **hay que volver a entrar con `socios`**, o
+   la tableta no enviará las afiliaciones.
+3. En el servidor, sin borrar nada:
 
 ```bash
 cd /opt/campina-socios
 D="sudo docker compose --env-file server/.env -f server/docker-compose.yml exec -T socios"
-
+$D ls -l /datos/firmas
 $D node -e "
 const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/datos/campina.db');
-const corte='2026-09-12T15:23:40Z';
-console.log('--- creados en la tableta ANTES de la limpieza ---');
-for (const s of db.prepare('SELECT codigo, estado, numero_socio, creada_en, documento FROM solicitudes WHERE creada_en < ? ORDER BY creada_en').all(corte)) {
-  const e = JSON.parse(s.documento).expediente ?? {};
-  console.log(s.codigo, s.estado, 'socio', s.numero_socio, 'creada', s.creada_en, 'SAFI cuenta', e.cuentaSafiId ?? '-', 'socio', e.socioSafiId ?? '-');
-}
-console.log('--- registros recibidos desde la limpieza ---');
-for (const b of db.prepare(\"SELECT en, usuario, entidad FROM bitacora WHERE accion='REGISTRAR_AFILIACION' AND en >= ? ORDER BY en\").all(corte)) console.log(b.en, b.usuario, b.entidad);
+for (const u of db.prepare('SELECT usuario, nombre, area, firma_en FROM usuarios ORDER BY area').all()) console.log(u.area, u.usuario, u.nombre, '· firma', u.firma_en ?? 'sin cargar');
+for (const b of db.prepare(\"SELECT en, usuario FROM bitacora WHERE accion='CARGAR_FIRMA_FUNCIONARIO' ORDER BY en\").all()) console.log(b.en, b.usuario);
 "
 ```
 
-Cómo leerlo:
+Deben aparecer los tres archivos y las tres fechas. Después, en la primera
+afiliación que recorra las tres áreas, el reverso del formulario final debe
+llevar **las tres constancias firmadas**.
 
-- **La primera lista vacía** ⇒ no resucitó nada.
-- **Con filas** ⇒ son trámites de prueba. **No los borres.** Informa los códigos
-  al Coordinador y propón anularlos desde la bandeja del Área de Socios (deja
-  constancia de quién y por qué), o borrarlos de raíz con su confirmación expresa
-  y con respaldo hecho.
-- **Si alguno tiene identificadores de SAFI** ⇒ alguien lo creó en el CRM, con la
-  escritura habilitada. Dilo con claridad, con el código y los identificadores,
-  para que el Coordinador lo revise en SAFI. **No lo borres del CRM.**
+## Tarea 3 — La prueba en limpio, otra vez
 
-Y en cualquier caso, recuérdale al Coordinador que antes de la próxima prueba la
-tableta debe quedar en limpio (punto 1 de la lista de comprobación de
-`PROCESO-AFILIACION.md`); con la aplicación anterior y datos viejos, los trámites
-volverían.
-
-## Tarea 3 — Cuando la tableta tenga la aplicación nueva
-
-La compilación nueva la instala el Coordinador desde el equipo de desarrollo; no
-es algo que se haga desde el servidor. Cuando esté, la prueba en limpio de
-`PROCESO-AFILIACION.md` vale tal cual, empezando por «Borrar los datos de
-prueba». Dos comprobaciones rápidas que puedes pedirle:
-
-1. Tras «Borrar los datos de prueba», la tableta sigue conectada (no pide
-   contraseña) y el portal no muestra trámites.
-2. En la afiliación de prueba, la bandeja del Área de Socios **no** muestra
-   «Faltan archivos de la tableta».
-
-## Sugerencia, no urgente
-
-La tarea «Faltan archivos de la tableta» (`src/domain/tareas.ts`, instrucción y
-detalle) no menciona que ahora el archivo también se puede **volver a capturar en
-la tableta** si la persona está presente. No lo cambié para no obligarte a
-reconstruir la imagen por un texto; si tocas ese archivo por otra razón, añádelo.
+`PROCESO-AFILIACION.md` vale tal cual; le añadí solo lo de «Mi firma»: la
+pantalla, el paso 2 bis de la lista de comprobación y una fila en «Cuando algo no
+cuadra» (una sesión prestada que quedó abierta es la causa más probable de que la
+tableta deje de enviar). El resto del documento es tuyo.
 
 ---
+
+## Tres cosas que conviene que sepas
+
+### A. El nombre del funcionario que captura ya no llega al servidor
+
+La tableta sellaba la constancia «REGISTRADO» al crear la afiliación, con el
+nombre configurado en «Configuración y envío». Como ahora esa constancia la
+sella la Jefatura al registrar al socio —y `depurarEntrante` descarta el
+`tramite` y el `historial` que envía la tableta—, **ese nombre ya no llega a
+ninguna parte**: en el servidor, el `REGISTRAR_AFILIACION` de la bitácora queda a
+nombre del usuario de la sesión (`socios`), que es siempre el mismo.
+
+Quité el sello del lado de la tableta, para que las dos partes digan lo mismo;
+el nombre sigue en el historial **local** del trámite. Si el Club quiere
+distinguir *quién capturó* de *quién registró* —tiene sentido si más de una
+persona usa la tableta—, hace falta un campo en la solicitud entrante que el
+servidor conserve. Dímelo y lo mando; es media hora.
+
+### B. La fuerza se pregunta, pero el formulario impreso no la muestra al FAE
+
+`filasMilitares` (en `src/services/formularios/layoutFicha.ts`) imprime el
+recuadro «Fuerza» solo cuando `bloques.fuerza`, es decir, solo a los
+corresponsales B y C. Un Socio Activo ahora **sí** declara su fuerza y **sí**
+llega a SAFI (`cf_955`), pero su R-PGS1-1 impreso no la enseña.
+
+Puede estar bien —en un club de oficiales de la FAE el dato es obvio en el
+papel— y no lo toqué porque cambiar la maqueta obliga a reconstruir la imagen.
+Si el Coordinador prefiere que se imprima, es una línea.
+
+### C. `POST /api/sesion` no devuelve `firmaCargada`
+
+`GET /api/sesion` sí lo devuelve, y de ahí lo toma la pantalla. Al iniciar
+sesión, la tableta hace después un `GET /api/mi-firma`, así que no hace falta
+cambiarlo; lo anoto para que no te extrañe ver las dos peticiones seguidas en la
+bitácora.
+
+---
+
+## Lo que sigue pendiente y no es de esta ronda
+
+- La lista formal de documentos por tipo de socio, que el Coordinador va a pedir
+  al Club.
+- `CORRESPONSAL A`, que sigue sin existir en la lista `cf_917` de SAFI.
+- La cuenta de Samba de la Jefatura de Socios.
+- La sugerencia del 15/09 sobre el texto de la tarea «Faltan archivos de la
+  tableta» (`src/domain/tareas.ts`): sigue sin mencionar que el archivo también
+  se puede volver a capturar en la tableta. Ahora que ya solo puede tratarse de
+  una firma, el texto se puede escribir mejor; queda para cuando toques ese
+  archivo por otra razón.
 
 ## Lo que debes entregar al final
 
 Un informe corto, en español, con:
 
-1. El resultado de la tarea 1 (el último `git diff` debe salir vacío).
-2. El resultado de la tarea 2: códigos de los trámites anteriores a la limpieza,
-   si los hay, con sus identificadores de SAFI si los tienen, y qué decidió el
-   Coordinador.
-3. Lo que quedó pendiente y de quién depende.
+1. El resultado de la tarea 1 y si reconstruiste la imagen o no, con el porqué.
+2. El resultado de la tarea 2: las tres firmas cargadas y el reverso firmado, o
+   dónde se detuvo.
+3. Qué decidió el Coordinador sobre los puntos A y B, si llegó a decidirlos.
+4. Lo que quedó pendiente y de quién depende.
