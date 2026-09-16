@@ -162,7 +162,23 @@ export default function ConfiguracionScreen() {
       await cargar();
       Alert.alert(
         "Datos de prueba borrados",
-        `Se borraron ${borrados.afiliaciones} afiliaciones y ${borrados.actualizaciones} actualizaciones de datos, con sus firmas y sus archivos. La tableta conserva el funcionario, la dirección del servidor y la sesión.`
+        [
+          `Se borraron de esta tableta ${borrados.afiliaciones} afiliaciones y ${borrados.actualizaciones} actualizaciones de datos, con sus firmas y sus archivos.`,
+          borrados.borradasDelServidor > 0
+            ? `En el servidor se borraron ${borrados.borradasDelServidor}: ya no aparecen en la bandeja de tareas.`
+            : null,
+          borrados.conservadas.length > 0
+            ? `El servidor conservó ${borrados.conservadas.length} (${borrados.conservadas
+                .map((c) => c.codigo)
+                .join(", ")}): ${borrados.conservadas[0].motivo} Si eran de prueba, anúlelos desde la bandeja.`
+            : null,
+          borrados.sinServidor
+            ? `No se pudo borrar en el servidor: ${borrados.sinServidor} Lo que ya había llegado sigue en la bandeja.`
+            : null,
+          "La tableta conserva el funcionario, la dirección del servidor y la sesión.",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
       );
     } finally {
       setOcupado(null);
@@ -172,7 +188,7 @@ export default function ConfiguracionScreen() {
   const confirmarBorrado = () => {
     Alert.alert(
       "Borrar los datos de prueba",
-      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y sus archivos.${
+      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y sus archivos.\n\nLas que ya llegaron al servidor se borrarán también allá, y desaparecerán de la bandeja de tareas de la Jefatura; las que ya estén creadas en SAFI las conservará el servidor y habrá que anularlas desde la bandeja.${
         sinEnviar > 0
           ? `\n\n${sinEnviar === 1 ? "Una de ellas todavía no llegó" : `${sinEnviar} de ellas todavía no llegaron`} al servidor: se perderán para siempre.`
           : ""
@@ -376,7 +392,7 @@ export default function ConfiguracionScreen() {
         icon="trash"
       >
         <InfoNote tone="warning" icon="information-circle-outline">
-          {`Borra de esta tableta las afiliaciones (${situaciones.length}), el borrador en curso y las actualizaciones de datos (${actualizaciones}), con todas sus firmas y sus archivos. Conserva el funcionario, la dirección del servidor y la sesión. No borra nada del servidor.`}
+          {`Borra de esta tableta las afiliaciones (${situaciones.length}), el borrador en curso y las actualizaciones de datos (${actualizaciones}), con todas sus firmas y sus archivos, y pide al servidor que borre las que ya le llegaron, para que tampoco queden en la bandeja de tareas. Conserva el funcionario, la dirección del servidor y la sesión.`}
         </InfoNote>
         {sinEnviar > 0 ? (
           <InfoNote tone="danger" icon="cloud-offline">

@@ -81,27 +81,6 @@ export function esDataUri(uri: string | null | undefined): boolean {
   return !!uri && uri.startsWith("data:");
 }
 
-/**
- * Escribe una firma recién trazada en un archivo temporal, para poder subirla
- * como parte de un formulario multipart.
- *
- * Es el caso de la firma del funcionario («Mi firma»): no pertenece a ningún
- * expediente —es suya, no de un trámite—, así que vive en la caché y el sistema
- * puede llevársela cuando quiera. La que cuenta es la que queda en el servidor.
- */
-export function firmaTemporal(dataUri: string): string | null {
-  try {
-    const dir = new Directory(Paths.cache, "firmas");
-    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
-    const archivo = new File(dir, `mi-firma-${nuevoId()}.png`);
-    archivo.create({ overwrite: true, intermediates: true });
-    archivo.write(dataUri.replace(/^data:[^;]+;base64,/, ""), { encoding: "base64" });
-    return archivo.uri;
-  } catch (error) {
-    console.warn("[archivos] No se pudo preparar la firma para enviarla:", error);
-    return null;
-  }
-}
 
 /**
  * Lleva una firma recién trazada del lienzo al expediente y devuelve su URI de

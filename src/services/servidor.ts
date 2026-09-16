@@ -2,6 +2,7 @@ import { archivoDisponible, leerBase64 } from "../data/archivos";
 import { CLAVES, eliminar, escribirJSON, leerJSON } from "../data/almacenamiento";
 import {
   borrarRegistrosLocales,
+  eliminarSolicitud,
   incorporarAvance,
   listarSolicitudes,
   rutaDelAdjunto,
@@ -383,20 +384,40 @@ export async function miFirma(): Promise<EstadoMiFirma> {
 /**
  * Sustituye la firma del funcionario de la sesión por la recién trazada.
  *
+ * La firma viaja como **base64 dentro del JSON**, igual que la del solicitante
+ * y las de los garantes en `POST /api/solicitudes`. No es una preferencia de
+ * estilo: **esta tableta no consigue enviar `multipart/form-data`**. El envío
+ * falla en el dispositivo, antes de salir a la red —`fetch` rechaza al
+ * instante y en el servidor no queda ni una petición—, y por eso el operador
+ * veía «No se pudo contactar al servidor» justo en la única pantalla que subía
+ * un archivo, con la sesión abierta y el resto funcionando. Es también lo que
+ * le pasaba a la fotografía tipo carnet (ver
+ * `docs/RETIRADO-fotografia-carnet.md`), que se retiró sin saberlo.
+ *
  * Las constancias ya emitidas conservan la firma que se estampó en su momento:
  * el servidor copia el archivo al trámite al sellarlas, igual que congela el
  * nombre.
  */
-export async function guardarMiFirma(uri: string): Promise<EstadoMiFirma> {
-  const formulario = new FormData();
-  // React Native admite este descriptor de archivo en FormData.
-  formulario.append("archivo", {
-    uri,
-    name: "mi-firma.png",
-    type: "image/png",
-  } as unknown as Blob);
-
-  return peticion<EstadoMiFirma>("/api/mi-firma", { metodo: "POST", formulario });
+export async function guardarMiFirma(dataUri: string): Promise<EstadoMiFirma> {
+  const base64 = dataUri.replace(/^data:[^;]+;base64,/, "");
+  try {
+    return await peticion<EstadoMiFirma>("/api/mi-firma", {
+      metodo: "POST",
+      cuerpo: { firma: base64 },
+    });
+  } catch (error) {
+    // Un servidor anterior a este cambio solo acepta la firma como archivo
+    // adjunto y rechaza el JSON por su tipo de contenido. Decirlo así evita que
+    // el funcionario lo lea como un problema de su tableta o de su firma.
+    if (error instanceof ErrorServidor && (error.codigo === 406 || error.codigo === 415)) {
+      throw new ErrorServidor(
+        "Este servidor todavía no admite cargar la firma desde la tableta. Avise a la Coordinación de TICs.",
+        error.codigo,
+        true
+      );
+    }
+    throw error;
+  }
 }
 
 export async function comprobarServidor(): Promise<{ ok: boolean; safiModo?: string }> {
@@ -768,19 +789,137 @@ export async function reanudarEnvio(id: string): Promise<ResumenSincronizacion> 
   return sincronizar();
 }
 
+/* ------------------------------------------------------------------ */
+/* Borrar un trámite, también del servidor                             */
+/* ------------------------------------------------------------------ */
+
 /**
- * Borra de la tableta todo lo registrado, con sus firmas, y el estado de los
- * envíos. No toca el servidor, ni la configuración de la
- * tableta, ni su sesión.
+ * Qué pasó con un trámite en el servidor al pedir su borrado.
+ *
+ *   BORRADO        Ya no está: desaparece también de la bandeja de tareas.
+ *   NO_ESTABA      El servidor no lo tenía (nunca llegó, o ya se borró).
+ *   CONSERVADO     El servidor se niega y dice por qué: un socio ya creado en
+ *                  SAFI no se borra desde la tableta, se anula desde la bandeja.
+ *   SIN_SERVIDOR   No se pudo ni preguntar: sin red, sin sesión, o un servidor
+ *                  anterior al borrado desde la tableta.
  */
-export async function borrarDatosDePrueba(): Promise<{
-  afiliaciones: number;
-  actualizaciones: number;
-}> {
+export type BorradoEnServidor =
+  | { estado: "BORRADO" }
+  | { estado: "NO_ESTABA" }
+  | { estado: "CONSERVADO"; motivo: string }
+  | { estado: "SIN_SERVIDOR"; motivo: string };
+
+async function borrarEnServidor(id: string): Promise<BorradoEnServidor> {
+  try {
+    await peticion(`/api/solicitudes/${encodeURIComponent(id)}`, { metodo: "DELETE" });
+    return { estado: "BORRADO" };
+  } catch (error) {
+    if (!(error instanceof ErrorServidor)) {
+      return { estado: "SIN_SERVIDOR", motivo: "La tableta no pudo pedir el borrado al servidor." };
+    }
+    if (error.codigo === 404) {
+      // Un servidor que todavía no tiene esta ruta responde el «Not Found»
+      // genérico; el del Club, cuando no encuentra el trámite, responde con su
+      // propio mensaje. Es la única forma de distinguir «no lo tiene» de «no
+      // sabe hacerlo», y equivocarse diría que se borró algo que sigue ahí.
+      return /^not found$/i.test(error.message.trim())
+        ? {
+            estado: "SIN_SERVIDOR",
+            motivo:
+              "Este servidor todavía no admite borrar trámites desde la tableta. Avise a la Coordinación de TICs.",
+          }
+        : { estado: "NO_ESTABA" };
+    }
+    if (error.codigo === 409 || error.codigo === 403) {
+      return { estado: "CONSERVADO", motivo: error.message };
+    }
+    return { estado: "SIN_SERVIDOR", motivo: error.message };
+  }
+}
+
+/** Olvida en la cola de envío todo rastro de un trámite que ya no está. */
+async function olvidarDeLaCola(id: string): Promise<void> {
+  await guardarSincronizadas((await sincronizadas()).filter((otro) => otro !== id));
+  const detenidos = await enviosDetenidos();
+  if (detenidos[id]) {
+    delete detenidos[id];
+    await escribirJSON(CLAVES.enviosDetenidos, detenidos);
+  }
+}
+
+/**
+ * Elimina un trámite de la tableta y, si el servidor lo tenía, también de allá
+ * —y por tanto de la bandeja de tareas—.
+ *
+ * De la tableta se borra siempre: es su copia y el operador acaba de decidir
+ * que sobra. Del servidor, solo si el servidor acepta; si se niega o no se le
+ * puede preguntar, se devuelve el motivo para decírselo al operador en vez de
+ * dejarle creer que el trámite desapareció de todas partes.
+ */
+export async function eliminarTramite(id: string): Promise<BorradoEnServidor> {
   return sinSincronizar(async () => {
+    const enviada = (await sincronizadas()).includes(id);
+    const resultado: BorradoEnServidor = enviada
+      ? await borrarEnServidor(id)
+      : { estado: "NO_ESTABA" };
+    await eliminarSolicitud(id);
+    await olvidarDeLaCola(id);
+    return resultado;
+  });
+}
+
+/** Lo que dejó el borrado de los datos de prueba, para contárselo al operador. */
+export type BorradoDePrueba = {
+  /** Afiliaciones borradas de la tableta. */
+  afiliaciones: number;
+  /** Actualizaciones de datos borradas de la tableta (solo viven aquí). */
+  actualizaciones: number;
+  /** De esas afiliaciones, las que también se borraron del servidor. */
+  borradasDelServidor: number;
+  /** Las que el servidor conservó, con su motivo. */
+  conservadas: { codigo: string; motivo: string }[];
+  /** Por qué no se pudo borrar en el servidor, si no se pudo. */
+  sinServidor: string | null;
+};
+
+/**
+ * Deja la tableta en limpio para una prueba desde cero: borra lo registrado con
+ * sus firmas y el estado de los envíos, y **pide al servidor que borre también
+ * lo suyo**, para que no queden en la bandeja de la Jefatura trámites de prueba
+ * que en la tableta ya no existen.
+ *
+ * Un trámite ya creado en SAFI no se borra así: el servidor lo conserva y lo
+ * dice, y el operador lo anula desde la bandeja, que es donde queda constancia
+ * de quién lo anuló y por qué. Lo local se borra igual —para eso se pidió—,
+ * pero nunca en silencio: el resultado enumera lo que sigue en el servidor.
+ *
+ * No toca la configuración de la tableta ni su sesión.
+ */
+export async function borrarDatosDePrueba(): Promise<BorradoDePrueba> {
+  return sinSincronizar(async () => {
+    const enviadas = await sincronizadas();
+    const conservadas: { codigo: string; motivo: string }[] = [];
+    let borradasDelServidor = 0;
+    let sinServidor: string | null = null;
+
+    for (const solicitud of await listarSolicitudes()) {
+      if (solicitud.estado === "BORRADOR" || !enviadas.includes(solicitud.id)) continue;
+
+      const resultado = await borrarEnServidor(solicitud.id);
+      if (resultado.estado === "BORRADO") borradasDelServidor += 1;
+      else if (resultado.estado === "CONSERVADO") {
+        conservadas.push({ codigo: solicitud.codigo, motivo: resultado.motivo });
+      } else if (resultado.estado === "SIN_SERVIDOR") {
+        // Lo que impide borrar uno impide borrarlos todos: no tiene sentido
+        // repetir la misma espera por cada trámite.
+        sinServidor = resultado.motivo;
+        break;
+      }
+    }
+
     const borrados = await borrarRegistrosLocales();
     await eliminar(CLAVES.sincronizadas, CLAVES.estadoSincronizacion, CLAVES.enviosDetenidos);
-    return borrados;
+    return { ...borrados, borradasDelServidor, conservadas, sinServidor };
   });
 }
 

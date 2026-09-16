@@ -5,7 +5,6 @@ import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { archivoDisponible, formatearTamano } from "../../src/data/archivos";
-import { eliminarSolicitud } from "../../src/data/solicitudes";
 import { FORMA_PAGO_META } from "../../src/domain/facturacion";
 import { formatFechaCorta, formatFechaHora } from "../../src/domain/fechas";
 import { CONSENTIMIENTOS } from "../../src/domain/privacidad";
@@ -24,7 +23,11 @@ import { numeroEnExpediente } from "../../src/domain/tareas";
 import { documentosDelTramite, nombreTipo, reglasDe } from "../../src/domain/tiposMiembro";
 import { TarjetaEnvio } from "../../src/features/expediente/TarjetaEnvio";
 import { exportarSolicitudAfiliacion } from "../../src/services/pdf";
-import { situacionDeEntrega, type SituacionEntrega } from "../../src/services/servidor";
+import {
+  eliminarTramite,
+  situacionDeEntrega,
+  type SituacionEntrega,
+} from "../../src/services/servidor";
 import { colors, radius, spacing, typography } from "../../src/theme";
 import { Badge, Button, Card, DataRow, InfoNote } from "../../src/ui";
 
@@ -146,11 +149,11 @@ export default function DetalleSolicitudScreen() {
 
   const borrar = () => {
     Alert.alert(
-      "Eliminar solicitud de la tableta",
+      "Eliminar la solicitud",
       situacion.detenido?.motivo === "NO_EXISTE_EN_SERVIDOR"
         ? "El servidor ya no tiene este trámite: si lo elimina de la tableta, no queda en ninguna parte, con sus firmas. Esta acción no se puede deshacer."
         : situacion.enviada
-          ? "Se eliminará la copia de esta tableta. El trámite y su expediente siguen en el servidor del Club."
+          ? "Se eliminará de esta tableta y también del servidor, así que desaparecerá de la bandeja de tareas del Club. Si el socio ya está creado en SAFI, el servidor lo conservará y se lo dirá: entonces hay que anularlo desde la bandeja. Esta acción no se puede deshacer."
           : "Esta afiliación TODAVÍA NO LLEGÓ al servidor: si la elimina, se pierde junto con sus firmas. Esta acción no se puede deshacer.",
       [
         { text: "Cancelar", style: "cancel" },
@@ -158,7 +161,21 @@ export default function DetalleSolicitudScreen() {
           text: "Eliminar",
           style: "destructive",
           onPress: async () => {
-            await eliminarSolicitud(solicitud.id);
+            const enElServidor = await eliminarTramite(solicitud.id);
+            // Lo que el servidor conserva se dice antes de salir: si no, el
+            // trámite desaparece de la tableta y el operador cree que ya no
+            // está en ninguna parte.
+            if (enElServidor.estado === "CONSERVADO") {
+              Alert.alert(
+                "Borrado solo en la tableta",
+                `${enElServidor.motivo} El trámite sigue en el servidor y en la bandeja: anúlelo desde ahí si era de prueba.`
+              );
+            } else if (enElServidor.estado === "SIN_SERVIDOR") {
+              Alert.alert(
+                "Borrado solo en la tableta",
+                `${enElServidor.motivo} El trámite sigue en el servidor y en la bandeja.`
+              );
+            }
             router.back();
           },
         },

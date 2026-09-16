@@ -3,7 +3,6 @@ import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { firmaTemporal } from "../src/data/archivos";
 import { formatFechaHora } from "../src/domain/fechas";
 import {
   cerrarSesionServidor,
@@ -94,15 +93,7 @@ export default function MiFirmaScreen() {
     if (!trazo) return;
     setOcupado("guardar");
     try {
-      const uri = firmaTemporal(trazo);
-      if (!uri) {
-        Alert.alert(
-          "No se pudo preparar la firma",
-          "La tableta no pudo guardar el trazo para enviarlo. Vuelva a trazarlo."
-        );
-        return;
-      }
-      const guardada = await guardarMiFirma(uri);
+      const guardada = await guardarMiFirma(trazo);
       setFirma(guardada);
       setTrazo(null);
       Alert.alert(

@@ -57,10 +57,12 @@ import {
   actualizarExpediente,
   anular,
   aprobar,
+  borrarSolicitud,
   cuentaSafiDelTitular,
   devolver,
   guardarAltaSafi,
   listarSolicitudes,
+  motivoParaNoBorrar,
   obtenerSolicitud,
   omitirAdjunto,
   omitirEscaneo,
@@ -335,14 +337,46 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     return respuesta.send({ cargada: true, en: usuario.firmaEn });
   });
 
+  /**
+   * La firma del funcionario llega de dos maneras, y las dos son legítimas:
+   *
+   *   · **En el JSON, como base64** (`{ firma }`). Es la de la tableta, y es el
+   *     camino que funciona: la aplicación **no consigue enviar
+   *     `multipart/form-data`** —el envío falla en el dispositivo antes de salir
+   *     a la red y aquí no llega ni una petición—, que es lo que le pasaba
+   *     también a la fotografía tipo carnet. Las firmas del solicitante y de los
+   *     garantes viajan así desde el principio, y nunca fallaron.
+   *   · **Como archivo adjunto**, para un navegador o una herramienta que suba
+   *     un PNG o un JPG ya existente.
+   */
   app.post("/api/mi-firma", async (peticion, respuesta) => {
     const usuario = exigirSesion(peticion, respuesta);
     if (!usuario) return respuesta;
 
-    const parte = await peticion.file();
-    if (!parte) return respuesta.code(400).send({ error: "No se recibió ninguna firma." });
+    let contenido: Buffer;
+    let extension: string | null;
 
-    const contenido = await parte.toBuffer();
+    if (peticion.isMultipart()) {
+      const parte = await peticion.file();
+      if (!parte) return respuesta.code(400).send({ error: "No se recibió ninguna firma." });
+      contenido = await parte.toBuffer();
+      extension = extensionDeFirma(parte.mimetype ?? "");
+    } else {
+      const firma = (peticion.body as { firma?: unknown } | undefined)?.firma;
+      if (typeof firma !== "string" || !firma.trim()) {
+        return respuesta.code(400).send({ error: "No se recibió ninguna firma." });
+      }
+      if (firma.length > MAXIMO_BYTES_FIRMA * 2) {
+        return respuesta
+          .code(413)
+          .send({ error: "La firma es demasiado grande: envíe una imagen de menos de 2 MB." });
+      }
+      contenido = Buffer.from(firma.replace(/^data:[^;]+;base64,/, ""), "base64");
+      // El lienzo de la tableta produce siempre un PNG; que el contenido lo sea
+      // se comprueba abajo, con la misma lectura de cabecera que el expediente.
+      extension = ".png";
+    }
+
     if (contenido.length === 0) {
       return respuesta.code(400).send({ error: "La firma llegó vacía." });
     }
@@ -351,13 +385,14 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
         .code(413)
         .send({ error: "La firma es demasiado grande: envíe una imagen de menos de 2 MB." });
     }
-
-    const extension = extensionDeFirma(parte.mimetype ?? "");
     if (!extension) {
       return respuesta
         .code(415)
         .send({ error: "La firma debe ser una imagen PNG o JPG trazada en la tableta." });
     }
+
+    const formato = validarContenido(contenido, extension);
+    if (!formato.ok) return respuesta.code(415).send({ error: formato.error });
 
     const en = guardarFirmaFuncionario({ usuario: usuario.usuario, contenido, extension });
 
@@ -482,6 +517,44 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
       })),
       sistema: estadoDelSistema(),
     });
+  });
+
+  /**
+   * Borra un trámite: su fila, sus adjuntos y su carpeta. Con él desaparecen
+   * sus tareas, así que deja de estar en la bandeja.
+   *
+   * Lo pide la tableta cuando el operador borra los datos de prueba o elimina
+   * una solicitud. Antes, lo que se borraba allá seguía aquí: la Jefatura veía
+   * en su bandeja trámites de prueba que en la tableta ya no existían, y nadie
+   * podía quitarlos.
+   *
+   * Solo se borra lo que todavía es un dato de prueba (`motivoParaNoBorrar`).
+   * Un socio con número, con ficha en SAFI o con documentos archivados no se
+   * borra: se **anula** desde la bandeja, con su observación. La bitácora
+   * guarda siempre el rastro de lo borrado.
+   */
+  app.delete("/api/solicitudes/:id", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const solicitud = obtenerSolicitud(id);
+    if (!solicitud) return respuesta.code(404).send({ error: "Solicitud no encontrada." });
+
+    const motivo = motivoParaNoBorrar(solicitud, archivosDeSolicitud(id).length);
+    if (motivo) return respuesta.code(409).send({ error: motivo });
+
+    borrarSolicitud(id);
+
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "BORRAR_AFILIACION",
+      entidad: solicitud.codigo,
+      detalle: `${nombreCompleto(solicitud.datos)} · ${solicitud.datos.cedula} · borrado desde la tableta`,
+    });
+
+    return respuesta.send({ ok: true, codigo: solicitud.codigo });
   });
 
   /**

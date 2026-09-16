@@ -298,6 +298,10 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
        servidor.** Con la versión de la aplicación del 15/09/2026:
        «Configuración y envío» → **«Borrar los datos de prueba»** (se escribe
        BORRAR para confirmar; conserva la dirección del servidor y la sesión).
+       Desde el 16/09/2026 ese borrado **también limpia el servidor**: los
+       trámites de prueba que ya habían llegado desaparecen de la bandeja. Los
+       que ya tengan número de socio los conserva el servidor y los enumera:
+       esos se anulan desde la bandeja.
        Con una versión anterior, borrar los datos de la aplicación desde los
        ajustes de Android **antes** de abrirla: esa versión, ante una base
        vaciada, no da error sino que **vuelve a registrar sola cada trámite

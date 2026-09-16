@@ -375,12 +375,15 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 | --- | --- | --- | --- |
 | `POST` | `/api/sesion` | — | Inicia sesión. `dispositivo: "tableta"` pide la sesión larga. |
 | `DELETE` | `/api/sesion` | cualquiera | Cierra la sesión. |
+| `GET` | `/api/mi-firma` | cualquiera | Si el funcionario de la sesión tiene firma cargada, y desde cuándo. |
+| `POST` | `/api/mi-firma` | cualquiera | Carga su firma: `{ firma }` en base64 desde la tableta, o un PNG/JPG adjunto. |
 | `GET` | `/api/bandeja` | cualquiera | Tareas pendientes, lo que viene en camino y lo atendido. |
 | `GET` | `/api/solicitudes` | cualquiera | Listado de trámites. |
 | `GET` | `/api/solicitudes/:id` | cualquiera | Expediente completo: datos, tareas, adjuntos y documentos. |
 | `POST` | `/api/solicitudes` | Socios | Registra una afiliación con sus firmas (idempotente). |
-| `POST` | `/api/solicitudes/:id/adjuntos` | Socios | Fotografía o firma que envía la tableta. |
-| `GET` | `/api/solicitudes/:id/adjuntos/:rol` | cualquiera | Firma o fotografía, para verla en la bandeja. |
+| `DELETE` | `/api/solicitudes/:id` | Socios | Borra un trámite de prueba con sus adjuntos. Rechaza (409) el que ya tiene número de socio, ficha en SAFI o documentos archivados: ese se anula. |
+| `POST` | `/api/solicitudes/:id/adjuntos` | Socios | Firma que se sube desde la bandeja. |
+| `GET` | `/api/solicitudes/:id/adjuntos/:rol` | cualquiera | Firma, para verla en la bandeja. |
 | `POST` | `/api/tableta/avance` | Socios | Estado y constancias de los trámites que la tableta ya envió. |
 | `GET` | `/api/solicitudes/:id/formulario` | cualquiera | El formulario completo en pantalla. |
 | `GET` | `/api/solicitudes/:id/formulario.pdf` | cualquiera | El mismo formulario, impreso en PDF. |

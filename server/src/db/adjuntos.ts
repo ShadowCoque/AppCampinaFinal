@@ -109,6 +109,35 @@ export function guardarAdjunto(entrada: {
   return adjuntoDe(entrada.solicitudId, entrada.rol)!;
 }
 
+/**
+ * Borra los adjuntos de un trámite y su carpeta.
+ *
+ * Solo se llama al borrar el trámite entero: mientras exista, sus firmas son
+ * parte de él. Si un archivo ya no está en el disco, no es un error —lo que
+ * importa es que no quede inscrito algo que no existe—.
+ */
+export function borrarAdjuntosDe(solicitudId: string): number {
+  const adjuntos = adjuntosDe(solicitudId);
+  for (const adjunto of adjuntos) {
+    try {
+      if (fs.existsSync(adjunto.ruta)) fs.rmSync(adjunto.ruta, { force: true });
+    } catch (error) {
+      console.warn(`[adjuntos] No se pudo borrar ${adjunto.ruta}:`, error);
+    }
+  }
+
+  db().prepare("DELETE FROM adjuntos WHERE solicitud_id = ?").run(solicitudId);
+
+  try {
+    const carpeta = carpetaDe(solicitudId);
+    if (fs.existsSync(carpeta)) fs.rmSync(carpeta, { recursive: true, force: true });
+  } catch (error) {
+    console.warn("[adjuntos] No se pudo borrar la carpeta del trámite:", error);
+  }
+
+  return adjuntos.length;
+}
+
 export function adjuntoDe(solicitudId: string, rol: RolAdjunto): Adjunto | null {
   const fila = db()
     .prepare("SELECT * FROM adjuntos WHERE solicitud_id = ? AND rol = ?")

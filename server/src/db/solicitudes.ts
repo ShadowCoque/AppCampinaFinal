@@ -19,6 +19,7 @@ import {
 import { creadoEnSafi, tareasDeSolicitud } from "../../../src/domain/tareas";
 import { fuerzaFijaPara } from "../../../src/domain/tiposMiembro";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
+import { borrarAdjuntosDe } from "./adjuntos";
 import { ahora, db, nuevoId, registrarBitacora } from "./indice";
 
 /**
@@ -153,6 +154,46 @@ export function obtenerSolicitud(id: string): SolicitudAfiliacion | null {
     .prepare("SELECT documento FROM solicitudes WHERE id = ?")
     .get(id) as unknown as FilaSolicitud | undefined;
   return fila ? aSolicitud(fila) : null;
+}
+
+/**
+ * Por qué un trámite no se puede borrar, o `null` si se puede.
+ *
+ * Borrar es para los datos de prueba: un trámite que la tableta registró y que
+ * nadie llegó a tramitar. En cuanto tiene número de socio, ficha en el CRM o
+ * documentos archivados, ya no es un dato de prueba sino un socio del Club, y
+ * su salida es la **anulación** desde la bandeja, que deja constancia de quién
+ * la decidió y por qué.
+ */
+export function motivoParaNoBorrar(
+  solicitud: SolicitudAfiliacion,
+  archivosArchivados: number
+): string | null {
+  const { tramite, expediente } = solicitud;
+  if (tramite.numeroSocio) {
+    return `El trámite ya tiene número de socio (${tramite.numeroSocio}).`;
+  }
+  if (expediente.cuentaSafiId || expediente.socioSafiId) {
+    return "El socio ya está creado en el CRM de SAFI.";
+  }
+  if (solicitud.estado === "APROBADA") return "El trámite ya está aprobado.";
+  if (archivosArchivados > 0) {
+    return "El trámite ya tiene documentos archivados en el expediente.";
+  }
+  return null;
+}
+
+/**
+ * Borra un trámite del servidor: su fila, sus adjuntos y su carpeta.
+ *
+ * Con él desaparecen sus tareas, así que deja de aparecer en la bandeja: es lo
+ * que se espera cuando la tableta borra los datos de prueba. Quien llama
+ * comprueba antes `motivoParaNoBorrar`; la constancia queda en la bitácora.
+ */
+export function borrarSolicitud(id: string): boolean {
+  borrarAdjuntosDe(id);
+  const resultado = db().prepare("DELETE FROM solicitudes WHERE id = ?").run(id);
+  return Number(resultado.changes) > 0;
 }
 
 /* ------------------------------------------------------------------ */

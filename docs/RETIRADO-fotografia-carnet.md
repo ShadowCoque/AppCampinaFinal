@@ -43,8 +43,15 @@ Si se retoma, conviene saber:
   repositorio: la pieza de archivado no hay que rehacerla.
 - El adjunto viajaba por `POST /api/solicitudes/:id/adjuntos` con el campo
   `rol`, el mismo camino que las firmas, que sí funciona.
-- Habrá que resolver primero **por qué la tableta no lograba enviarla**, porque
-  el mismo canal servía para las firmas.
+- **Ya se sabe por qué la tableta no lograba enviarla**, y no era el canal sino
+  la forma: esta aplicación **no consigue enviar `multipart/form-data`**. El
+  envío falla en el dispositivo antes de salir a la red —`fetch` rechaza al
+  instante y en el servidor no queda ni una petición—, exactamente el mismo
+  síntoma que dio el 16/09/2026 la firma del funcionario, que subía por
+  multipart mientras la del solicitante, base64 dentro del JSON, llegaba
+  siempre. La firma del funcionario se corrigió pasándola a base64. Si la
+  fotografía vuelve, que viaje igual: base64 en el cuerpo JSON, no como parte
+  de un formulario.
 - El consentimiento de la tableta ya contempla el uso de la imagen en la
   credencial (`imagenCredencial`, en el aviso de protección de datos): esa parte
   del consentimiento se conserva y no hubo que retirarla.
