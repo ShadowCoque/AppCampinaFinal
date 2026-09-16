@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { StyleSheet, Text } from "react-native";
 
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
@@ -7,12 +8,14 @@ import {
   FUERZAS,
   GRADOS_OFRECIDOS,
   SITUACIONES_MILITARES,
+  fuerzaFijaPara,
   reglasDe,
   type Fuerza,
   type SituacionMilitar,
 } from "../../domain/tiposMiembro";
 import { soloDigitos } from "../../domain/validaciones";
-import { Card, OptionGroup, SelectField, TextField } from "../../ui";
+import { spacing, typography } from "../../theme";
+import { Card, DataRow, OptionGroup, SelectField, TextField } from "../../ui";
 
 type Props = {
   datos: DatosAfiliacion;
@@ -23,16 +26,18 @@ type Props = {
 export function PasoLaboral({ datos, errores, setDato }: Props) {
   const reglas = reglasDe(datos.tipoMiembro);
 
-  // Al socio fundador y al socio activo se les propone «Aérea» ya marcada: son
-  // oficiales de la Fuerza Aérea Ecuatoriana —es lo que significa que el
-  // formulario les pida promoción de la Escuela Superior Militar de Aviación—.
-  // A los corresponsales no se les propone ninguna: su fuerza es justamente el
-  // dato que los distingue.
-  const proponerAerea = Boolean(reglas?.requiereDatosMilitares && reglas.requierePromocion);
+  // El socio fundador y el socio activo son oficiales de la Fuerza Aérea
+  // Ecuatoriana: su fuerza no se pregunta, se muestra. A los corresponsales sí
+  // se les pregunta, porque pueden venir de cualquier fuerza.
+  const fuerzaFija = fuerzaFijaPara(datos.tipoMiembro);
 
+  // El dato viaja puesto aunque nadie lo toque: así el formulario, la revisión
+  // y lo que llega al servidor dicen lo mismo. El tipo de socio la limpia al
+  // cambiar de categoría (`app/afiliacion.tsx`), para que la Aérea no se
+  // arrastre a un corresponsal.
   useEffect(() => {
-    if (proponerAerea && !datos.fuerza) setDato("fuerza", "Aérea");
-  }, [proponerAerea, datos.fuerza, setDato]);
+    if (fuerzaFija && datos.fuerza !== fuerzaFija) setDato("fuerza", fuerzaFija);
+  }, [fuerzaFija, datos.fuerza, setDato]);
 
   return (
     <>
@@ -85,14 +90,24 @@ export function PasoLaboral({ datos, errores, setDato }: Props) {
           {/* La fuerza se pregunta a todo militar. Hasta el 15/09/2026 solo se
               pedía a los corresponsales, y la ficha de un Socio Activo llegaba
               a SAFI con «NO APLICA» en el campo Fuerza. */}
-          <OptionGroup<Fuerza>
-            label="Fuerza"
-            required
-            value={datos.fuerza}
-            options={FUERZAS.map((f) => ({ value: f, label: f }))}
-            onChange={(v) => setDato("fuerza", v)}
-            error={errores.fuerza}
-          />
+          {fuerzaFija ? (
+            <>
+              <DataRow label="Fuerza" value={`Fuerza ${fuerzaFija}`} />
+              <Text style={styles.nota}>
+                Los socios activos y fundadores son oficiales de la Fuerza Aérea Ecuatoriana: su
+                fuerza no se elige.
+              </Text>
+            </>
+          ) : (
+            <OptionGroup<Fuerza>
+              label="Fuerza"
+              required
+              value={datos.fuerza}
+              options={FUERZAS.map((f) => ({ value: f, label: f }))}
+              onChange={(v) => setDato("fuerza", v)}
+              error={errores.fuerza}
+            />
+          )}
         </Card>
       ) : null}
 
@@ -151,3 +166,7 @@ export function PasoLaboral({ datos, errores, setDato }: Props) {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  nota: { ...typography.caption, marginTop: spacing.xs },
+});

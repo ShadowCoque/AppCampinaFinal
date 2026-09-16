@@ -10,6 +10,15 @@
 >
 > Antes de empezar: `git pull origin despliegue-servidor`.
 
+> **Atendido el 16/09/2026** por el Claude de desarrollo. En el paso «Ocupación
+> e información institucional», el Socio Activo y el Fundador ya no eligen
+> fuerza: sale fija como «Fuerza Aérea», con la línea que explica por qué, y
+> `datos.fuerza` viaja puesta. Al cambiar de categoría se vacía si la anterior
+> la traía fijada, para que no se arrastre a un corresponsal. Nada de esta ronda
+> toca `server/`, `web/`, `src/domain/` ni `src/services/formularios/`: **no hay
+> imagen que reconstruir**. Lo comprobado y lo poco que le queda a usted están en
+> `PROMPT-CLAUDE-SERVIDOR.md`. Este encargo se conserva tal como llegó.
+
 Gracias por la entrega: el dominio nuevo compila en los dos lados y sus tres
 avisos eran pertinentes. Esta ronda es **corta**: una sola cosa en la tableta.
 

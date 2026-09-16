@@ -42,6 +42,7 @@ import {
   type EstadoFormulario,
 } from "../src/domain/formularioAfiliacion";
 import type { ClaveConsentimiento } from "../src/domain/privacidad";
+import { fuerzaFijaPara } from "../src/domain/tiposMiembro";
 import type { ValoresDesdeSnic } from "../src/domain/snic";
 import type { DatosAfiliacion, RegistroIdentidad } from "../src/domain/solicitud";
 import { PasoCompromiso } from "../src/features/afiliacion/PasoCompromiso";
@@ -158,6 +159,15 @@ export default function AfiliacionScreen() {
         // Cambiar el tipo de socio o el estado civil cambia qué recuadros tiene
         // el formulario: se preparan (o se descartan) los bloques afectados.
         const requiereAjuste = campo === "tipoMiembro" || campo === "estadoCivil";
+        if (campo === "tipoMiembro") {
+          // La fuerza del socio activo y del fundador la fija su categoría. Al
+          // cambiar de categoría se pone la nueva, o se vacía si la anterior la
+          // traía fijada: si no, un corresponsal heredaría la Aérea sin que
+          // nadie se la haya preguntado.
+          const fija = fuerzaFijaPara(datos.tipoMiembro);
+          if (fija) datos.fuerza = fija;
+          else if (fuerzaFijaPara(previo.datos.tipoMiembro)) datos.fuerza = null;
+        }
         return { ...previo, datos: requiereAjuste ? ajustarBloques(datos) : datos };
       });
       setErrores((previos) => (previos[campo] ? { ...previos, [campo]: undefined } : previos));

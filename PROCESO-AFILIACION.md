@@ -308,8 +308,9 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
 2. bis [ ] Tableta, **«Mi firma»**: cada funcionario entra con su usuario y traza
        su firma. Al terminar, cerrar esa sesión y volver a iniciar la de
        `socios`, o la tableta no enviará nada.
-3. [ ] Tableta: **Nueva afiliación** completa, con su firma, el país del
-       domicilio y —si es militar— la fuerza → «registrada y enviada».
+3. [ ] Tableta: **Nueva afiliación** completa, con su firma y el país del
+       domicilio → «registrada y enviada». En un Socio Activo, la fuerza debe
+       salir fija como **Aérea**, sin poder cambiarla.
 4. [ ] Bandeja de Socios: aparece `AF-2026-0001` y **no** hay tarea de «faltan
        archivos» (si la hay, la firma no llegó: revisar antes de seguir).
 5. [ ] Crear en SAFI con el número de socio acordado. Comprobar en el CRM la
