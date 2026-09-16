@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { Browser } from "puppeteer-core";
 
 import { config } from "../config";
@@ -33,6 +35,11 @@ function enCola<T>(trabajo: () => Promise<T>): Promise<T> {
   return resultado;
 }
 
+/** Si el ejecutable es el Chromium sin interfaz (`chromium-headless-shell`). */
+function esHeadlessShell(ejecutable: string): boolean {
+  return /headless[-_]shell/i.test(path.basename(ejecutable));
+}
+
 export async function generarPdf(html: string): Promise<Buffer> {
   if (!config.pdfNavegador) {
     throw new Error(
@@ -49,7 +56,9 @@ export async function generarPdf(html: string): Promise<Buffer> {
     try {
       navegador = await puppeteer.launch({
         executablePath: config.pdfNavegador,
-        headless: true,
+        // `chromium-headless-shell` solo admite el modo sin interfaz clásico,
+        // que Puppeteer llama "shell"; el Chromium completo usa el nuevo.
+        headless: esHeadlessShell(config.pdfNavegador) ? "shell" : true,
         // `--no-sandbox` es necesario dentro del contenedor, que ya corre como
         // usuario sin privilegios y con `no-new-privileges`. El HTML que se
         // imprime lo genera este mismo servidor y no carga nada de la red.

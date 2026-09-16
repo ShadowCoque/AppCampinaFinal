@@ -37,6 +37,8 @@ function localizarNavegador(): string {
   const indicado = texto("PDF_NAVEGADOR", "");
   if (indicado) return indicado;
   const candidatos = [
+    // El que instala el Dockerfile: Chromium sin interfaz, solo para imprimir.
+    "/usr/bin/chromium-headless-shell",
     "/usr/bin/chromium-browser",
     "/usr/bin/chromium",
     "/usr/bin/google-chrome",

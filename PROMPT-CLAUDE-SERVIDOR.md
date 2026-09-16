@@ -12,6 +12,34 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 16/09/2026** por el Claude del servidor. Este encargo se conserva
+> tal como llegó.
+>
+> - **Las dos rutas, revisadas y aceptadas.** La firma en base64 valida la
+>   cabecera real de la imagen; el criterio de `motivoParaNoBorrar` es el
+>   correcto, y la cookie `SameSite=lax` impide que otra web dispare un
+>   `DELETE`. **Un solo añadido**, en `borrarAdjuntosDe`: el borrado recursivo
+>   comprueba que la carpeta sea la de ese trámite y no la común. Hoy no puede
+>   pasar —los identificadores se validan al entrar—, pero si un día llegase uno
+>   que al sanearse quedase vacío, `carpetaDe` devolvería `tramitesDir` y se
+>   llevaría las firmas de todos.
+> - **Reconstruida** con respaldo previo, y de paso con **`chromium-headless-shell`**
+>   en lugar del Chromium completo (el Coordinador pidió ahorrar espacio): la
+>   imagen baja de 1,51 GB a 1,33 GB. `config.ts` lo busca primero y `pdf.ts` lo
+>   arranca en modo `"shell"`. PDF comprobado con la imagen nueva antes de
+>   desplegar (R-PGS1-1, PGS1-11 y PGS1-11 + R-PGS1-22, páginas correctas) y una
+>   captura revisada a ojo: tipografías y maqueta, iguales.
+> - **Prueba de las rutas con el servidor real**, en un contenedor aparte con
+>   base temporal y `SAFI_MODO=MANUAL`: **24 de 24**. Firma en base64 y con
+>   prefijo `data:`, rechazo de algo que no es imagen (415) y de la vacía (400),
+>   `firmaCargada` en `POST /api/sesion` antes y después, firma de Contabilidad;
+>   borrado por Socios (Contabilidad recibe 403), carpeta borrada y la común
+>   intacta, fuera de la bandeja, 404 al repetir; un trámite con número de socio
+>   se conserva (409), y su constancia REGISTRADO sale con la firma copiada.
+> - **Tarea 2** (con la tableta): pendiente de que el Coordinador instale la
+>   compilación. Hay un trámite suyo de hoy, `AF-2026-0001`, anulado y sin
+>   número: sirve para probar el borrado desde la tableta.
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

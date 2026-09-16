@@ -130,7 +130,20 @@ export function borrarAdjuntosDe(solicitudId: string): number {
 
   try {
     const carpeta = carpetaDe(solicitudId);
-    if (fs.existsSync(carpeta)) fs.rmSync(carpeta, { recursive: true, force: true });
+    // Salvaguarda: el borrado recursivo solo puede alcanzar la carpeta de ESTE
+    // trámite, nunca la carpeta común de todos. Hoy no puede pasar —el
+    // identificador se valida al registrar (`[a-zA-Z0-9_-]{6,64}`)—, pero si
+    // algún día llegara uno que al sanearse quedase vacío, `carpetaDe`
+    // devolvería `tramitesDir` y esto borraría las firmas de todos.
+    const propia =
+      path.dirname(path.resolve(carpeta)) === path.resolve(config.tramitesDir) &&
+      path.basename(carpeta) === solicitudId &&
+      solicitudId.length > 0;
+    if (!propia) {
+      console.warn(`[adjuntos] Borrado recursivo rechazado: «${carpeta}» no es la carpeta de un trámite.`);
+    } else if (fs.existsSync(carpeta)) {
+      fs.rmSync(carpeta, { recursive: true, force: true });
+    }
   } catch (error) {
     console.warn("[adjuntos] No se pudo borrar la carpeta del trámite:", error);
   }

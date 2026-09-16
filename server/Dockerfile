@@ -37,11 +37,15 @@ FROM node:24-alpine
 
 # Chromium para imprimir el PDF, y las tipografías sin las que el documento
 # saldría con las letras sustituidas. `ttf-liberation` incluye la equivalente
-# métrica de Arial, que es la del formulario del Club. La ruta del ejecutable
-# la detecta el propio servidor (`/usr/bin/chromium-browser` o
-# `/usr/bin/chromium`); `PDF_NAVEGADOR` solo hace falta para forzar otra.
+# métrica de Arial, que es la del formulario del Club.
+#
+# Se instala `chromium-headless-shell`, el Chromium sin interfaz que Puppeteer
+# recomienda para imprimir: el mismo motor de maquetación, sin el navegador de
+# escritorio. Ahorra unos 150 MB de imagen (16/09/2026). El servidor lo busca
+# primero (`/usr/bin/chromium-headless-shell`) y, si no está, prueba las rutas
+# del Chromium completo; `PDF_NAVEGADOR` solo hace falta para forzar otra.
 RUN apk add --no-cache \
-      chromium \
+      chromium-headless-shell \
       nss \
       freetype \
       harfbuzz \
