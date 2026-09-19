@@ -543,13 +543,6 @@ export function aprobar(id: string, entrada: { observacion: string }, actor: Act
 }
 
 /**
- * Contabilidad o la Gerencia devuelven el trámite al Área de Socios.
- *
- * La devolución se guarda aparte de las constancias: no es una revisión ni una
- * aprobación, y escribirla sobre ellas hacía que el reverso imprimiera
- * «Revisado» con el nombre de quien en realidad había devuelto el trámite.
- */
-/**
  * Guarda en el trámite lo que SAFI dijo del oficial FAE del que depende un D-A
  * o D-B, cuando la bandeja lo verificó antes del alta. No es una corrección de
  * la persona, así que no deja entrada en el historial: es el dato con que se
@@ -646,6 +639,10 @@ export function corregirSolicitud(
 
 /**
  * Contabilidad o la Gerencia devuelven el trámite con una observación.
+ *
+ * La devolución se guarda aparte de las constancias: no es una revisión ni una
+ * aprobación, y escribirla sobre ellas hacía que el reverso imprimiera
+ * «Revisado» con el nombre de quien en realidad había devuelto el trámite.
  *
  * Contabilidad devuelve siempre al Área de Socios. La Gerencia elige el
  * destino (decisión del Coordinador, 19/09/2026):

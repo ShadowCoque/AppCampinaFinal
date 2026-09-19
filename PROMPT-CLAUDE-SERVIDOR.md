@@ -12,6 +12,51 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 19/09/2026** por el Claude del servidor. Este encargo se conserva
+> tal como llegó.
+>
+> - **Revisión.** `corregirSolicitud`, la rama nueva de `devolver`, las rutas
+>   `PUT /api/solicitudes/:id` y `GET /api/safi/oficiales/:numero` y el cambio de
+>   hora están bien. **Tres ajustes**, los tres en la verificación del oficial:
+>   1. **`oficial.ts`: sin consulta al CRM, lo de la tableta ya no se da por
+>      verificado.** Antes, si el servidor no podía consultar SAFI, un
+>      `oficialDependencia` con `VERIFICADO` llegado de la tableta quitaba el aviso
+>      y pasaba al Parentesco. Es un dato del cliente: contradecía la propia regla
+>      de `parentescoDe` («vacío antes que equivocado»). Ahora se avisa siempre
+>      —mencionando lo que dijo la tableta y cuándo— y `oficial` es `null`.
+>      `comprobarOficial` devuelve además `aplica`.
+>   2. **`api.ts`, en el alta:** en un D-A o D-B, el oficial del Parentesco es
+>      siempre el que el servidor acaba de comprobar, o ninguno; nunca el que
+>      quedó guardado desde la tableta.
+>   3. **`adaptador.ts`:** el titular es la ficha con secuencia `00`; la «0» o la
+>      vacía solo si no hay ninguna `00`, para que un dependiente sin secuencia no
+>      se tome por el oficial.
+>   Y se quitó un comentario huérfano sobre `fijarOficialDependencia`.
+> - **Los tres supuestos del CRM, comprobados:** las **1.756** fichas ACTIVO y las
+>   **26** FUNDADOR tienen todas secuencia `00`; `cf_917` («Tipo de Socio») trae
+>   exactamente «ACTIVO» y «FUNDADOR»; el grado vive en `cf_953` y ninguna de esas
+>   1.782 fichas lo tiene vacío.
+> - **Las cuatro consultas contra el CRM real** (contenedor aislado, base temporal,
+>   escritura apagada): N.º 1 Activo → `VERIFICADO` con grado y nombre; N.º 9
+>   Fundador → `VERIFICADO`; N.º 189 Particular A → `NO_ES_ACTIVO_NI_FUNDADOR`;
+>   N.º 99999 → `NO_ENCONTRADO`. Letras → 400; Contabilidad → 403. Los flujos en
+>   MANUAL (devolución a Contabilidad con FC guardado y «Revisar de nuevo»,
+>   Contabilidad devolviendo siempre a Socios, corrección antes del alta y rechazo
+>   del cambio de categoría ya en SAFI, la hora del Ecuador y el «VERIFICADO»
+>   falso de la tableta sin efecto): **14 de 14**.
+> - **Reconstruida y desplegada** con respaldo
+>   `campina_20260919_141444_antes-de-reconstruir-oficial`. La compilación se
+>   lanza ahora como servicio temporal de systemd (`campina-build`): dos veces se
+>   cortó a medias al cerrarse la sesión.
+> - **Vaciada** con respaldo `campina_20260919_143142_antes-de-vaciar-para-prueba-real`:
+>   5 trámites, 5 adjuntos, 8 archivos, 154 líneas de bitácora, 4 sesiones y las
+>   3 firmas de «Mi firma»; carpetas de firmas, trámites, expedientes y escaneos
+>   vacías. Esquema 4, siguiente trámite `AF-2026-0001`, los tres usuarios activos.
+> - **En SAFI, para el Coordinador** (no se tocó nada): las fichas y cuentas de sus
+>   pruebas ya no están, pero quedan **8 documentos** que publicó la integración el
+>   17/09 (2924, 2925 y 2925-1). Y **el 2924 y el 2925 ya están ocupados** por fichas
+>   creadas a mano en el CRM el 17/09, con tipo «Complete Aqui» y «PARTICULAR B».
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

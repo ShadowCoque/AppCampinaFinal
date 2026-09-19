@@ -1319,7 +1319,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     const delOficial = await comprobarOficial(adaptador, solicitud);
     const conNumeros = {
       ...solicitud,
-      datos: delOficial.oficial
+      // En un D-A o D-B, el oficial con que se compone el Parentesco es el que
+      // el servidor acaba de comprobar en SAFI, o ninguno: nunca el que trajo
+      // la tableta sin que el servidor pudiera confirmarlo.
+      datos: delOficial.aplica
         ? { ...solicitud.datos, oficialDependencia: delOficial.oficial }
         : solicitud.datos,
       tramite: { ...solicitud.tramite, numeroSocio, ordinalDependiente },

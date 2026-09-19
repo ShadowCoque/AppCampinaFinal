@@ -1,4 +1,5 @@
 import type { OficialDependencia, SolicitudAfiliacion } from "../../../src/domain/solicitud";
+import { formatFechaHora } from "../../../src/domain/fechas";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
 import { reglasDe } from "../../../src/domain/tiposMiembro";
 import type { AdaptadorSafi } from "./adaptador";
@@ -21,9 +22,11 @@ import type { AvisoSafi } from "./registro";
 export async function comprobarOficial(
   adaptador: AdaptadorSafi,
   solicitud: SolicitudAfiliacion
-): Promise<{ avisos: AvisoSafi[]; oficial: OficialDependencia | null }> {
+): Promise<{ aplica: boolean; avisos: AvisoSafi[]; oficial: OficialDependencia | null }> {
   const { datos } = solicitud;
-  if (!reglasDe(datos.tipoMiembro)?.requiereNumeroSocioActivo) return { avisos: [], oficial: null };
+  if (!reglasDe(datos.tipoMiembro)?.requiereNumeroSocioActivo) {
+    return { aplica: false, avisos: [], oficial: null };
+  }
 
   const numero = normalizarNumeroSocio(datos.numeroSocioActivo);
   const deLaTableta =
@@ -36,29 +39,43 @@ export async function comprobarOficial(
       motivo: error instanceof Error ? error.message : String(error),
     }));
 
+  // Sin consulta al CRM en este momento, lo que trae la tableta se enseña pero
+  // NO se da por verificado: es un dato que llegó del cliente, y el Parentesco
+  // de SAFI solo se compone con lo que el servidor comprobó él mismo. Vacío
+  // antes que equivocado. En modo API esto casi no ocurre —con SAFI caído
+  // tampoco se podría dar de alta—, pero la regla no debe depender de eso.
   if (!consulta.consultado) {
-    const yaVerificado = deLaTableta?.resultado === "VERIFICADO";
+    const segunLaTableta =
+      deLaTableta?.resultado === "VERIFICADO"
+        ? ` La tableta lo había verificado el ${formatFechaHora(deLaTableta.en)} (${[
+            deLaTableta.gradoMilitar,
+            deLaTableta.nombres,
+            deLaTableta.apellidos,
+          ]
+            .join(" ")
+            .trim()}), pero ahora no se puede volver a comprobar.`
+        : "";
     return {
-      avisos: yaVerificado
-        ? []
-        : [
-            {
-              campo: "numeroSocioActivo",
-              etiqueta: "Oficial FAE sin verificar",
-              valor: numero,
-              bloquea: false,
-              origen: "COHERENCIA",
-              mensaje: `No se pudo comprobar en SAFI que el N.º ${numero} sea de un Socio Activo o de un Fundador (${consulta.motivo.replace(/\.$/, "")}). Compruébelo en el CRM antes de crear la ficha: su grado y su nombre van en el Parentesco.`,
-            },
-          ],
-      oficial: yaVerificado ? deLaTableta : null,
+      aplica: true,
+      avisos: [
+        {
+          campo: "numeroSocioActivo",
+          etiqueta: "Oficial FAE sin verificar",
+          valor: numero,
+          bloquea: false,
+          origen: "COHERENCIA",
+          mensaje: `No se pudo comprobar en SAFI que el N.º ${numero} sea de un Socio Activo o de un Fundador (${consulta.motivo.replace(/\.$/, "")}).${segunLaTableta} Compruébelo en el CRM antes de crear la ficha: el Parentesco quedará vacío y habrá que escribirlo a mano.`,
+        },
+      ],
+      oficial: null,
     };
   }
 
   const { oficial } = consulta;
-  if (oficial.resultado === "VERIFICADO") return { avisos: [], oficial };
+  if (oficial.resultado === "VERIFICADO") return { aplica: true, avisos: [], oficial };
 
   return {
+    aplica: true,
     avisos: [
       {
         campo: "numeroSocioActivo",

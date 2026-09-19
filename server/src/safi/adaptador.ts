@@ -314,11 +314,14 @@ class AdaptadorConectado implements AdaptadorSafi {
     );
 
     // El oficial es el titular de su número: la ficha de secuencia 00. Las
-    // demás de ese número son sus dependientes.
-    const titular = fichas.find((ficha) => {
-      const secuencia = this.valor(ficha, CAMPOS_SOCIO.secuencia).trim();
-      return secuencia === "00" || secuencia === "0" || secuencia === "";
-    });
+    // demás de ese número son sus dependientes. Comprobado en el CRM el
+    // 19/09/2026: las 1.756 fichas ACTIVO y las 26 FUNDADOR tienen «00». Una
+    // secuencia «0» o vacía solo se acepta si no hay ninguna «00», para que un
+    // dependiente sin secuencia nunca se tome por el oficial.
+    const secuenciaDe = (ficha: FichaSafi) => this.valor(ficha, CAMPOS_SOCIO.secuencia).trim();
+    const titular =
+      fichas.find((ficha) => secuenciaDe(ficha) === "00") ??
+      fichas.find((ficha) => secuenciaDe(ficha) === "0" || secuenciaDe(ficha) === "");
     const en = new Date().toISOString();
     const numeroSocioConsultado = normalizarNumeroSocio(numeroSocio);
 
