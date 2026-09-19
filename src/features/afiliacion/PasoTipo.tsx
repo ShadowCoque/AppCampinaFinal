@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { requisitosPara } from "../../domain/documentos";
@@ -16,8 +16,18 @@ import {
   type TipoMiembro,
 } from "../../domain/tiposMiembro";
 import { soloDigitos } from "../../domain/validaciones";
+import { consultarOficial } from "../../services/servidor";
 import { colors, radius, spacing } from "../../theme";
-import { Card, DataRow, InfoNote, OptionGroup, SelectField, TextField, type SelectOption } from "../../ui";
+import {
+  Button,
+  Card,
+  DataRow,
+  InfoNote,
+  OptionGroup,
+  SelectField,
+  TextField,
+  type SelectOption,
+} from "../../ui";
 
 type Props = {
   datos: DatosAfiliacion;
@@ -38,6 +48,34 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
   );
 
   const reglas = reglasDe(datos.tipoMiembro);
+
+  // Oficial FAE del que depende un D-A o D-B: se consulta en SAFI, a través del
+  // servidor, en cuanto se termina de escribir el número. Si no se puede
+  // consultar, se sigue: la bandeja lo comprobará antes de crear la ficha.
+  const [consultando, setConsultando] = useState(false);
+  const [sinConsulta, setSinConsulta] = useState<string | null>(null);
+  const oficial =
+    datos.oficialDependencia?.numeroSocio === datos.numeroSocioActivo
+      ? datos.oficialDependencia
+      : null;
+
+  const verificarOficial = async () => {
+    const numero = datos.numeroSocioActivo;
+    if (!numero || consultando) return;
+    setConsultando(true);
+    setSinConsulta(null);
+    try {
+      const consulta = await consultarOficial(numero);
+      if (consulta.consultado) {
+        setDato("oficialDependencia", consulta.oficial);
+      } else {
+        setDato("oficialDependencia", null);
+        setSinConsulta(consulta.motivo);
+      }
+    } finally {
+      setConsultando(false);
+    }
+  };
   const requisitos = requisitosPara(datos.tipoMiembro);
   const documentos = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
 
@@ -190,9 +228,49 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
             maxLength={8}
             icon="barcode-outline"
             value={datos.numeroSocioActivo}
-            onChangeText={(v) => setDato("numeroSocioActivo", normalizarNumeroSocio(v))}
+            onChangeText={(v) => {
+              const numero = normalizarNumeroSocio(v);
+              setDato("numeroSocioActivo", numero);
+              // Otro número: lo que se consultó ya no vale.
+              if (datos.oficialDependencia && datos.oficialDependencia.numeroSocio !== numero) {
+                setDato("oficialDependencia", null);
+              }
+              setSinConsulta(null);
+            }}
+            onBlur={() => {
+              if (datos.numeroSocioActivo && !oficial) void verificarOficial();
+            }}
             error={errores.numeroSocioActivo}
+            helper="Debe ser de un Socio Activo o de un Fundador. Se comprueba en SAFI."
           />
+
+          {oficial?.resultado === "VERIFICADO" ? (
+            <InfoNote tone="success" icon="shield-checkmark">
+              {`${[oficial.gradoMilitar, oficial.nombres, oficial.apellidos].join(" ").trim()} · Socio ${oficial.tipoSocioSafi} en SAFI. Su grado y su nombre irán en el Parentesco de la ficha.`}
+            </InfoNote>
+          ) : null}
+          {oficial && oficial.resultado !== "VERIFICADO" ? (
+            <InfoNote tone="danger" icon="close-circle">
+              {oficial.resultado === "NO_ENCONTRADO"
+                ? `SAFI no tiene el número de socio ${oficial.numeroSocio}. Revíselo con el socio.`
+                : `El N.º ${oficial.numeroSocio} es de ${[oficial.nombres, oficial.apellidos].join(" ").trim()}, socio ${oficial.tipoSocioSafi || "de otra categoría"}: no es Socio Activo ni Fundador. Un D-A o D-B depende de uno de ellos.`}
+            </InfoNote>
+          ) : null}
+          {sinConsulta ? (
+            <InfoNote tone="warning" icon="cloud-offline">
+              {`No se pudo consultar SAFI (${sinConsulta.replace(/\.$/, "")}). Puede continuar: la bandeja comprobará el número antes de crear la ficha.`}
+            </InfoNote>
+          ) : null}
+          {datos.numeroSocioActivo && !oficial ? (
+            <Button
+              label={consultando ? "Consultando SAFI…" : "Comprobar en SAFI"}
+              icon="search-outline"
+              variant="secondary"
+              onPress={() => void verificarOficial()}
+              loading={consultando}
+              fullWidth
+            />
+          ) : null}
         </Card>
       ) : null}
     </>

@@ -1,3 +1,9 @@
+import {
+  cambiosEntre,
+  describirCambios,
+  puedeCorregirse,
+  type CambioDatos,
+} from "../../../src/domain/correccion";
 import { escaneosEsperados, type TipoDocumento } from "../../../src/domain/documentos";
 import {
   AREA_META,
@@ -12,6 +18,7 @@ import {
   type ConfirmacionSafi,
   type ConstanciaTramite,
   type EstadoSolicitud,
+  type OficialDependencia,
   type RolAdjunto,
   type SolicitudAfiliacion,
   type TramiteInterno,
@@ -542,7 +549,119 @@ export function aprobar(id: string, entrada: { observacion: string }, actor: Act
  * aprobación, y escribirla sobre ellas hacía que el reverso imprimiera
  * «Revisado» con el nombre de quien en realidad había devuelto el trámite.
  */
-export function devolver(id: string, entrada: { observacion: string }, actor: Actor): ResultadoAvance {
+/**
+ * Guarda en el trámite lo que SAFI dijo del oficial FAE del que depende un D-A
+ * o D-B, cuando la bandeja lo verificó antes del alta. No es una corrección de
+ * la persona, así que no deja entrada en el historial: es el dato con que se
+ * compuso su Parentesco.
+ */
+export function fijarOficialDependencia(
+  id: string,
+  oficial: OficialDependencia
+): SolicitudAfiliacion | null {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return null;
+  const actualizada = { ...actual, datos: { ...actual.datos, oficialDependencia: oficial } };
+  guardarDocumento(actualizada);
+  return actualizada;
+}
+
+/**
+ * Corrige los datos de una afiliación ya registrada, desde la tableta.
+ *
+ * El trámite conserva su código, su estado, sus constancias y su expediente:
+ * solo cambian los datos de la persona. Lo que cambió queda en el historial y
+ * en la bitácora, campo por campo, con su valor anterior y el nuevo —el socio
+ * no vuelve a firmar, así que esa trazabilidad es la que respalda el cambio—.
+ *
+ * Las reglas de cuándo se puede están en `puedeCorregirse` (dominio), las
+ * mismas que usa la tableta para ofrecer el botón. Si el socio ya existe en
+ * SAFI, el CRM **no** se toca: el historial dice que hay que corregirlo allá.
+ */
+export function corregirSolicitud(
+  id: string,
+  entrante: SolicitudAfiliacion,
+  actor: Actor
+): ResultadoAvance & { cambios?: CambioDatos[] } {
+  const actual = obtenerSolicitud(id);
+  if (!actual) return fallo(404, "Solicitud no encontrada.");
+
+  const permiso = puedeCorregirse(actual);
+  if (!permiso.permitido) return fallo(409, permiso.motivo);
+
+  const datos = depurarEntrante(entrante, actor, ahora()).datos;
+  // La fecha de ingreso al Club es la del registro original, no la de hoy.
+  datos.fechaIngresoClub = actual.datos.fechaIngresoClub || datos.fechaIngresoClub;
+
+  if (permiso.yaEnSafi && datos.tipoMiembro !== actual.datos.tipoMiembro) {
+    return fallo(
+      409,
+      "El socio ya está creado en SAFI con su categoría: la Cuenta y el número de socio dependen de ella. Para cambiarla, anule este trámite y registre uno nuevo."
+    );
+  }
+
+  const cambios = cambiosEntre(actual.datos, datos);
+
+  const consentimientoCambia =
+    entrante.consentimiento &&
+    JSON.stringify(entrante.consentimiento.valores) !==
+      JSON.stringify(actual.consentimiento?.valores ?? null);
+  if (consentimientoCambia) {
+    cambios.push({
+      campo: "consentimiento",
+      etiqueta: "Autorizaciones de protección de datos",
+      anterior: "modificado",
+      nuevo: "modificado",
+    });
+  }
+
+  // Un reintento de la misma corrección no deja un segundo registro.
+  if (cambios.length === 0) return { ok: true, solicitud: actual, cambios };
+
+  const tipoCambia = datos.tipoMiembro !== actual.datos.tipoMiembro;
+  const aviso = permiso.yaEnSafi
+    ? " La ficha de SAFI no se actualiza sola: corríjala también en el CRM."
+    : "";
+
+  const resultado = aplicar(
+    actual,
+    {
+      datos,
+      consentimiento: consentimientoCambia ? entrante.consentimiento : actual.consentimiento,
+      // Antes del alta todavía no se ha archivado ningún escaneo: si cambió la
+      // categoría, lo que se espera escanear es lo de la nueva.
+      expediente: tipoCambia
+        ? { ...actual.expediente, escaneosPendientes: escaneosEsperados(datos.tipoMiembro) }
+        : actual.expediente,
+    },
+    {
+      estado: actual.estado,
+      nota: `Datos corregidos desde la tableta. ${describirCambios(cambios)}.${aviso}`,
+      accion: "AFILIACION_CORREGIDA",
+    },
+    actor
+  );
+  return { ...resultado, cambios };
+}
+
+/**
+ * Contabilidad o la Gerencia devuelven el trámite con una observación.
+ *
+ * Contabilidad devuelve siempre al Área de Socios. La Gerencia elige el
+ * destino (decisión del Coordinador, 19/09/2026):
+ *
+ *   · **Al Área de Socios**, si hay que corregir la afiliación. Al reenviarla,
+ *     vuelve directo a la Gerencia: la revisión de Contabilidad sigue en pie.
+ *   · **A Contabilidad**, si lo que hay que rehacer es la revisión. El trámite
+ *     vuelve a su bandeja como pendiente de revisar —la revisión anterior se
+ *     deshace, para que el reverso no imprima un REVISADO que ya no vale— y al
+ *     marcarlo revisado otra vez, pasa de nuevo a la Gerencia.
+ */
+export function devolver(
+  id: string,
+  entrada: { observacion: string; destino?: Area },
+  actor: Actor
+): ResultadoAvance {
   const actual = obtenerSolicitud(id);
   if (!actual) return fallo(404, "Solicitud no encontrada.");
 
@@ -554,18 +673,53 @@ export function devolver(id: string, entrada: { observacion: string }, actor: Ac
     );
   }
 
+  const destino: Area = actor.area === "GERENCIA" ? entrada.destino ?? "SOCIOS" : "SOCIOS";
+  if (destino !== "SOCIOS" && destino !== "CONTABILIDAD") {
+    return fallo(400, "La Gerencia devuelve al Área de Socios o a Contabilidad.");
+  }
+
   const nota = constancia(actor, entrada.observacion);
+
+  if (destino === "CONTABILIDAD") {
+    return aplicar(
+      actual,
+      {
+        estado: "REGISTRADA",
+        tramite: {
+          ...actual.tramite,
+          revision: null,
+          devolucion: {
+            ...nota,
+            destino,
+            numeroFacturaAnterior: actual.tramite.revision?.numeroFactura ?? "",
+          },
+          observaciones: acumular(actual.tramite, nota),
+        },
+      },
+      {
+        estado: "REGISTRADA",
+        nota: `Devuelto a Contabilidad: ${entrada.observacion}`,
+        accion: "TRAMITE_DEVUELTO_A_CONTABILIDAD",
+      },
+      actor
+    );
+  }
+
   return aplicar(
     actual,
     {
       estado: "OBSERVADA",
       tramite: {
         ...actual.tramite,
-        devolucion: nota,
+        devolucion: { ...nota, destino },
         observaciones: acumular(actual.tramite, nota),
       },
     },
-    { estado: "OBSERVADA", nota: entrada.observacion, accion: "TRAMITE_OBSERVADA" },
+    {
+      estado: "OBSERVADA",
+      nota: `Devuelto al Área de Socios: ${entrada.observacion}`,
+      accion: "TRAMITE_OBSERVADA",
+    },
     actor
   );
 }

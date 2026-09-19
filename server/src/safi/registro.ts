@@ -21,6 +21,7 @@ import {
 import {
   esEstadoCivilCasado,
   fuerzaFijaPara,
+  reglasDe,
   tieneCuentaPropia,
   type Fuerza,
   type TipoMiembro,
@@ -406,6 +407,38 @@ export function noEnviarEmail(solicitud: SolicitudAfiliacion): string {
 }
 
 /**
+ * Parentesco de la ficha, según de quién dependa la persona:
+ *
+ *   · el cónyuge, los padres y el juvenil, del socio titular de su Cuenta;
+ *   · el D-A y el D-B, del oficial FAE cuyo número declaran —tienen Cuenta
+ *     propia, pero dependen de él (decisión del Coordinador, 19/09/2026)—. Sus
+ *     datos son los que devolvió SAFI al verificarlo, no los que alguien
+ *     escribió: si no está verificado, va vacío antes que equivocado;
+ *   · los demás, de nadie.
+ */
+function parentescoDe(datos: SolicitudAfiliacion["datos"]): string {
+  if (reglasDe(datos.tipoMiembro)?.requiereNumeroSocioActivo) {
+    const oficial = datos.oficialDependencia;
+    const vigente =
+      oficial?.resultado === "VERIFICADO" &&
+      oficial.numeroSocio === normalizarNumeroSocio(datos.numeroSocioActivo);
+    return vigente && oficial
+      ? parentescoSafi({
+          gradoMilitarTitular: normalizarTextoInstitucional(oficial.gradoMilitar).trim(),
+          nombresTitular: normalizarNombreFinal(oficial.nombres),
+          apellidosTitular: normalizarNombreFinal(oficial.apellidos),
+        })
+      : "";
+  }
+  if (tieneCuentaPropia(datos.tipoMiembro)) return "";
+  return parentescoSafi({
+    gradoMilitarTitular: normalizarTextoInstitucional(datos.titularGradoMilitar).trim(),
+    nombresTitular: normalizarNombreFinal(datos.titularNombres),
+    apellidosTitular: normalizarNombreFinal(datos.titularApellidos),
+  });
+}
+
+/**
  * Campos de la ficha del Socio (`Contacts`): una por persona, titular o
  * dependiente, todas apuntando a la Cuenta del titular.
  *
@@ -439,16 +472,10 @@ export function camposSocio(
     [CAMPOS_SOCIO.nombres]: normalizarNombreFinal(datos.nombres),
     [CAMPOS_SOCIO.apellidos]: normalizarNombreFinal(datos.apellidos),
 
-    // Parentesco identifica al titular del que depende esta persona, no la
+    // Parentesco identifica al socio del que depende esta persona, no la
     // palabra del vínculo: de eso ya se encarga el Segmento. Va en el orden
     // grado · nombres · apellidos, que es el que usa el CRM.
-    [CAMPOS_SOCIO.parentesco]: esTitular
-      ? ""
-      : parentescoSafi({
-          gradoMilitarTitular: normalizarTextoInstitucional(datos.titularGradoMilitar).trim(),
-          nombresTitular: normalizarNombreFinal(datos.titularNombres),
-          apellidosTitular: normalizarNombreFinal(datos.titularApellidos),
-        }),
+    [CAMPOS_SOCIO.parentesco]: parentescoDe(datos),
 
     [CAMPOS_SOCIO.fechaNacimiento]: fechaSafi(datos.fechaNacimiento, via),
     // El Segmento y el Tipo de Socio salen los dos del tipo elegido en el

@@ -1,5 +1,6 @@
 import type { TipoDocumento } from "./documentos";
 import type { FormaPago } from "./facturacion";
+import { formatFechaHora } from "./fechas";
 import type { ModoFirma } from "./firmaElectronica";
 import type { ClaveConsentimiento } from "./privacidad";
 import {
@@ -315,6 +316,20 @@ export type DatosAfiliacion = {
    * socio D-A o D-B, que conserva cuenta y facturación propias.
    */
   numeroSocioActivo: string;
+  /**
+   * Lo que el CRM de SAFI dice del oficial de `numeroSocioActivo`, consultado
+   * desde la tableta al escribir el número o desde la bandeja antes de crear
+   * la ficha.
+   *
+   * `null` —o de otro número— significa **sin verificar**: la tableta trabaja
+   * sin red y no se le impide avanzar; la bandeja lo comprueba antes del alta.
+   * Lo que sí impide avanzar es una respuesta del CRM que diga que ese número
+   * no existe o que no es de un Socio Activo ni de un Fundador.
+   *
+   * Su grado, nombres y apellidos van al campo Parentesco de la ficha del
+   * D-A o D-B en SAFI: es como la Jefatura reconoce de quién depende.
+   */
+  oficialDependencia: OficialDependencia | null;
 
   /** Identificación. */
   apellidos: string;
@@ -403,6 +418,7 @@ export function datosVacios(): DatosAfiliacion {
     titularSituacion: null,
     vinculoConTitular: null,
     numeroSocioActivo: "",
+    oficialDependencia: null,
     apellidos: "",
     nombres: "",
     cedula: "",
@@ -593,6 +609,50 @@ export type ConstanciaTramite = {
 };
 
 /**
+ * Una devolución con observación.
+ *
+ * Contabilidad devuelve siempre al Área de Socios. La Gerencia elige: al Área
+ * de Socios, cuando hay que corregir la afiliación, o a Contabilidad, cuando lo
+ * que hay que rehacer es la revisión (decisión del Coordinador, 19/09/2026).
+ */
+export type DevolucionTramite = ConstanciaTramite & {
+  /**
+   * Área a la que vuelve el trámite. Ausente en las devoluciones anteriores al
+   * 19/09/2026, que iban todas al Área de Socios.
+   */
+  destino?: Area;
+  /**
+   * Número de factura de la revisión que se deshace cuando la Gerencia devuelve
+   * a Contabilidad, para ofrecerlo de nuevo y no obligar a buscarlo otra vez.
+   */
+  numeroFacturaAnterior?: string;
+};
+
+/** A qué área volvió un trámite devuelto. */
+export function destinoDevolucion(devolucion: DevolucionTramite | null | undefined): Area {
+  return devolucion?.destino ?? "SOCIOS";
+}
+
+/**
+ * Oficial FAE del que depende un socio D-A o D-B, según el CRM de SAFI.
+ *
+ *   VERIFICADO               Existe y es Socio Activo o Socio Fundador.
+ *   NO_ENCONTRADO            SAFI no tiene ese número de socio.
+ *   NO_ES_ACTIVO_NI_FUNDADOR Existe, pero es de otra categoría.
+ */
+export type OficialDependencia = {
+  /** El número consultado: si el operador lo cambia, la verificación ya no vale. */
+  numeroSocio: string;
+  resultado: "VERIFICADO" | "NO_ENCONTRADO" | "NO_ES_ACTIVO_NI_FUNDADOR";
+  apellidos: string;
+  nombres: string;
+  gradoMilitar: string;
+  /** Tipo de socio tal como lo guarda SAFI (`cf_917`). */
+  tipoSocioSafi: string;
+  en: string;
+};
+
+/**
  * Recuadro INFORMACIÓN INTERNA DEL CLUB del reverso del formulario impreso,
  * llevado al sistema: los números que asigna el Área de Socios y las tres
  * constancias con fecha, hora y responsable.
@@ -635,14 +695,14 @@ export type TramiteInterno = {
   revision: (ConstanciaTramite & { numeroFactura: string }) | null;
   aprobacion: ConstanciaTramite | null;
   /**
-   * Devolución pendiente: Contabilidad o la Gerencia devolvieron el trámite al
-   * Área de Socios con una observación.
+   * Devolución pendiente: Contabilidad o la Gerencia devolvieron el trámite con
+   * una observación, al área que indica `destino`.
    *
    * Va aparte de las constancias a propósito. Una devolución no es una
    * revisión ni una aprobación: si se escribiera sobre ellas, el reverso
    * imprimiría «Revisado» con el nombre de quien en realidad lo devolvió.
    */
-  devolucion?: ConstanciaTramite | null;
+  devolucion?: DevolucionTramite | null;
   /**
    * Todas las observaciones del trámite, en orden: las devoluciones y las
    * respuestas del Área de Socios al reenviarlo. Son las que el reverso imprime
@@ -683,11 +743,14 @@ export function observacionesDeArea(tramite: TramiteInterno, area: Area): string
   const textos: string[] = [];
   for (const nota of tramite.observaciones ?? []) {
     if (nota.area === area && nota.observacion.trim()) {
-      textos.push(`${nota.en.slice(0, 10).split("-").reverse().join("/")}: ${nota.observacion.trim()}`);
+      // Fecha **y hora**, en hora del Ecuador. Hasta el 19/09/2026 se imprimía
+      // solo el día, tomado de la hora UTC: una observación escrita después de
+      // las 19:00 salía con la fecha del día siguiente.
+      textos.push(`${formatFechaHora(nota.en)}: ${nota.observacion.trim()}`);
     }
   }
   if (area === "SOCIOS" && tramite.anulacion?.observacion) {
-    textos.push(`Anulado: ${tramite.anulacion.observacion}`);
+    textos.push(`${formatFechaHora(tramite.anulacion.en)} · Anulado: ${tramite.anulacion.observacion}`);
   }
   return textos;
 }

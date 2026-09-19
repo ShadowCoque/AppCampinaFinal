@@ -40,15 +40,21 @@ quiera: las constancias ya emitidas conservan la firma con la que se estamparon.
 
 ```
 Tableta ──► [Socios] Crear en SAFI ──► [Contabilidad] Revisar ──► [Gerencia] Aprobar ──► expediente completo
-                                              │                        │
-                                              └──── Devolver ◄─────────┘
-                                                       │
-                                          [Socios] Atender y reenviar, o anular
+                                         ▲    │                  │    │
+                                         │    │                  │    └── Devolver a Contabilidad ──► vuelve a Revisar
+                                         │    └── Devolver ──┐   └─────── Devolver al Área de Socios ─┐
+                                         │                   ▼                                        ▼
+                                         └──── [Socios] Atender y reenviar ◄──────────────────────────┘
+                                               (va a quien lo devolvió)        o anular
 ```
 
 Los estados por los que pasa el trámite: `REGISTRADA` → `REVISADA` →
-`APROBADA`. Una devolución lo deja en `OBSERVADA`; una anulación, en
-`RECHAZADA`.
+`APROBADA`. Una devolución al Área de Socios lo deja en `OBSERVADA`; una
+devolución de la Gerencia a Contabilidad lo vuelve a `REGISTRADA`, pendiente de
+revisar; una anulación, en `RECHAZADA`.
+
+**Todo lo que deja rastro lleva fecha y hora** —constancias, observaciones,
+devoluciones, correcciones e historial—, siempre en hora del Ecuador.
 
 ---
 
@@ -132,6 +138,25 @@ y la ven Contabilidad y la Gerencia.
 **Atendidas** del Área de Socios, y la afiliación aparece en **Pendientes de
 Contabilidad**. En SAFI deben existir la Cuenta y el Socio con ese número.
 
+**Si el panel encuentra un dato mal —una cédula que ya es de otro socio, por
+ejemplo—, no hace falta anular ni capturar todo otra vez.** En la tableta, la
+solicitud tiene **«Corregir datos»**: abre el mismo asistente con lo registrado,
+se cambia lo necesario en cualquier paso y se guarda. El trámite conserva su
+código y su firma —el socio no vuelve a firmar—, y el historial deja cada campo
+cambiado con su valor anterior, quién y cuándo. Se puede corregir **mientras no
+exista en SAFI**; después, solo si se lo devuelven al Área de Socios con una
+observación, y entonces hay que corregir también la ficha del CRM a mano (el
+sistema lo recuerda y no deja cambiar la categoría). La corrección necesita
+conexión: si no la hay, la tableta no cambia nada y lo dice.
+
+**Socios D-A y D-B.** Dependen de un oficial FAE, que tiene que ser **Socio
+Activo o Fundador**. La tableta lo comprueba en SAFI al escribir su número y
+muestra su grado y su nombre; si SAFI dice que ese número no existe o es de otra
+categoría, no deja avanzar. Si en ese momento no pudo consultar, deja avanzar y
+lo comprueba este panel, que **no deja crear la ficha** hasta que el oficial sea
+Activo o Fundador. Su grado, nombres y apellidos, tal como constan en SAFI, van
+al campo **Parentesco** de la ficha del D-A o D-B.
+
 > **Pendiente del lado del Club:** `CORRESPONSAL A` no existe todavía en la
 > lista `cf_917` de SAFI, ni sus cuotas `480` y `40`. Hasta que se creen, un
 > Corresponsal A no se puede dar de alta y el panel lo avisa.
@@ -176,7 +201,13 @@ hay nada» de «algo se quedó atascado antes de llegarme».
 3. **«Marcar como revisada»**, con el número de factura si la afiliación genera
    comprobante.
 4. O **«Devolver con observación»** (mínimo diez caracteres): el trámite vuelve
-   al Área de Socios como *Devuelta con observaciones*.
+   **siempre al Área de Socios** como *Devuelta con observaciones*. Cuando esta
+   lo reenvía, **vuelve a Contabilidad**.
+
+Si es la Gerencia quien se la devuelve a Contabilidad, la tarea aparece como
+**«Revisar de nuevo…»**, con su observación, y la revisión anterior queda
+deshecha para que el reverso no imprima un REVISADO que ya no vale. El número de
+factura anterior se ofrece otra vez al marcarla revisada.
 
 La observación al marcar revisada es **opcional**, y **todas se acumulan**: si
 Contabilidad devolvió el trámite y después lo pasó a la Gerencia, la Gerencia ve
@@ -194,7 +225,11 @@ Contabilidad y entra en **Pendientes de Gerencia**.
 **Tarea:** «Aprobar el ingreso AF-2026-####».
 
 1. **«Ver expediente»** y, si Contabilidad dejó observación, léala en la tarjeta.
-2. **«Aprobar el ingreso»**, o devolver con observación.
+2. **«Aprobar el ingreso»**, o **«Devolver con observación»**, eligiendo a quién:
+   - **al Área de Socios**, si hay que corregir la afiliación. Al reenviarla,
+     **vuelve directo a la Gerencia**: la revisión de Contabilidad sigue en pie;
+   - **a Contabilidad**, si lo que hay que rehacer es la revisión. Al marcarla
+     revisada otra vez, vuelve a la Gerencia.
 
 Al aprobar, el servidor hace dos cosas **por su cuenta**, sin hacer esperar a la
 Gerencia:
@@ -275,9 +310,9 @@ cierra. La bandeja dibuja un botón por cada salida.
 | Archivo no reconocido | Socios | Ya lo renombré: revisar · Asignar a un trámite… · Dar por resuelto |
 | Falta archivar el formulario final | Socios | Generar y archivar el formulario |
 | Pendiente de cargar al CRM de SAFI | Socios | Reintentar la carga · Ya los cargué a mano |
-| Devuelta con observaciones | Socios | Atender y reenviar · Anular el trámite |
-| Pendiente de revisión | Contabilidad | Marcar como revisada · Devolver con observación |
-| Pendiente de aprobación | Gerencia | Aprobar el ingreso · Devolver con observación |
+| Devuelta con observaciones | Socios | Atender y reenviar · Anular el trámite · (en la tableta) Corregir datos |
+| Pendiente de revisión (o «Revisar de nuevo») | Contabilidad | Marcar como revisada · Devolver con observación |
+| Pendiente de aprobación | Gerencia | Aprobar el ingreso · Devolver con observación, al Área de Socios o a Contabilidad |
 
 Cada tarjeta lleva además una línea en imperativo con **qué debe hacer** quien la
 recibe, y la antigüedad de la tarea (en rojo a partir del tercer día).
@@ -329,8 +364,18 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
 9. [ ] Escaneo de cédula con el nombre exacto en la carpeta compartida →
        archivado y original en `_ARCHIVADOS`.
 10. [ ] SAFI: el expediente publicado en Documentos de la Cuenta.
-11. [ ] Probar una devolución: Contabilidad devuelve con observación, Socios
-        atiende y reenvía.
+11. [ ] Probar las devoluciones: Contabilidad devuelve (vuelve a
+        Contabilidad al reenviar); la Gerencia devuelve al Área de Socios
+        (vuelve directo a la Gerencia) y a Contabilidad («Revisar de nuevo»).
+        En el reverso, cada observación con **fecha y hora**.
+12. [ ] Corregir desde la tableta: registrar a propósito una cédula ya usada,
+        ver el aviso en el panel de SAFI, «Corregir datos» en la tableta y
+        comprobar que el panel ya no avisa y que el historial muestra el
+        cambio.
+13. [ ] Un D-A con el número de un Socio Activo real: la tableta muestra su
+        grado y su nombre; con el de un socio de otra categoría, no deja
+        avanzar. En SAFI, el Parentesco de la ficha del D-A con ese grado y ese
+        nombre.
 
 ---
 

@@ -48,12 +48,27 @@ export function formatFechaLarga(iso: string): string {
   return `${date.getDate()} de ${MESES[date.getMonth()]} de ${date.getFullYear()}`;
 }
 
-/** Fecha y hora legibles a partir de un timestamp ISO completo. */
+/**
+ * Diferencia del Ecuador continental con UTC. El país no aplica horario de
+ * verano, así que es fija.
+ */
+const DESFASE_ECUADOR_MS = -5 * 60 * 60 * 1000;
+
+/**
+ * Fecha y hora legibles, **en hora del Ecuador**, a partir de un timestamp ISO
+ * completo: `16/09/2026 · 19:42`.
+ *
+ * No depende de la zona horaria del equipo que la imprime. La tableta está en
+ * hora del Ecuador, pero el servidor corre en un contenedor, y un contenedor
+ * sin su zona configurada imprimía la hora de Greenwich —cinco horas más— en
+ * el reverso del formulario.
+ */
 export function formatFechaHora(isoTimestamp: string): string {
-  const date = new Date(isoTimestamp);
-  if (Number.isNaN(date.getTime())) return "—";
-  const fecha = `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
-  const hora = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const instante = new Date(isoTimestamp).getTime();
+  if (Number.isNaN(instante)) return "—";
+  const local = new Date(instante + DESFASE_ECUADOR_MS);
+  const fecha = `${String(local.getUTCDate()).padStart(2, "0")}/${String(local.getUTCMonth() + 1).padStart(2, "0")}/${local.getUTCFullYear()}`;
+  const hora = `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`;
   return `${fecha} · ${hora}`;
 }
 

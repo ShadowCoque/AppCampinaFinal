@@ -381,9 +381,11 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 | `GET` | `/api/solicitudes` | cualquiera | Listado de trámites. |
 | `GET` | `/api/solicitudes/:id` | cualquiera | Expediente completo: datos, tareas, adjuntos y documentos. |
 | `POST` | `/api/solicitudes` | Socios | Registra una afiliación con sus firmas (idempotente). |
+| `PUT` | `/api/solicitudes/:id` | Socios | Corrige los datos desde la tableta: antes del alta en SAFI, o devuelta al Área de Socios. El historial guarda cada campo con su valor anterior. |
 | `DELETE` | `/api/solicitudes/:id` | Socios | Borra un trámite de prueba con sus adjuntos. Rechaza (409) el que ya tiene número de socio, ficha en SAFI o documentos archivados: ese se anula. |
 | `POST` | `/api/solicitudes/:id/adjuntos` | Socios | Firma que se sube desde la bandeja. |
 | `GET` | `/api/solicitudes/:id/adjuntos/:rol` | cualquiera | Firma, para verla en la bandeja. |
+| `GET` | `/api/safi/oficiales/:numero` | Socios | Si un número de socio es de un Socio Activo o Fundador en SAFI, con su grado y nombre (solo lectura). |
 | `POST` | `/api/tableta/avance` | Socios | Estado y constancias de los trámites que la tableta ya envió. |
 | `GET` | `/api/solicitudes/:id/formulario` | cualquiera | El formulario completo en pantalla. |
 | `GET` | `/api/solicitudes/:id/formulario.pdf` | cualquiera | El mismo formulario, impreso en PDF. |
@@ -393,7 +395,7 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 | `GET` | `/api/safi/diagnostico` | Socios | Comprueba la conexión con el CRM paso a paso. |
 | `POST` | `/api/solicitudes/:id/revisar` | Contabilidad | Constancia REVISADO + casilla FC (opcional). |
 | `POST` | `/api/solicitudes/:id/aprobar` | Gerencia | Constancia APROBADO; archiva el formulario final. |
-| `POST` | `/api/solicitudes/:id/observar` | Contabilidad, Gerencia | Devuelve el trámite con observación. |
+| `POST` | `/api/solicitudes/:id/observar` | Contabilidad, Gerencia | Devuelve el trámite con observación. La Gerencia elige `destino`: `SOCIOS` o `CONTABILIDAD`. |
 | `POST` | `/api/solicitudes/:id/reenviar` | Socios | Atiende la observación y lo devuelve a quien lo devolvió. |
 | `POST` | `/api/solicitudes/:id/anular` | Socios | Anula un trámite que no procede. |
 | `POST` | `/api/solicitudes/:id/tarjeta` | Socios | Número de la credencial. |

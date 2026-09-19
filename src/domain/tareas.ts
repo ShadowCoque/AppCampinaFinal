@@ -4,6 +4,7 @@ import {
   AREA_META,
   ROL_ADJUNTO_META,
   adjuntosFaltantes,
+  destinoDevolucion,
   nombreCompleto,
   type Area,
   type SolicitudAfiliacion,
@@ -367,15 +368,24 @@ export function tareasDeSolicitud(solicitud: SolicitudAfiliacion): Tarea[] {
   }
 
   if (estado === "REGISTRADA" && creadoEnSafi(solicitud)) {
+    // La Gerencia puede devolver a Contabilidad en vez de al Área de Socios:
+    // el trámite vuelve a su revisión, con la observación a la vista.
+    const devuelta =
+      tramite.devolucion && destinoDevolucion(tramite.devolucion) === "CONTABILIDAD"
+        ? tramite.devolucion
+        : null;
     tareas.push({
       ...base,
       id: `${solicitud.id}:REVISAR`,
       tipo: "REVISAR",
       area: "CONTABILIDAD",
-      titulo: `Revisar la afiliación ${solicitud.codigo}`,
-      detalle:
-        "El socio ya consta en el CRM de SAFI. Compruebe el ingreso y, si esta afiliación genera comprobante, registre el número de factura.",
-      desde: solicitud.actualizadaEn,
+      titulo: devuelta
+        ? `Revisar de nuevo la afiliación ${solicitud.codigo}`
+        : `Revisar la afiliación ${solicitud.codigo}`,
+      detalle: devuelta
+        ? `${AREA_META[devuelta.area].etiqueta} la devolvió a Contabilidad: «${devuelta.observacion}». Atienda la observación y márquela revisada otra vez, o devuélvala al Área de Socios si lo que hay que corregir es la afiliación.`
+        : "El socio ya consta en el CRM de SAFI. Compruebe el ingreso y, si esta afiliación genera comprobante, registre el número de factura.",
+      desde: devuelta?.en ?? solicitud.actualizadaEn,
     });
   }
 

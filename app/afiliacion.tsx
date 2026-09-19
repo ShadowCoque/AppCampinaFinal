@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,16 +22,21 @@ import {
   cerrarBorrador,
   crearSolicitud,
   descartarBorrador,
+  estadoParaCorregir,
   guardarBorrador,
   leerBorrador,
   nuevaSolicitudId,
+  obtenerSolicitud,
 } from "../src/data/solicitudes";
+import { cambiosEntre, describirCambios, puedeCorregirse } from "../src/domain/correccion";
 import {
+  corregirAfiliacion,
   enumerarAdjuntos,
   sincronizar,
   situacionDeEntrega,
 } from "../src/services/servidor";
 import {
+  CLAVES_PASO,
   ajustarBloques,
   estadoInicial,
   pasosPara,
@@ -44,7 +49,11 @@ import {
 import type { ClaveConsentimiento } from "../src/domain/privacidad";
 import { fuerzaFijaPara } from "../src/domain/tiposMiembro";
 import type { ValoresDesdeSnic } from "../src/domain/snic";
-import type { DatosAfiliacion, RegistroIdentidad } from "../src/domain/solicitud";
+import type {
+  DatosAfiliacion,
+  RegistroIdentidad,
+  SolicitudAfiliacion,
+} from "../src/domain/solicitud";
 import { PasoCompromiso } from "../src/features/afiliacion/PasoCompromiso";
 import { PasoConsentimiento } from "../src/features/afiliacion/PasoConsentimiento";
 import { PasoContacto } from "../src/features/afiliacion/PasoContacto";
@@ -56,12 +65,20 @@ import { PasoPersonales } from "../src/features/afiliacion/PasoPersonales";
 import { PasoRevision } from "../src/features/afiliacion/PasoRevision";
 import { PasoTipo } from "../src/features/afiliacion/PasoTipo";
 import { colors, radius, shadow, spacing, typography } from "../src/theme";
-import { Button, Stepper } from "../src/ui";
+import { Button, InfoNote, Stepper } from "../src/ui";
 
 export default function AfiliacionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+
+  // `?corregir=<id>`: el mismo asistente, sobre una afiliación ya registrada.
+  // Nació de la prueba del 19/09/2026: una cédula repetida obligaba a anular el
+  // trámite y capturarlo entero otra vez para cambiar diez dígitos.
+  const { corregir } = useLocalSearchParams<{ corregir?: string }>();
+  const modoCorreccion = typeof corregir === "string" && corregir.length > 0;
+  const [original, setOriginal] = useState<SolicitudAfiliacion | null>(null);
+  const [yaEnSafi, setYaEnSafi] = useState(false);
 
   const [solicitudId, setSolicitudId] = useState(nuevaSolicitudId);
   const [estado, setEstado] = useState<EstadoFormulario>(estadoInicial);
@@ -80,7 +97,16 @@ export default function AfiliacionScreen() {
     void leerOperador().then(setOperador);
   }, []);
 
-  const pasos = useMemo(() => pasosPara(estado.datos), [estado.datos]);
+  // Al corregir, el socio no vuelve a firmar (decisión del Coordinador,
+  // 19/09/2026): el paso de consentimiento y firma no se muestra, y su firma y
+  // sus autorizaciones quedan como se registraron.
+  const pasos = useMemo(
+    () =>
+      pasosPara(estado.datos).filter(
+        (paso) => !(modoCorreccion && paso.key === "consentimiento")
+      ),
+    [estado.datos, modoCorreccion]
+  );
   // Cambiar el tipo de socio puede eliminar un paso (p. ej. el de garantes):
   // el índice se acota al dibujar, sin reescribir el estado.
   const indiceActual = Math.min(indice, pasos.length - 1);
@@ -90,6 +116,36 @@ export default function AfiliacionScreen() {
   /* ---------------- Borrador ---------------- */
 
   useEffect(() => {
+    if (!modoCorreccion) return;
+    let activo = true;
+    void (async () => {
+      const solicitud = await obtenerSolicitud(corregir);
+      if (!activo) return;
+      const permiso = solicitud ? puedeCorregirse(solicitud) : null;
+      if (!solicitud || !permiso?.permitido) {
+        Alert.alert(
+          "No se puede corregir",
+          permiso && !permiso.permitido ? permiso.motivo : "La afiliación ya no está en esta tableta."
+        );
+        router.back();
+        return;
+      }
+      setOriginal(solicitud);
+      setYaEnSafi(permiso.yaEnSafi);
+      setSolicitudId(solicitud.id);
+      setEstado(estadoParaCorregir(solicitud));
+      // Todo ya se validó al registrarla: se puede saltar a cualquier paso.
+      setCompletados(new Set(Array.from({ length: CLAVES_PASO.length }, (_, i) => i)));
+      setCargando(false);
+    })();
+    return () => {
+      activo = false;
+    };
+  }, [modoCorreccion, corregir, router]);
+
+  useEffect(() => {
+    // Al corregir no hay borrador: la afiliación ya existe y se edita sobre ella.
+    if (modoCorreccion) return;
     let activo = true;
     void (async () => {
       const borrador = await leerBorrador();
@@ -139,16 +195,16 @@ export default function AfiliacionScreen() {
     return () => {
       activo = false;
     };
-  }, []);
+  }, [modoCorreccion]);
 
   // Autoguardado: evita perder el avance si la app se cierra a mitad del trámite.
   useEffect(() => {
-    if (cargando || !estado.datos.tipoMiembro) return;
+    if (modoCorreccion || cargando || !estado.datos.tipoMiembro) return;
     const temporizador = setTimeout(() => {
       void guardarBorrador(solicitudId, indiceActual, estado);
     }, 700);
     return () => clearTimeout(temporizador);
-  }, [cargando, estado, indiceActual, solicitudId]);
+  }, [modoCorreccion, cargando, estado, indiceActual, solicitudId]);
 
   /* ---------------- Actualización de campos ---------------- */
 
@@ -211,7 +267,12 @@ export default function AfiliacionScreen() {
 
   const setFirmaGarante = useCallback(
     (indice: number, uri: string | null) => {
-      const anterior = estadoActual.current.datos.garantes[indice]?.firmaUri ?? null;
+      // Al corregir, la firma anterior sigue siendo la del trámite registrado
+      // hasta que el servidor acepte la corrección: no se borra aquí, sino al
+      // guardar (`corregirAfiliacion`).
+      const anterior = modoCorreccion
+        ? null
+        : estadoActual.current.datos.garantes[indice]?.firmaUri ?? null;
       const firmaUri = persistirFirma(solicitudId, uri, {
         prefijo: `firma-garante-${indice + 1}`,
         anterior,
@@ -228,7 +289,7 @@ export default function AfiliacionScreen() {
           : previos
       );
     },
-    [solicitudId]
+    [solicitudId, modoCorreccion]
   );
 
   const setIdentidad = useCallback((identidad: RegistroIdentidad) => {
@@ -262,6 +323,11 @@ export default function AfiliacionScreen() {
         "Faltan datos por completar",
         "Se le llevó al paso donde falta información. Revise los campos marcados en rojo."
       );
+      return;
+    }
+
+    if (modoCorreccion) {
+      guardarCorreccion();
       return;
     }
 
@@ -337,6 +403,78 @@ export default function AfiliacionScreen() {
     }
   };
 
+  /** Comprueba la corrección, la muestra para confirmar y la guarda. */
+  const guardarCorreccion = () => {
+    if (!original) return;
+
+    if (yaEnSafi && estado.datos.tipoMiembro !== original.datos.tipoMiembro) {
+      Alert.alert(
+        "La categoría no se cambia",
+        "Este socio ya está creado en SAFI con su categoría: la Cuenta y el número de socio dependen de ella. Para cambiarla, anule el trámite desde la bandeja y registre uno nuevo."
+      );
+      return;
+    }
+
+    // Un garante distinto no puede quedar con la firma del anterior.
+    const garanteSinFirma = estado.datos.garantes.findIndex((garante, indice) => {
+      const antes = original.datos.garantes[indice];
+      if (!antes) return false;
+      const otraPersona =
+        antes.cedula !== garante.cedula || antes.apellidosNombres !== garante.apellidosNombres;
+      return otraPersona && garante.firmaUri === antes.firmaUri;
+    });
+    if (garanteSinFirma >= 0) {
+      const destino = pasos.findIndex((paso) => paso.key === "garantes");
+      if (destino >= 0) setIndice(destino);
+      setErrores({
+        [`garante-${garanteSinFirma}-firma`]:
+          "Cambió el garante: capture la firma de la persona nueva.",
+      });
+      irArriba();
+      return;
+    }
+
+    const cambios = cambiosEntre(original.datos, estado.datos);
+    if (cambios.length === 0) {
+      Alert.alert("Sin cambios", "No modificó ningún dato de la afiliación.");
+      return;
+    }
+
+    Alert.alert(
+      "Guardar la corrección",
+      `${describirCambios(cambios)}.\n\nEl socio no vuelve a firmar: el cambio queda en el historial del trámite, con su valor anterior.${
+        yaEnSafi ? "\n\nEsta persona ya está creada en SAFI: corrija también su ficha en el CRM." : ""
+      }`,
+      [
+        { text: "Seguir corrigiendo", style: "cancel" },
+        {
+          text: "Guardar",
+          onPress: async () => {
+            setEnviando(true);
+            try {
+              const resultado = await corregirAfiliacion(original, estado, operador);
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert(
+                "Corrección guardada",
+                resultado.enServidor
+                  ? `El servidor ya tiene los datos corregidos de ${original.codigo}; la bandeja los muestra en su próxima recarga.`
+                  : `La afiliación ${original.codigo} todavía no había llegado al servidor: llegará ya corregida.`
+              );
+              router.back();
+            } catch (error) {
+              Alert.alert(
+                "No se guardó la corrección",
+                `${error instanceof Error ? error.message : "Error."}\n\nLos cambios siguen en pantalla: inténtelo de nuevo cuando haya conexión.`
+              );
+            } finally {
+              setEnviando(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const avanzar = () => {
     const problemas = validarPaso(pasoActual.key, estado);
     if (Object.keys(problemas).length > 0) {
@@ -388,6 +526,13 @@ export default function AfiliacionScreen() {
   };
 
   const confirmarSalida = () => {
+    if (modoCorreccion) {
+      Alert.alert("Salir sin guardar", "La afiliación queda como estaba; los cambios se descartan.", [
+        { text: "Seguir aquí", style: "cancel" },
+        { text: "Salir", style: "destructive", onPress: () => router.back() },
+      ]);
+      return;
+    }
     Alert.alert(
       "Salir del formulario",
       "Su avance queda guardado como borrador en este dispositivo.",
@@ -474,6 +619,9 @@ export default function AfiliacionScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
+      {modoCorreccion && original ? (
+        <Stack.Screen options={{ title: `Corregir ${original.codigo}` }} />
+      ) : null}
       <Stepper steps={pasos} currentIndex={indiceActual} completed={completados} onSelect={saltarA} />
 
       <ScrollView
@@ -485,6 +633,16 @@ export default function AfiliacionScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
+        {modoCorreccion ? (
+          <InfoNote tone={yaEnSafi ? "warning" : "info"} icon="create-outline">
+            {`Está corrigiendo ${original?.codigo ?? "la afiliación"}. Cambie lo necesario en cualquier paso y guarde al final: el socio no vuelve a firmar y cada cambio queda en el historial.${
+              yaEnSafi
+                ? " Esta persona ya está creada en SAFI: lo que corrija aquí, corríjalo también en su ficha del CRM, que el sistema no toca."
+                : ""
+            }`}
+          </InfoNote>
+        ) : null}
+
         {contenido(pasoActual.key)}
 
         <Pressable
@@ -492,8 +650,14 @@ export default function AfiliacionScreen() {
           accessibilityRole="button"
           style={({ pressed }) => [styles.salir, pressed && styles.presionado]}
         >
-          <Ionicons name="save-outline" size={16} color={colors.textMuted} />
-          <Text style={styles.salirTexto}>Guardar y continuar más tarde</Text>
+          <Ionicons
+            name={modoCorreccion ? "close-outline" : "save-outline"}
+            size={16}
+            color={colors.textMuted}
+          />
+          <Text style={styles.salirTexto}>
+            {modoCorreccion ? "Salir sin guardar la corrección" : "Guardar y continuar más tarde"}
+          </Text>
         </Pressable>
       </ScrollView>
 
@@ -506,8 +670,8 @@ export default function AfiliacionScreen() {
           disabled={enviando}
         />
         <Button
-          label={esUltimo ? "Enviar solicitud" : "Continuar"}
-          icon={esUltimo ? "send" : "chevron-forward"}
+          label={esUltimo ? (modoCorreccion ? "Guardar corrección" : "Enviar solicitud") : "Continuar"}
+          icon={esUltimo ? (modoCorreccion ? "save" : "send") : "chevron-forward"}
           iconPosition="right"
           onPress={avanzar}
           loading={enviando}

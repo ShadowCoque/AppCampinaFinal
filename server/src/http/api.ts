@@ -58,6 +58,8 @@ import {
   anular,
   aprobar,
   borrarSolicitud,
+  corregirSolicitud,
+  fijarOficialDependencia,
   cuentaSafiDelTitular,
   devolver,
   guardarAltaSafi,
@@ -88,6 +90,7 @@ import { pdfDisponible } from "../formularios/pdf";
 import { archivarContenido, rutaSegura } from "../expediente/repositorio";
 import { apartarEscaneo, asignarEscaneo, recorrer, vigilanciaActiva } from "../expediente/vigilante";
 import { adaptadorSafi, type ListasSafi, type VerificacionSafi } from "../safi/adaptador";
+import { comprobarOficial } from "../safi/oficial";
 import {
   CUOTAS_ANUALES_SAFI,
   CUOTAS_MENSUALES_SAFI,
@@ -558,6 +561,79 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * El oficial FAE de un número de socio, según el CRM: para que la tableta
+   * compruebe, al escribir el número de un D-A o D-B, que depende de un Socio
+   * Activo o de un Fundador, y muestre su grado y su nombre. Solo lectura.
+   */
+  app.get("/api/safi/oficiales/:numero", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { numero } = peticion.params as { numero: string };
+    if (!/^\d{1,8}$/.test(numero)) {
+      return respuesta.code(400).send({ error: "El número de socio solo lleva dígitos." });
+    }
+
+    const consulta = await adaptadorSafi()
+      .consultarOficial(numero)
+      .catch((error: unknown) => ({
+        consultado: false as const,
+        motivo: error instanceof Error ? error.message : String(error),
+      }));
+    return respuesta.send(consulta);
+  });
+
+  /**
+   * Corrección de una afiliación desde la tableta: los datos de la persona y,
+   * si cambió algún garante, su firma.
+   *
+   * La firma del solicitante no se vuelve a pedir (decisión del Coordinador,
+   * 19/09/2026): la corrección queda en el historial, campo por campo. Las de
+   * los garantes sí llegan cuando el garante cambió, y sustituyen a las que
+   * había, que eran de otra persona.
+   */
+  app.put("/api/solicitudes/:id", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { id } = peticion.params as { id: string };
+    const comprobacion = validarSolicitudEntrante(peticion.body);
+    if (!comprobacion.ok) return respuesta.code(400).send({ error: comprobacion.error });
+
+    const firmas = validarFirmas((peticion.body as { firmas?: unknown }).firmas);
+    if (!firmas.ok) return respuesta.code(400).send({ error: firmas.error });
+
+    const entrante = (peticion.body as { solicitud: SolicitudAfiliacion }).solicitud;
+    if (entrante.id !== id) {
+      return respuesta.code(400).send({ error: "El trámite corregido no es el de la dirección." });
+    }
+
+    const resultado = corregirSolicitud(id, entrante, {
+      usuario: usuario.usuario,
+      area: usuario.area,
+      nombre: usuario.nombre,
+    });
+    if (!resultado.ok) return respuesta.code(resultado.codigo).send({ error: resultado.error });
+
+    const recibidos = new Set(rolesRecibidos(id));
+    firmas.valor.garantes.forEach((contenido, indice) => {
+      if (!contenido) return;
+      const rol = indice === 0 ? "FIRMA_GARANTE_1" : "FIRMA_GARANTE_2";
+      guardarAdjunto({
+        solicitudId: id,
+        rol,
+        contenido,
+        extension: ".png",
+        tipoContenido: "image/png",
+      });
+      recibidos.add(rol);
+    });
+
+    const actualizada = registrarAdjuntosRecibidos(id, [...recibidos]) ?? resultado.solicitud;
+    return respuesta.send({ solicitud: actualizada, cambios: resultado.cambios ?? [] });
+  });
+
+  /**
    * Registro de una afiliación desde la aplicación móvil, con sus firmas.
    *
    * Es idempotente y también repara: si el trámite ya existe, se devuelve tal
@@ -1023,15 +1099,20 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     if (!usuario) return respuesta;
 
     const { id } = peticion.params as { id: string };
-    const cuerpo = (peticion.body ?? {}) as CuerpoAccion;
+    const cuerpo = (peticion.body ?? {}) as CuerpoAccion & { destino?: unknown };
     const observacion = validarObservacion(cuerpo.observacion);
     if (!observacion.ok) return respuesta.code(400).send({ error: observacion.error });
+
+    // Solo la Gerencia elige a quién devolver; Contabilidad devuelve siempre al
+    // Área de Socios, diga lo que diga el cuerpo.
+    const destino =
+      usuario.area === "GERENCIA" && cuerpo.destino === "CONTABILIDAD" ? "CONTABILIDAD" : "SOCIOS";
 
     return responderAvance(
       respuesta,
       devolver(
         id,
-        { observacion: observacion.valor },
+        { observacion: observacion.valor, destino },
         // Una devolución no estampa firma: solo se firma al pasar el trámite al
         // área siguiente. Quien devuelve, no da su visto bueno.
         { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre }
@@ -1140,6 +1221,9 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       ? null
       : solicitud.tramite.ordinalDependiente ?? verificacion.ordinalSugerido ?? ordinalLocal;
 
+    // D-A y D-B: que el oficial del que dependen sea Activo o Fundador.
+    const delOficial = await comprobarOficial(adaptador, solicitud);
+
     const cuentaTitular = esTitular
       ? null
       : verificacion.cuentaTitular?.id ?? cuentaSafiDelTitular(numeroTitular);
@@ -1171,8 +1255,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       fichasEnSafi: verificacion.fichas ?? [],
       avisos: [
         ...verificacion.avisos,
+        ...delOficial.avisos,
         ...avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
       ],
+      oficialDependencia: delOficial.oficial,
       yaCreado: creadoEnSafi(solicitud),
     });
   });
@@ -1226,12 +1312,18 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
 
     // La solicitud debe llevar ya el número de socio para poder componer los
     // campos del CRM y el nombre de la carpeta del expediente.
+    const adaptador = adaptadorSafi();
+
+    // D-A y D-B: el oficial del que dependen debe ser Activo o Fundador, y su
+    // grado y nombre, tal como constan en SAFI, van a su Parentesco.
+    const delOficial = await comprobarOficial(adaptador, solicitud);
     const conNumeros = {
       ...solicitud,
+      datos: delOficial.oficial
+        ? { ...solicitud.datos, oficialDependencia: delOficial.oficial }
+        : solicitud.datos,
       tramite: { ...solicitud.tramite, numeroSocio, ordinalDependiente },
     };
-
-    const adaptador = adaptadorSafi();
     const verificacion = await adaptador
       .verificar({ solicitud: conNumeros, numeroSocio, ordinalDependiente })
       .catch(sinVerificar);
@@ -1249,6 +1341,7 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     // escriba a mano o por la API.
     const avisos = [
       ...verificacion.avisos,
+      ...delOficial.avisos,
       ...avisosDeConfirmacion(conNumeros, confirmacion, (await adaptador.listas().catch(() => null)) ?? undefined),
     ];
     const bloqueantes = avisos.filter(
@@ -1260,6 +1353,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
         error: bloqueantes.map((aviso) => aviso.mensaje).join(" "),
         avisos: bloqueantes,
       });
+    }
+
+    if (delOficial.oficial && delOficial.oficial !== solicitud.datos.oficialDependencia) {
+      fijarOficialDependencia(id, delOficial.oficial);
     }
 
     const alta = await adaptador.darDeAlta({ solicitud: conNumeros, confirmacion, cuentaId });

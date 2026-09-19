@@ -98,15 +98,27 @@ function antiguedad(iso) {
   return { texto: dias === 1 ? "hace 1 día" : `hace ${dias} días`, dias };
 }
 
+/**
+ * Fecha y hora en hora del Ecuador (UTC−5 fija, sin horario de verano), sea
+ * cual sea la zona del equipo que abre la bandeja: la misma que imprime el
+ * reverso del formulario.
+ */
 function fechaHora(iso) {
-  const fecha = new Date(iso);
-  if (Number.isNaN(fecha.getTime())) return "—";
-  const dd = String(fecha.getDate()).padStart(2, "0");
-  const mm = String(fecha.getMonth() + 1).padStart(2, "0");
-  const hh = String(fecha.getHours()).padStart(2, "0");
-  const mi = String(fecha.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${fecha.getFullYear()} · ${hh}:${mi}`;
+  const instante = new Date(iso).getTime();
+  if (Number.isNaN(instante)) return "—";
+  const fecha = new Date(instante - 5 * 60 * 60 * 1000);
+  const dd = String(fecha.getUTCDate()).padStart(2, "0");
+  const mm = String(fecha.getUTCMonth() + 1).padStart(2, "0");
+  const hh = String(fecha.getUTCHours()).padStart(2, "0");
+  const mi = String(fecha.getUTCMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${fecha.getUTCFullYear()} · ${hh}:${mi}`;
 }
+
+const NOMBRE_AREA = {
+  SOCIOS: "el Área de Socios",
+  CONTABILIDAD: "Contabilidad",
+  GERENCIA: "la Gerencia",
+};
 
 function tamano(bytes) {
   if (!bytes) return "—";
@@ -1120,9 +1132,11 @@ async function abrirExpediente(id) {
       ${constanciaHtml("Aprobado", "Administrador del Club", s.tramite.aprobacion)}
       ${
         s.tramite.devolucion
-          ? `<div class="aviso-safi">Devuelta por ${escapar(
-              s.tramite.devolucion.responsable
-            )} el ${escapar(fechaHora(s.tramite.devolucion.en))}: ${escapar(s.tramite.devolucion.observacion)}</div>`
+          ? `<div class="aviso-safi">Devuelta a ${escapar(
+              NOMBRE_AREA[s.tramite.devolucion.destino || "SOCIOS"]
+            )} por ${escapar(s.tramite.devolucion.responsable)} el ${escapar(
+              fechaHora(s.tramite.devolucion.en)
+            )}: ${escapar(s.tramite.devolucion.observacion)}</div>`
           : ""
       }
       ${
@@ -1203,8 +1217,27 @@ function abrirDialogo(tarea, enfocarObservacion = false) {
   $("error-dialogo").hidden = true;
   $("boton-confirmar").textContent = esRevision ? "Marcar revisada" : "Aprobar";
 
+  // La Gerencia elige a quién devolver; Contabilidad devuelve siempre al Área
+  // de Socios, así que a ella no se le pregunta.
+  const eligeDestino = estado.bandeja && estado.bandeja.area === "GERENCIA";
+  $("campo-destino").hidden = !eligeDestino;
+  const porDefecto = document.querySelector('input[name="destino"][value="SOCIOS"]');
+  if (porDefecto) porDefecto.checked = true;
+
   dialogo.showModal();
   (enfocarObservacion || !esRevision ? $("observacion") : $("numero-factura")).focus();
+
+  // Si la Gerencia la devolvió a Contabilidad, la factura de la revisión que
+  // se deshizo se ofrece de nuevo: no hay por qué volver a buscarla.
+  if (esRevision) {
+    api(`/api/solicitudes/${encodeURIComponent(tarea.solicitudId)}`)
+      .then((ficha) => {
+        const devolucion = ficha && ficha.solicitud && ficha.solicitud.tramite.devolucion;
+        const anterior = devolucion && devolucion.numeroFacturaAnterior;
+        if (anterior && !$("numero-factura").value) $("numero-factura").value = anterior;
+      })
+      .catch(() => {});
+  }
 }
 
 /** La misma resolución, abierta desde el expediente que se está viendo. */
@@ -1247,7 +1280,10 @@ $("boton-observar").addEventListener("click", async () => {
     $("observacion").focus();
     return;
   }
-  await enviarAccion("observar", { observacion });
+  const elegido = document.querySelector('input[name="destino"]:checked');
+  const destino =
+    estado.bandeja && estado.bandeja.area === "GERENCIA" && elegido ? elegido.value : "SOCIOS";
+  await enviarAccion("observar", { observacion, destino });
 });
 
 async function enviarAccion(ruta, cuerpo) {
@@ -1264,7 +1300,7 @@ async function enviarAccion(ruta, cuerpo) {
     if (dialogoExpediente.open) dialogoExpediente.close();
     avisar(
       ruta === "observar"
-        ? "Trámite devuelto al Área de Socios."
+        ? `Trámite devuelto a ${NOMBRE_AREA[cuerpo.destino || "SOCIOS"]}.`
         : ruta === "aprobar"
           ? `${tarea.codigo} aprobado. El formulario final se está archivando en el expediente.`
           : `${tarea.codigo} actualizado.`

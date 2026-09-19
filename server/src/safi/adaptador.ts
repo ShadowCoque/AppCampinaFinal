@@ -6,6 +6,7 @@ import {
   nombreCompleto,
   nombreTitular,
   type ConfirmacionSafi,
+  type OficialDependencia,
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
 import { claveComparacion, normalizarNumeroSocio } from "../../../src/domain/texto";
@@ -19,6 +20,7 @@ import {
   CAMPOS_SOCIO,
   CARPETA_POR_DEFECTO,
   MODULOS,
+  TIPO_SOCIO_SAFI,
   secuenciaSafi,
 } from "./campos";
 import {
@@ -110,6 +112,15 @@ export type VerificacionSafi = {
   fichas?: { secuencia: string; nombre: string; cedula: string }[];
 };
 
+/**
+ * Lo que el CRM dice del oficial FAE del que depende un socio D-A o D-B.
+ * `consultado: false` cuando el CRM no se pudo consultar: sin integración por
+ * API, sin red o con SAFI caído. Eso no es un «no»: es un «no se sabe».
+ */
+export type ConsultaOficial =
+  | { consultado: true; oficial: OficialDependencia }
+  | { consultado: false; motivo: string };
+
 export interface AdaptadorSafi {
   readonly modo: "MANUAL" | "HTTP" | "API";
   /** Si el adaptador puede escribir en el CRM. */
@@ -125,6 +136,11 @@ export interface AdaptadorSafi {
     numeroSocio: string;
     ordinalDependiente: number | null;
   }): Promise<VerificacionSafi>;
+  /**
+   * Busca en el CRM la ficha titular (secuencia 00) de un número de socio y
+   * dice si es de un Socio Activo o de un Fundador. Solo lectura.
+   */
+  consultarOficial(numeroSocio: string): Promise<ConsultaOficial>;
   /** Comprueba que los identificadores transcritos a mano sean los correctos. */
   comprobarIdentificadores(entrada: {
     solicitud: SolicitudAfiliacion;
@@ -203,6 +219,13 @@ class AdaptadorManual implements AdaptadorSafi {
     return { consultado: false, avisos: [] };
   }
 
+  async consultarOficial(): Promise<ConsultaOficial> {
+    return {
+      consultado: false,
+      motivo: "La integración con SAFI no está habilitada (SAFI_MODO=MANUAL).",
+    };
+  }
+
   async comprobarIdentificadores(): Promise<AvisoSafi[]> {
     return [];
   }
@@ -277,6 +300,57 @@ class AdaptadorConectado implements AdaptadorSafi {
 
   private nombreDe(ficha: FichaSafi): string {
     return `${this.valor(ficha, "lastname")} ${this.valor(ficha, "firstname")}`.replace(/\s+/g, " ").trim();
+  }
+
+  async consultarOficial(numeroSocio: string): Promise<ConsultaOficial> {
+    const numero = soloDigitos(numeroSocio);
+    if (!numero) return { consultado: false, motivo: "Falta el número de socio." };
+    if (this.modo !== "API") {
+      return { consultado: false, motivo: "Con el modo HTTP no se puede consultar el CRM." };
+    }
+
+    const fichas = await this.api.consultar<FichaSafi>(
+      `SELECT id, firstname, lastname, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.secuencia}, ${CAMPOS_SOCIO.gradoMilitar}, ${CAMPOS_SOCIO.tipoSocio} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.numeroSocio} = '${numero}';`
+    );
+
+    // El oficial es el titular de su número: la ficha de secuencia 00. Las
+    // demás de ese número son sus dependientes.
+    const titular = fichas.find((ficha) => {
+      const secuencia = this.valor(ficha, CAMPOS_SOCIO.secuencia).trim();
+      return secuencia === "00" || secuencia === "0" || secuencia === "";
+    });
+    const en = new Date().toISOString();
+    const numeroSocioConsultado = normalizarNumeroSocio(numeroSocio);
+
+    if (!titular) {
+      return {
+        consultado: true,
+        oficial: {
+          numeroSocio: numeroSocioConsultado,
+          resultado: "NO_ENCONTRADO",
+          apellidos: "",
+          nombres: "",
+          gradoMilitar: "",
+          tipoSocioSafi: "",
+          en,
+        },
+      };
+    }
+
+    const tipo = this.valor(titular, CAMPOS_SOCIO.tipoSocio).toUpperCase();
+    const esOficial = tipo === TIPO_SOCIO_SAFI.SA || tipo === TIPO_SOCIO_SAFI.SF;
+    return {
+      consultado: true,
+      oficial: {
+        numeroSocio: numeroSocioConsultado,
+        resultado: esOficial ? "VERIFICADO" : "NO_ES_ACTIVO_NI_FUNDADOR",
+        apellidos: this.valor(titular, "lastname"),
+        nombres: this.valor(titular, "firstname"),
+        gradoMilitar: this.valor(titular, CAMPOS_SOCIO.gradoMilitar),
+        tipoSocioSafi: tipo,
+        en,
+      },
+    };
   }
 
   /**

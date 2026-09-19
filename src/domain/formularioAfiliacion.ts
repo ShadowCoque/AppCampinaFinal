@@ -242,9 +242,21 @@ function validarTipo(estado: EstadoFormulario): Errores {
   }
 
   // El reverso del formulario exige el número del oficial FAE del que depende.
-  if (reglas?.requiereNumeroSocioActivo && !datos.numeroSocioActivo.trim()) {
-    errores.numeroSocioActivo =
-      "Ingrese el número de socio del oficial FAE del que depende (casilla «Número de Socio Activo» del formulario).";
+  if (reglas?.requiereNumeroSocioActivo) {
+    const numero = datos.numeroSocioActivo.trim();
+    const oficial = datos.oficialDependencia;
+    if (!numero) {
+      errores.numeroSocioActivo =
+        "Ingrese el número de socio del oficial FAE del que depende (casilla «Número de Socio Activo» del formulario).";
+    } else if (oficial && oficial.numeroSocio === numero && oficial.resultado !== "VERIFICADO") {
+      // Sin verificar se puede avanzar —la tableta trabaja sin red y la bandeja
+      // lo comprueba antes del alta—; lo que no se admite es un número que el
+      // CRM ya dijo que no corresponde.
+      errores.numeroSocioActivo =
+        oficial.resultado === "NO_ENCONTRADO"
+          ? `El CRM de SAFI no tiene el número de socio ${numero}. Revise el número.`
+          : `El número ${numero} es de un socio ${oficial.tipoSocioSafi || "de otra categoría"} (${[oficial.nombres, oficial.apellidos].join(" ").trim()}), no de un Socio Activo ni de un Fundador.`;
+    }
   }
 
   return errores;

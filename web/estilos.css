@@ -604,6 +604,23 @@ code {
 
 /* --- Diálogos ------------------------------------------------------- */
 
+/* Destino de una devolución de la Gerencia */
+.grupo-destino {
+  border: 1px solid var(--borde, #d9dee7);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 12px 0 0;
+}
+.grupo-destino legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+.opcion-destino {
+  display: block;
+  margin: 6px 0;
+  font-weight: 400;
+}
+
 dialog {
   border: 1px solid var(--borde);
   border-radius: 12px;

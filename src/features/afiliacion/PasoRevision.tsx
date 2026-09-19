@@ -51,6 +51,23 @@ export function PasoRevision({ estado }: Props) {
             <DataRow label="Cédula del titular" value={datos.titularCedula} />
           </>
         ) : null}
+        {reglas?.requiereNumeroSocioActivo ? (
+          <DataRow
+            label={`Oficial FAE N.º ${datos.numeroSocioActivo || "—"}`}
+            value={
+              datos.oficialDependencia?.resultado === "VERIFICADO" &&
+              datos.oficialDependencia.numeroSocio === datos.numeroSocioActivo
+                ? `${[
+                    datos.oficialDependencia.gradoMilitar,
+                    datos.oficialDependencia.nombres,
+                    datos.oficialDependencia.apellidos,
+                  ]
+                    .join(" ")
+                    .trim()} (verificado en SAFI)`
+                : "Sin verificar: lo comprueba la bandeja antes de crear en SAFI"
+            }
+          />
+        ) : null}
         {generados.map((documento) => (
           <DataRow
             key={documento.codigo}

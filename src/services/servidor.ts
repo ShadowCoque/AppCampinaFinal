@@ -1,6 +1,7 @@
-import { archivoDisponible, leerBase64 } from "../data/archivos";
+import { archivoDisponible, eliminarArchivo, leerBase64 } from "../data/archivos";
 import { CLAVES, eliminar, escribirJSON, leerJSON } from "../data/almacenamiento";
 import {
+  aplicarCorreccion,
   borrarRegistrosLocales,
   eliminarSolicitud,
   incorporarAvance,
@@ -8,9 +9,12 @@ import {
   rutaDelAdjunto,
   type AvanceDelServidor,
 } from "../data/solicitudes";
+import { cambiosEntre, type CambioDatos } from "../domain/correccion";
+import type { EstadoFormulario } from "../domain/formularioAfiliacion";
 import {
   ROL_ADJUNTO_META,
   adjuntosFaltantes,
+  type OficialDependencia,
   type RolAdjunto,
   type SolicitudAfiliacion,
 } from "../domain/solicitud";
@@ -787,6 +791,104 @@ export async function reanudarEnvio(id: string): Promise<ResumenSincronizacion> 
     await escribirJSON(CLAVES.enviosDetenidos, detenidos);
   });
   return sincronizar();
+}
+
+/* ------------------------------------------------------------------ */
+/* Oficial FAE del que depende un D-A o D-B                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lo que el CRM de SAFI dice de un número de socio: si es de un Socio Activo o
+ * de un Fundador, con su grado y su nombre. Pasa por el servidor, que es quien
+ * tiene acceso al CRM.
+ *
+ * `consultado: false` no es un «no»: es que no se pudo preguntar —sin red, sin
+ * sesión o con SAFI caído—. La tableta deja avanzar y la bandeja lo comprueba
+ * antes de crear la ficha (decisión del Coordinador, 19/09/2026).
+ */
+export type ConsultaOficial =
+  | { consultado: true; oficial: OficialDependencia }
+  | { consultado: false; motivo: string };
+
+export async function consultarOficial(numeroSocio: string): Promise<ConsultaOficial> {
+  try {
+    return await peticion<ConsultaOficial>(
+      `/api/safi/oficiales/${encodeURIComponent(numeroSocio)}`
+    );
+  } catch (error) {
+    return {
+      consultado: false,
+      motivo: error instanceof Error ? error.message : "No se pudo consultar el servidor.",
+    };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Corregir una afiliación registrada                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Guarda la corrección de una afiliación, hecha en el asistente.
+ *
+ * Si el servidor ya tiene el trámite, la corrección **solo vale si él la
+ * acepta**: se le envía en el acto y, si no hay conexión o la rechaza, la
+ * tableta no cambia nada y lo dice —el asistente sigue abierto con los
+ * cambios, para reintentar—. Así la tableta nunca muestra unos datos y el
+ * servidor otros. Si el servidor todavía no lo tiene, se corrige aquí y el
+ * trámite viajará ya corregido.
+ *
+ * El solicitante no vuelve a firmar; los garantes, solo si cambió el garante.
+ */
+export async function corregirAfiliacion(
+  original: SolicitudAfiliacion,
+  estado: EstadoFormulario,
+  responsable: string
+): Promise<{ cambios: CambioDatos[]; enServidor: boolean }> {
+  return sinSincronizar(async () => {
+    const enviada = (await sincronizadas()).includes(original.id);
+    let delServidor: SolicitudAfiliacion | null = null;
+    let cambios: CambioDatos[] = [];
+
+    if (enviada) {
+      const garantes = await Promise.all(
+        estado.datos.garantes.map((garante, indice) => {
+          const antes = original.datos.garantes[indice]?.firmaUri ?? null;
+          return garante.firmaUri && garante.firmaUri !== antes
+            ? firmaBase64(garante.firmaUri)
+            : Promise.resolve(null);
+        })
+      );
+      const respuesta = await peticion<{ solicitud: SolicitudAfiliacion; cambios: CambioDatos[] }>(
+        `/api/solicitudes/${encodeURIComponent(original.id)}`,
+        {
+          metodo: "PUT",
+          cuerpo: {
+            solicitud: sinRutasLocales({ ...original, datos: estado.datos }),
+            firmas: { solicitante: null, garantes },
+          },
+        }
+      );
+      delServidor = respuesta.solicitud;
+      cambios = respuesta.cambios;
+    }
+
+    const actualizada = await aplicarCorreccion(original.id, estado.datos, {
+      delServidor,
+      responsable,
+    });
+    if (!actualizada) {
+      throw new Error("La corrección no se pudo guardar en la tableta. Inténtelo de nuevo.");
+    }
+
+    // Las firmas de los garantes que se cambiaron ya no son de nadie.
+    original.datos.garantes.forEach((garante, indice) => {
+      const ahora = estado.datos.garantes[indice]?.firmaUri ?? null;
+      if (garante.firmaUri && garante.firmaUri !== ahora) eliminarArchivo(garante.firmaUri);
+    });
+
+    if (!enviada) cambios = cambiosEntre(original.datos, estado.datos);
+    return { cambios, enServidor: enviada };
+  });
 }
 
 /* ------------------------------------------------------------------ */

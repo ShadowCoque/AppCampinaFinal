@@ -9,10 +9,12 @@ import { FORMA_PAGO_META } from "../../src/domain/facturacion";
 import { formatFechaCorta, formatFechaHora } from "../../src/domain/fechas";
 import { CONSENTIMIENTOS } from "../../src/domain/privacidad";
 import { MODO_FIRMA_META } from "../../src/domain/firmaElectronica";
+import { puedeCorregirse } from "../../src/domain/correccion";
 import {
   AREA_META,
   ESTADO_META,
   ORIGEN_IDENTIDAD_META,
+  destinoDevolucion,
   nombreCompleto,
   nombreTitular,
   type Area,
@@ -147,6 +149,26 @@ export default function DetalleSolicitudScreen() {
     setExportando(false);
   };
 
+  // Se puede corregir mientras no exista en SAFI, o si ya existe y se lo
+  // devolvieron al Área de Socios con una observación (19/09/2026).
+  const correccion = puedeCorregirse(solicitud);
+  const corregir = () => {
+    const abrir = () =>
+      router.push({ pathname: "/afiliacion", params: { corregir: solicitud.id } });
+    if (correccion.permitido && correccion.yaEnSafi) {
+      Alert.alert(
+        "Ya está creado en SAFI",
+        "Puede corregir los datos del trámite, pero la ficha del CRM no se actualiza sola: lo que cambie aquí, cámbielo también en SAFI.",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Corregir", onPress: abrir },
+        ]
+      );
+      return;
+    }
+    abrir();
+  };
+
   const borrar = () => {
     Alert.alert(
       "Eliminar la solicitud",
@@ -202,6 +224,15 @@ export default function DetalleSolicitudScreen() {
       </View>
 
       <View style={styles.acciones}>
+        {correccion.permitido && situacion.detenido?.motivo !== "NO_EXISTE_EN_SERVIDOR" ? (
+          <Button
+            label="Corregir datos"
+            icon="create-outline"
+            onPress={corregir}
+            fullWidth
+            accessibilityHint="Abre el asistente con los datos registrados para cambiar lo necesario."
+          />
+        ) : null}
         <Button
           label="Exportar formulario en PDF"
           icon="download-outline"
@@ -226,7 +257,24 @@ export default function DetalleSolicitudScreen() {
         <DataRow label="Número de socio" value={numero || "Lo asigna el Área de Socios en la bandeja"} />
         <DataRow label="Número de tarjeta" value={tramite.numeroTarjeta} />
         {reglas?.requiereNumeroSocioActivo ? (
-          <DataRow label="Número de socio activo" value={datos.numeroSocioActivo} />
+          <>
+            <DataRow label="Número de socio activo" value={datos.numeroSocioActivo} />
+            <DataRow
+              label="Oficial FAE del que depende"
+              value={
+                datos.oficialDependencia?.resultado === "VERIFICADO" &&
+                datos.oficialDependencia.numeroSocio === datos.numeroSocioActivo
+                  ? `${[
+                      datos.oficialDependencia.gradoMilitar,
+                      datos.oficialDependencia.nombres,
+                      datos.oficialDependencia.apellidos,
+                    ]
+                      .join(" ")
+                      .trim()} · verificado en SAFI`
+                  : "Sin verificar: la bandeja lo comprueba antes de crear en SAFI"
+              }
+            />
+          </>
         ) : null}
         {documentosTramite.map((documento) => (
           <DataRow
@@ -236,11 +284,18 @@ export default function DetalleSolicitudScreen() {
           />
         ))}
 
-        {tramite.devolucion && solicitud.estado === "OBSERVADA" ? (
+        {tramite.devolucion && destinoDevolucion(tramite.devolucion) === "SOCIOS" && solicitud.estado === "OBSERVADA" ? (
           <InfoNote tone="warning" icon="return-down-back">
-            {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió el ${formatFechaHora(
+            {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió al Área de Socios el ${formatFechaHora(
               tramite.devolucion.en
-            )}: «${tramite.devolucion.observacion}». Se atiende desde la bandeja web del Área de Socios.`}
+            )}: «${tramite.devolucion.observacion}». Si hay que corregir datos, use «Corregir datos»; después se reenvía desde la bandeja web del Área de Socios.`}
+          </InfoNote>
+        ) : null}
+        {tramite.devolucion && destinoDevolucion(tramite.devolucion) === "CONTABILIDAD" ? (
+          <InfoNote tone="info" icon="return-down-back">
+            {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió a Contabilidad el ${formatFechaHora(
+              tramite.devolucion.en
+            )}: «${tramite.devolucion.observacion}». Contabilidad la revisa de nuevo; el Área de Socios no tiene que hacer nada.`}
           </InfoNote>
         ) : null}
         {tramite.anulacion ? (

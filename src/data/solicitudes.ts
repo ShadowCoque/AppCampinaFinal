@@ -11,7 +11,11 @@ import {
   type SolicitudAfiliacion,
   type TramiteInterno,
 } from "../domain/solicitud";
-import type { EstadoFormulario } from "../domain/formularioAfiliacion";
+import { cambiosEntre, describirCambios } from "../domain/correccion";
+import {
+  consentimientosVacios,
+  type EstadoFormulario,
+} from "../domain/formularioAfiliacion";
 import { CLAVES, eliminar, escribirJSON, leerJSON, nuevoId } from "./almacenamiento";
 import { eliminarExpediente, eliminarTodosLosExpedientes, persistirFirma } from "./archivos";
 
@@ -214,6 +218,78 @@ export async function eliminarSolicitud(id: string): Promise<void> {
   const lista = await listarSolicitudes();
   await guardarLista(lista.filter((s) => s.id !== id));
   eliminarExpediente(id);
+}
+
+/* ------------------------------------------------------------------ */
+/* Corrección de una afiliación registrada                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El estado del asistente a partir de una afiliación ya registrada, para
+ * corregirla con las mismas pantallas con que se capturó.
+ */
+export function estadoParaCorregir(solicitud: SolicitudAfiliacion): EstadoFormulario {
+  return {
+    datos: solicitud.datos,
+    documentos: solicitud.documentos,
+    firmaUri: solicitud.firmaUri,
+    consentimientos: { ...consentimientosVacios(), ...(solicitud.consentimiento?.valores ?? {}) },
+    identidad: solicitud.identidad,
+  };
+}
+
+/**
+ * Deja en la copia de la tableta los datos corregidos.
+ *
+ * Si el servidor ya tenía el trámite, lo que devuelve manda en todo lo demás
+ * —estado, constancias, historial con la entrada de la corrección—; los datos
+ * se toman del asistente porque llevan las rutas de las firmas en esta
+ * tableta, que el servidor no conoce. Si el servidor todavía no lo tenía, la
+ * corrección queda anotada aquí y el trámite viajará ya corregido.
+ */
+export async function aplicarCorreccion(
+  id: string,
+  datos: SolicitudAfiliacion["datos"],
+  entrada: { delServidor: SolicitudAfiliacion | null; responsable: string }
+): Promise<SolicitudAfiliacion | null> {
+  const lista = await listarSolicitudes();
+  const indice = lista.findIndex((s) => s.id === id);
+  if (indice === -1) return null;
+
+  const actual = lista[indice];
+  const ahora = new Date().toISOString();
+  const { delServidor } = entrada;
+  const cambios = cambiosEntre(actual.datos, datos);
+
+  const actualizada: SolicitudAfiliacion = delServidor
+    ? {
+        ...actual,
+        datos,
+        codigo: delServidor.codigo,
+        estado: delServidor.estado,
+        actualizadaEn: delServidor.actualizadaEn,
+        tramite: delServidor.tramite,
+        expediente: delServidor.expediente,
+        historial: delServidor.historial,
+      }
+    : {
+        ...actual,
+        datos,
+        actualizadaEn: ahora,
+        historial: [
+          ...actual.historial,
+          {
+            en: ahora,
+            estado: actual.estado,
+            area: "SOCIOS",
+            responsable: entrada.responsable,
+            nota: `Datos corregidos en la tableta antes de enviarla. ${describirCambios(cambios)}.`,
+          },
+        ],
+      };
+
+  lista[indice] = actualizada;
+  return (await guardarLista(lista)) ? actualizada : null;
 }
 
 /* ------------------------------------------------------------------ */

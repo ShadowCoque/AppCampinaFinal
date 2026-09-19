@@ -135,6 +135,19 @@
         <label for="observacion">Observación <span class="opcional" id="etiqueta-observacion">(opcional)</span></label>
         <textarea id="observacion" rows="3" placeholder="Se imprime en el reverso del formulario."></textarea>
 
+        <!-- Solo la Gerencia elige a quién devolver; Contabilidad devuelve siempre al Área de Socios. -->
+        <fieldset id="campo-destino" class="grupo-destino" hidden>
+          <legend>Si lo devuelve, ¿a quién?</legend>
+          <label class="opcion-destino">
+            <input type="radio" name="destino" value="SOCIOS" checked />
+            Área de Socios <span class="opcional">— corregir la afiliación; al reenviarla vuelve directo a la Gerencia</span>
+          </label>
+          <label class="opcion-destino">
+            <input type="radio" name="destino" value="CONTABILIDAD" />
+            Contabilidad <span class="opcional">— rehacer la revisión; al marcarla revisada vuelve a la Gerencia</span>
+          </label>
+        </fieldset>
+
         <p class="error" id="error-dialogo" role="alert" hidden></p>
 
         <div class="dialogo-acciones">
