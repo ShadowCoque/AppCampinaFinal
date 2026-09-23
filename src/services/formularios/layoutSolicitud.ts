@@ -57,6 +57,13 @@ function estadoCivilImpreso(estadoCivil: string): string {
   }
 }
 
+/**
+ * Recuadro «DATOS PERSONALES ASPIRANTE».
+ *
+ * No repite la cédula del aspirante: la carta que lo encabeza ya dice «Yo, …
+ * con C.I. …» (pedido del Coordinador, 23/09/2026). La del garante sí se
+ * imprime, en su recuadro.
+ */
 function bloqueDatosPersonales(solicitud: SolicitudAfiliacion, bloques: BloquesFormulario): string {
   const { datos } = solicitud;
 
@@ -76,12 +83,9 @@ function bloqueDatosPersonales(solicitud: SolicitudAfiliacion, bloques: BloquesF
     filaDoble("Dirección de domicilio", datos.direccion, "Teléfono", datos.telefonoDomicilio),
     filaDoble("Ciudad", datos.ciudad, "Celular", datos.celular),
     filaDoble("Lugar de trabajo", datos.lugarTrabajo, "Teléfono", datos.telefonoTrabajo),
-    filaDoble(
-      "Ocupación",
-      unir([datos.profesion, datos.cargo], " — "),
-      "Cédula de ciudadanía",
-      datos.cedula
-    ),
+    `<tr><th>Ocupación</th><td colspan="3">${
+      escapar(unir([datos.profesion, datos.cargo], " — ")) || "&nbsp;"
+    }</td></tr>`,
   ];
 
   if (bloques.datosMilitares) {

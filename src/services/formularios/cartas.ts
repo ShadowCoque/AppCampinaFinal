@@ -1,5 +1,9 @@
 import { formatFechaLarga } from "../../domain/fechas";
-import { nombreCompleto, type SolicitudAfiliacion } from "../../domain/solicitud";
+import {
+  modalidadDebitoDe,
+  nombreCompleto,
+  type SolicitudAfiliacion,
+} from "../../domain/solicitud";
 import type { ModeloCarta, TipoMiembro } from "../../domain/tiposMiembro";
 import { encabezado, escapar, firma, lugarYFecha, valor } from "./piezas";
 import type { RecursosFormulario } from "./tipos";
@@ -43,17 +47,52 @@ function desglosarFecha(iso: string): { dia: string; mes: string; anio: string }
   };
 }
 
+/**
+ * El medio del débito automático, según la modalidad que eligió el socio.
+ *
+ * El original ofrece las dos a la vez («de mi cuenta … o de mi tarjeta …»)
+ * para llenar a mano la que corresponda. Desde el 23/09/2026 la carta imprime
+ * solo la elegida (decisión del Coordinador), con las palabras del original.
+ * Una carta sin modalidad —un trámite anterior que no llenó ninguna— se
+ * imprime como el original, con las dos en blanco.
+ */
 function medioDePago(solicitud: SolicitudAfiliacion): string {
   const carta = solicitud.datos.carta;
   if (!carta) return "";
 
-  if (carta.numeroCuenta.trim()) {
-    const tipo = carta.tipoCuenta === "CORRIENTE" ? "corriente" : "de ahorros";
+  const cuenta = () => {
+    const tipo =
+      carta.tipoCuenta === "CORRIENTE"
+        ? "corriente"
+        : carta.tipoCuenta === "AHORROS"
+          ? "de ahorros"
+          : "de ahorros/corriente";
     return `de mi cuenta ${tipo} del banco/cooperativa ${valor(carta.entidadFinanciera)},
             Nro. ${valor(carta.numeroCuenta)}`;
-  }
-  return `de mi tarjeta de crédito Nro. ${valor(carta.tarjetaCredito)},
+  };
+  const tarjeta = () => `de mi tarjeta de crédito Nro. ${valor(carta.tarjetaCredito)},
           con fecha de caducidad ${valor(carta.caducidadTarjeta)}`;
+
+  switch (modalidadDebitoDe(carta)) {
+    case "CUENTA":
+      return cuenta();
+    case "TARJETA":
+      return tarjeta();
+    default:
+      return `${cuenta()} o ${tarjeta()}`;
+  }
+}
+
+/**
+ * «En caso de no existir fondos en ambas modalidades de pago…» solo tiene
+ * sentido cuando la carta ofrece las dos. Con una sola, la frase queda en «En
+ * caso de no existir fondos…», sin cambiar lo demás.
+ */
+function sinFondos(solicitud: SolicitudAfiliacion): string {
+  const carta = solicitud.datos.carta;
+  return carta && modalidadDebitoDe(carta)
+    ? "En caso de no existir fondos"
+    : "En caso de no existir fondos en ambas modalidades de pago";
 }
 
 /** Carta de compromiso del socio particular (transcripción del original). */
@@ -91,7 +130,7 @@ function cuerpoParticular(solicitud: SolicitudAfiliacion): string {
       Administración o el Directorio, con lo cual tendré derecho al uso exclusivo de las
       instalaciones del Club y sus servicios. Por lo tanto, en caso de falta o inobservancia a
       este compromiso AUTORIZO al Club el débito automático ${medioDePago(solicitud)}.
-      En caso de no existir fondos en ambas modalidades de pago, la responsabilidad será
+      ${sinFondos(solicitud)}, la responsabilidad será
       compartida solidariamente con los señores Garantes en calidad de Codeudores.
     </p>
     <p>
@@ -150,8 +189,8 @@ function cuerpoDependiente(solicitud: SolicitudAfiliacion): string {
       mantenimiento anual correspondiente y a los valores que fueran establecidos por la
       Administración o el Directorio, con lo cual tendré derecho al uso exclusivo de las
       instalaciones del Club y sus servicios. Por lo tanto, en caso de faltar o inobservar a este
-      compromiso AUTORIZO al Club, el débito automático ${medioDePago(solicitud)}. En caso de no
-      existir fondos en ambas modalidades de pago, la responsabilidad será compartida con los
+      compromiso AUTORIZO al Club, el débito automático ${medioDePago(solicitud)}.
+      ${sinFondos(solicitud)}, la responsabilidad será compartida con los
       señores Garantes en calidad de Codeudores solidarios.
     </p>
     <p>

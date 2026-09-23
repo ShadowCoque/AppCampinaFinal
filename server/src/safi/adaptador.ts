@@ -6,9 +6,9 @@ import {
   nombreCompleto,
   nombreTitular,
   type ConfirmacionSafi,
-  type OficialDependencia,
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
+import type { ConsultaSocio, SocioSafi } from "../../../src/domain/sociosSafi";
 import { claveComparacion, normalizarNumeroSocio } from "../../../src/domain/texto";
 import { tieneCuentaPropia } from "../../../src/domain/tiposMiembro";
 import { config } from "../config";
@@ -20,7 +20,6 @@ import {
   CAMPOS_SOCIO,
   CARPETA_POR_DEFECTO,
   MODULOS,
-  TIPO_SOCIO_SAFI,
   secuenciaSafi,
 } from "./campos";
 import {
@@ -112,15 +111,6 @@ export type VerificacionSafi = {
   fichas?: { secuencia: string; nombre: string; cedula: string }[];
 };
 
-/**
- * Lo que el CRM dice del oficial FAE del que depende un socio D-A o D-B.
- * `consultado: false` cuando el CRM no se pudo consultar: sin integración por
- * API, sin red o con SAFI caído. Eso no es un «no»: es un «no se sabe».
- */
-export type ConsultaOficial =
-  | { consultado: true; oficial: OficialDependencia }
-  | { consultado: false; motivo: string };
-
 export interface AdaptadorSafi {
   readonly modo: "MANUAL" | "HTTP" | "API";
   /** Si el adaptador puede escribir en el CRM. */
@@ -137,10 +127,15 @@ export interface AdaptadorSafi {
     ordinalDependiente: number | null;
   }): Promise<VerificacionSafi>;
   /**
-   * Busca en el CRM la ficha titular (secuencia 00) de un número de socio y
-   * dice si es de un Socio Activo o de un Fundador. Solo lectura.
+   * Busca en el CRM a un socio por su número —la ficha titular, secuencia
+   * 00— o, si no hay número, por su cédula. Es lo que usan la tableta, para
+   * traer los datos de un garante o de un titular, y la bandeja, para
+   * comprobarlos antes del alta. Solo lectura.
+   *
+   * `consultado: false` cuando el CRM no se pudo consultar: sin integración
+   * por API, sin red o con SAFI caído. Eso no es un «no»: es un «no se sabe».
    */
-  consultarOficial(numeroSocio: string): Promise<ConsultaOficial>;
+  consultarSocio(criterio: { numeroSocio?: string; cedula?: string }): Promise<ConsultaSocio>;
   /** Comprueba que los identificadores transcritos a mano sean los correctos. */
   comprobarIdentificadores(entrada: {
     solicitud: SolicitudAfiliacion;
@@ -219,7 +214,7 @@ class AdaptadorManual implements AdaptadorSafi {
     return { consultado: false, avisos: [] };
   }
 
-  async consultarOficial(): Promise<ConsultaOficial> {
+  async consultarSocio(): Promise<ConsultaSocio> {
     return {
       consultado: false,
       motivo: "La integración con SAFI no está habilitada (SAFI_MODO=MANUAL).",
@@ -302,57 +297,66 @@ class AdaptadorConectado implements AdaptadorSafi {
     return `${this.valor(ficha, "lastname")} ${this.valor(ficha, "firstname")}`.replace(/\s+/g, " ").trim();
   }
 
-  async consultarOficial(numeroSocio: string): Promise<ConsultaOficial> {
-    const numero = soloDigitos(numeroSocio);
-    if (!numero) return { consultado: false, motivo: "Falta el número de socio." };
+  async consultarSocio(criterio: { numeroSocio?: string; cedula?: string }): Promise<ConsultaSocio> {
+    const numero = soloDigitos(criterio.numeroSocio ?? "");
+    const cedula = soloDigitos(criterio.cedula ?? "");
+    if (!numero && !cedula) {
+      return { consultado: false, motivo: "Falta el número de socio o la cédula." };
+    }
     if (this.modo !== "API") {
       return { consultado: false, motivo: "Con el modo HTTP no se puede consultar el CRM." };
     }
 
+    const campos = [
+      "id",
+      "firstname",
+      "lastname",
+      CAMPOS_SOCIO.numeroSocio,
+      CAMPOS_SOCIO.secuencia,
+      CAMPOS_SOCIO.cedula,
+      CAMPOS_SOCIO.gradoMilitar,
+      CAMPOS_SOCIO.tipoSocio,
+      CAMPOS_SOCIO.estadoSocio,
+      CAMPOS_SOCIO.telefonoDomicilio,
+      CAMPOS_SOCIO.celular,
+    ].join(", ");
+    const filtro = numero
+      ? `${CAMPOS_SOCIO.numeroSocio} = '${numero}'`
+      : `${CAMPOS_SOCIO.cedula} = '${cedula}'`;
     const fichas = await this.api.consultar<FichaSafi>(
-      `SELECT id, firstname, lastname, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.secuencia}, ${CAMPOS_SOCIO.gradoMilitar}, ${CAMPOS_SOCIO.tipoSocio} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.numeroSocio} = '${numero}';`
+      `SELECT ${campos} FROM ${MODULOS.socio} WHERE ${filtro};`
     );
 
-    // El oficial es el titular de su número: la ficha de secuencia 00. Las
-    // demás de ese número son sus dependientes. Comprobado en el CRM el
+    // Por número, el socio es el titular de ese número: la ficha de secuencia
+    // 00; las demás de ese número son sus dependientes. Comprobado en el CRM el
     // 19/09/2026: las 1.756 fichas ACTIVO y las 26 FUNDADOR tienen «00». Una
     // secuencia «0» o vacía solo se acepta si no hay ninguna «00», para que un
-    // dependiente sin secuencia nunca se tome por el oficial.
+    // dependiente sin secuencia nunca se tome por el titular.
+    //
+    // Por cédula, la persona puede ser dependiente de otro número (una
+    // cónyuge, un juvenil): se devuelve su ficha tal cual, con su secuencia,
+    // para que se vea que no es titular.
     const secuenciaDe = (ficha: FichaSafi) => this.valor(ficha, CAMPOS_SOCIO.secuencia).trim();
-    const titular =
-      fichas.find((ficha) => secuenciaDe(ficha) === "00") ??
-      fichas.find((ficha) => secuenciaDe(ficha) === "0" || secuenciaDe(ficha) === "");
-    const en = new Date().toISOString();
-    const numeroSocioConsultado = normalizarNumeroSocio(numeroSocio);
+    const ficha =
+      fichas.find((f) => secuenciaDe(f) === "00") ??
+      fichas.find((f) => secuenciaDe(f) === "0" || secuenciaDe(f) === "") ??
+      (numero ? undefined : fichas[0]);
 
-    if (!titular) {
-      return {
-        consultado: true,
-        oficial: {
-          numeroSocio: numeroSocioConsultado,
-          resultado: "NO_ENCONTRADO",
-          apellidos: "",
-          nombres: "",
-          gradoMilitar: "",
-          tipoSocioSafi: "",
-          en,
-        },
-      };
-    }
+    return { consultado: true, socio: ficha ? this.socioDe(ficha) : null };
+  }
 
-    const tipo = this.valor(titular, CAMPOS_SOCIO.tipoSocio).toUpperCase();
-    const esOficial = tipo === TIPO_SOCIO_SAFI.SA || tipo === TIPO_SOCIO_SAFI.SF;
+  private socioDe(ficha: FichaSafi): SocioSafi {
     return {
-      consultado: true,
-      oficial: {
-        numeroSocio: numeroSocioConsultado,
-        resultado: esOficial ? "VERIFICADO" : "NO_ES_ACTIVO_NI_FUNDADOR",
-        apellidos: this.valor(titular, "lastname"),
-        nombres: this.valor(titular, "firstname"),
-        gradoMilitar: this.valor(titular, CAMPOS_SOCIO.gradoMilitar),
-        tipoSocioSafi: tipo,
-        en,
-      },
+      numeroSocio: normalizarNumeroSocio(this.valor(ficha, CAMPOS_SOCIO.numeroSocio)),
+      secuencia: this.valor(ficha, CAMPOS_SOCIO.secuencia),
+      cedula: soloDigitos(this.valor(ficha, CAMPOS_SOCIO.cedula)),
+      apellidos: this.valor(ficha, "lastname"),
+      nombres: this.valor(ficha, "firstname"),
+      gradoMilitar: this.valor(ficha, CAMPOS_SOCIO.gradoMilitar),
+      tipoSocioSafi: this.valor(ficha, CAMPOS_SOCIO.tipoSocio).toUpperCase(),
+      estadoSocio: this.valor(ficha, CAMPOS_SOCIO.estadoSocio),
+      telefonoDomicilio: this.valor(ficha, CAMPOS_SOCIO.telefonoDomicilio),
+      celular: this.valor(ficha, CAMPOS_SOCIO.celular),
     };
   }
 

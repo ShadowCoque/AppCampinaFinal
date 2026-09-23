@@ -8,11 +8,12 @@ import {
   fuerzaFijaPara,
   getTipo,
   reglasDe,
-  type ModeloCarta,
 } from "./tiposMiembro";
 import {
   cartaVacia,
   conyugeEstaVacio,
+  garanteVacio,
+  modalidadDebitoDe,
   type ArchivoAdjunto,
   type DatosAfiliacion,
   type DatosCartaCompromiso,
@@ -21,6 +22,12 @@ import {
   identidadVacia,
 } from "./solicitud";
 import { incluyeBiometria } from "./snic";
+import {
+  REGLA_GARANTE,
+  motivoRechazo,
+  reglaDependencia,
+  reglaTitular,
+} from "./sociosSafi";
 import {
   validarCedula,
   validarCelular,
@@ -76,17 +83,16 @@ export function ajustarBloques(datos: DatosAfiliacion): DatosAfiliacion {
 
   const garantes = [...datos.garantes];
   while (garantes.length < bloques.garantes) {
-    garantes.push({
-      id: `garante-${garantes.length + 1}`,
-      apellidosNombres: "",
-      cedula: "",
-      telefonoDomicilio: "",
-      celular: "",
-      numeroSocio: "",
-      firmaUri: null,
-    });
+    garantes.push(garanteVacio(`garante-${garantes.length + 1}`));
   }
   garantes.length = bloques.garantes;
+
+  const carta =
+    definicion?.cartaCompromiso == null
+      ? null
+      : datos.carta?.modelo === definicion.cartaCompromiso
+        ? datos.carta
+        : cartaVacia(definicion.cartaCompromiso);
 
   return {
     ...datos,
@@ -95,31 +101,33 @@ export function ajustarBloques(datos: DatosAfiliacion): DatosAfiliacion {
     // El vínculo con el titular lo fija el tipo elegido: una cónyuge no puede
     // quedar declarada como «Hijo/a» por un toque equivocado.
     vinculoConTitular: datos.tipoMiembro ? VINCULO_POR_TIPO[datos.tipoMiembro] ?? null : null,
-    carta:
-      definicion?.cartaCompromiso == null
-        ? null
-        : datos.carta?.modelo === definicion.cartaCompromiso
-          ? datos.carta
-          : cartaNueva(definicion.cartaCompromiso, datos),
+    carta: carta ? conCuotasDelTarifario(carta, datos) : null,
   };
 }
 
 /**
- * Carta de compromiso recién abierta, con los valores del tarifario del Club ya
- * escritos.
+ * La carta con las cuotas del tarifario del Club.
  *
  * La carta reconoce «el valor de mi cuota de mantenimiento anual» y el
  * mensualizado al que el socio puede acogerse: ambos están fijados por tipo de
- * socio en `CUOTAS TIPO SOCIOS.pdf`, así que se proponen en lugar de pedirlos en
- * blanco. Siguen siendo editables, porque hay acuerdos particulares que la
- * Jefatura conoce y el tarifario no recoge.
+ * socio en `CUOTAS TIPO SOCIOS.pdf`. Desde el 23/09/2026 no se le preguntan al
+ * socio (decisión del Coordinador): se escriben solas, y se reescriben cada vez
+ * que cambia la categoría o el estado civil. Hasta entonces solo se proponían
+ * al abrir la carta, y un D-A que pasaba a D-B —o un D-B que se declaraba
+ * casado— se quedaba con la cuota de antes.
+ *
+ * La usan la tableta, al ajustar los bloques, y el servidor, al recibir el
+ * trámite: una tableta con una compilación anterior todavía deja escribirlas.
  */
-function cartaNueva(modelo: ModeloCarta, datos: DatosAfiliacion): DatosCartaCompromiso {
+export function conCuotasDelTarifario(
+  carta: DatosCartaCompromiso,
+  datos: Pick<DatosAfiliacion, "tipoMiembro" | "estadoCivil">
+): DatosCartaCompromiso {
   const anual = cuotaAnualSugerida(datos.tipoMiembro, datos.estadoCivil);
   const mensual = cuotaMensualSugerida(datos.tipoMiembro, datos.estadoCivil);
 
   return {
-    ...cartaVacia(modelo),
+    ...carta,
     cuotaAnual: anual === null ? "" : formatearValor(anual),
     cuotaMensualizada: mensual === null ? "" : formatearValor(mensual),
   };
@@ -238,24 +246,36 @@ function validarTipo(estado: EstadoFormulario): Errores {
 
     if (!datos.titularNumeroSocio.trim()) {
       errores.titularNumeroSocio = "Ingrese el número de socio del titular.";
-    }
-  }
-
-  // El reverso del formulario exige el número del oficial FAE del que depende.
-  if (reglas?.requiereNumeroSocioActivo) {
-    const numero = datos.numeroSocioActivo.trim();
-    const oficial = datos.oficialDependencia;
-    if (!numero) {
-      errores.numeroSocioActivo =
-        "Ingrese el número de socio del oficial FAE del que depende (casilla «Número de Socio Activo» del formulario).";
-    } else if (oficial && oficial.numeroSocio === numero && oficial.resultado !== "VERIFICADO") {
+    } else {
       // Sin verificar se puede avanzar —la tableta trabaja sin red y la bandeja
       // lo comprueba antes del alta—; lo que no se admite es un número que el
       // CRM ya dijo que no corresponde.
+      const regla = reglaTitular(datos.tipoMiembro);
+      const rechazo = regla
+        ? motivoRechazo(datos.titularVerificado, datos.titularNumeroSocio, regla, "el titular")
+        : null;
+      if (rechazo) errores.titularNumeroSocio = rechazo;
+    }
+  }
+
+  // El socio del que depende un D-A o D-B (el oficial FAE de la casilla
+  // «Número de Socio Activo» del reverso) o un D-C (su padre o madre D-B).
+  const regla = reglaDependencia(datos.tipoMiembro);
+  if (regla) {
+    const numero = datos.numeroSocioActivo.trim();
+    if (!numero) {
       errores.numeroSocioActivo =
-        oficial.resultado === "NO_ENCONTRADO"
-          ? `El CRM de SAFI no tiene el número de socio ${numero}. Revise el número.`
-          : `El número ${numero} es de un socio ${oficial.tipoSocioSafi || "de otra categoría"} (${[oficial.nombres, oficial.apellidos].join(" ").trim()}), no de un Socio Activo ni de un Fundador.`;
+        regla === "DEPENDIENTE_B"
+          ? "Ingrese el número de socio del padre o la madre, socio Dependiente B."
+          : "Ingrese el número de socio del oficial FAE del que depende (casilla «Número de Socio Activo» del formulario).";
+    } else {
+      const rechazo = motivoRechazo(
+        datos.oficialDependencia,
+        numero,
+        regla,
+        regla === "DEPENDIENTE_B" ? "el socio del que depende un D-C" : "el oficial del que depende"
+      );
+      if (rechazo) errores.numeroSocioActivo = rechazo;
     }
   }
 
@@ -465,6 +485,16 @@ function validarGarantes(estado: EstadoFormulario): Errores {
 
     if (!garante.numeroSocio.trim()) {
       errores[`garante-${indice}-socio`] = "Ingrese el número de socio del garante.";
+    } else {
+      // Como con el titular: sin verificar se avanza, pero no con un número que
+      // el CRM ya rechazó (el garante es un Socio Activo o Fundador).
+      const rechazo = motivoRechazo(
+        garante.verificacion,
+        garante.numeroSocio,
+        REGLA_GARANTE,
+        "el garante"
+      );
+      if (rechazo) errores[`garante-${indice}-socio`] = rechazo;
     }
 
     const celular = validarCelular(garante.celular);
@@ -498,25 +528,38 @@ function validarCompromiso(estado: EstadoFormulario): Errores {
   const nacionalidad = validarObligatorio(carta.nacionalidad, "Ingrese la nacionalidad.");
   if (nacionalidad) errores.nacionalidad = nacionalidad;
 
+  // Las cuotas salen del tarifario: si falta, no es algo que el operador
+  // pueda arreglar escribiéndola.
   const cuota = Number(carta.cuotaAnual.replace(",", "."));
-  if (!carta.cuotaAnual.trim()) {
-    errores.cuotaAnual = "Ingrese el valor de la cuota de mantenimiento anual.";
-  } else if (!Number.isFinite(cuota) || cuota <= 0) {
-    errores.cuotaAnual = "Ingrese un valor numérico válido.";
+  if (!carta.cuotaAnual.trim() || !Number.isFinite(cuota) || cuota <= 0) {
+    errores.cuotaAnual =
+      "El tarifario del Club no tiene la cuota anual de este tipo de socio. Avise a la Coordinación de TICs.";
   }
 
-  // La carta autoriza el débito automático: o cuenta bancaria, o tarjeta.
-  const tieneCuenta = Boolean(carta.entidadFinanciera.trim() && carta.numeroCuenta.trim());
-  const tieneTarjeta = Boolean(carta.tarjetaCredito.trim());
-  if (!tieneCuenta && !tieneTarjeta) {
-    errores.entidadFinanciera =
-      "La carta autoriza el débito automático: registre una cuenta bancaria o una tarjeta de crédito.";
-  }
-  if (tieneCuenta && !carta.tipoCuenta) {
-    errores.tipoCuenta = "Indique si la cuenta es de ahorros o corriente.";
-  }
-  if (tieneTarjeta && !carta.caducidadTarjeta.trim()) {
-    errores.caducidadTarjeta = "Ingrese la fecha de caducidad de la tarjeta.";
+  // La carta autoriza el débito automático de una cuenta o de una tarjeta, no
+  // de las dos: se pide solo lo de la modalidad elegida.
+  const modalidad = modalidadDebitoDe(carta);
+  if (!modalidad) {
+    errores.modalidadDebito =
+      "Elija cómo autoriza el débito automático: de una cuenta bancaria o de una tarjeta de crédito.";
+  } else if (modalidad === "CUENTA") {
+    const entidad = validarObligatorio(carta.entidadFinanciera, "Ingrese el banco o la cooperativa.");
+    if (entidad) errores.entidadFinanciera = entidad;
+    if (!carta.tipoCuenta) errores.tipoCuenta = "Indique si la cuenta es de ahorros o corriente.";
+    const numero = carta.numeroCuenta.trim();
+    if (!numero) errores.numeroCuenta = "Ingrese el número de la cuenta.";
+    else if (numero.length < 6) errores.numeroCuenta = "El número de cuenta parece incompleto.";
+  } else {
+    const tarjeta = carta.tarjetaCredito.trim();
+    if (!tarjeta) errores.tarjetaCredito = "Ingrese el número de la tarjeta de crédito.";
+    else if (tarjeta.length < 13) {
+      errores.tarjetaCredito = "El número de la tarjeta tiene entre 13 y 16 dígitos.";
+    }
+    const caducidad = carta.caducidadTarjeta.trim();
+    if (!caducidad) errores.caducidadTarjeta = "Ingrese la fecha de caducidad de la tarjeta.";
+    else if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(caducidad)) {
+      errores.caducidadTarjeta = "La caducidad va como mes y año: MM/AA.";
+    }
   }
 
   return errores;

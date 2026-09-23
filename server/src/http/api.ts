@@ -14,6 +14,7 @@ import {
   type EstadoSolicitud,
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
+import { verificacionDe } from "../../../src/domain/sociosSafi";
 import {
   atendidasPor,
   calcularTareas,
@@ -59,7 +60,7 @@ import {
   aprobar,
   borrarSolicitud,
   corregirSolicitud,
-  fijarOficialDependencia,
+  fijarVerificaciones,
   cuentaSafiDelTitular,
   devolver,
   guardarAltaSafi,
@@ -90,7 +91,7 @@ import { pdfDisponible } from "../formularios/pdf";
 import { archivarContenido, rutaSegura } from "../expediente/repositorio";
 import { apartarEscaneo, asignarEscaneo, recorrer, vigilanciaActiva } from "../expediente/vigilante";
 import { adaptadorSafi, type ListasSafi, type VerificacionSafi } from "../safi/adaptador";
-import { comprobarOficial } from "../safi/oficial";
+import { comprobarReferencias } from "../safi/referencias";
 import {
   CUOTAS_ANUALES_SAFI,
   CUOTAS_MENSUALES_SAFI,
@@ -107,6 +108,7 @@ import {
   avisosDeConfirmacion,
   faltantesDeConfirmacion,
   sugerirConfirmacion,
+  valorCuotaDe,
   type AvisoSafi,
 } from "../safi/registro";
 import { anotarExito, anotarFallo, puedeIntentar } from "./intentos";
@@ -561,9 +563,45 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * El oficial FAE de un número de socio, según el CRM: para que la tableta
-   * compruebe, al escribir el número de un D-A o D-B, que depende de un Socio
-   * Activo o de un Fundador, y muestre su grado y su nombre. Solo lectura.
+   * Un socio del CRM, por su número o por su cédula: para que la tableta traiga
+   * los datos de un garante, del titular de un dependiente o del socio del que
+   * depende un D-A, D-B o D-C, en lugar de que el operador los escriba
+   * (23/09/2026). Devuelve la ficha tal como está en SAFI; qué categoría vale
+   * para cada papel lo decide el dominio (`sociosSafi.ts`), igual en los dos
+   * lados. Solo lectura.
+   */
+  app.get("/api/safi/socios", async (peticion, respuesta) => {
+    const usuario = exigirArea(peticion, respuesta, "SOCIOS");
+    if (!usuario) return respuesta;
+
+    const { numero = "", cedula = "" } = (peticion.query ?? {}) as {
+      numero?: string;
+      cedula?: string;
+    };
+    if (!numero && !cedula) {
+      return respuesta.code(400).send({ error: "Indique el número de socio o la cédula." });
+    }
+    if (numero && !/^\d{1,8}$/.test(numero)) {
+      return respuesta.code(400).send({ error: "El número de socio solo lleva dígitos." });
+    }
+    if (!numero && !/^\d{10}$/.test(cedula)) {
+      return respuesta.code(400).send({ error: "La cédula lleva diez dígitos." });
+    }
+
+    const consulta = await adaptadorSafi()
+      .consultarSocio({ numeroSocio: numero, cedula: numero ? "" : cedula })
+      .catch((error: unknown) => ({
+        consultado: false as const,
+        motivo: error instanceof Error ? error.message : String(error),
+      }));
+    return respuesta.send(consulta);
+  });
+
+  /**
+   * La consulta del oficial de un D-A o D-B, como la hacía la tableta hasta el
+   * 23/09/2026. Se conserva para las tabletas con esa compilación, hasta que se
+   * instale la nueva: responde lo mismo que antes, a partir de la consulta
+   * general.
    */
   app.get("/api/safi/oficiales/:numero", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
@@ -575,12 +613,16 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
     }
 
     const consulta = await adaptadorSafi()
-      .consultarOficial(numero)
+      .consultarSocio({ numeroSocio: numero })
       .catch((error: unknown) => ({
         consultado: false as const,
         motivo: error instanceof Error ? error.message : String(error),
       }));
-    return respuesta.send(consulta);
+    return respuesta.send(
+      consulta.consultado
+        ? { consultado: true, oficial: verificacionDe("ACTIVO_O_FUNDADOR", numero, consulta.socio) }
+        : consulta
+    );
   });
 
   /**
@@ -1221,8 +1263,9 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       ? null
       : solicitud.tramite.ordinalDependiente ?? verificacion.ordinalSugerido ?? ordinalLocal;
 
-    // D-A y D-B: que el oficial del que dependen sea Activo o Fundador.
-    const delOficial = await comprobarOficial(adaptador, solicitud);
+    // Los socios a los que se refiere el trámite: el oficial de un D-A o D-B,
+    // el D-B de un D-C, el titular de un dependiente y los garantes.
+    const referencias = await comprobarReferencias(adaptador, solicitud);
 
     const cuentaTitular = esTitular
       ? null
@@ -1255,10 +1298,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       fichasEnSafi: verificacion.fichas ?? [],
       avisos: [
         ...verificacion.avisos,
-        ...delOficial.avisos,
+        ...referencias.avisos,
         ...avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
       ],
-      oficialDependencia: delOficial.oficial,
+      oficialDependencia: referencias.dependencia.verificacion,
       yaCreado: creadoEnSafi(solicitud),
     });
   });
@@ -1286,6 +1329,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     const { numeroSocio, ordinalDependiente } = comprobacion;
     const confirmacion = {
       ...comprobacion.confirmacion,
+      // El Valor Cuota de la Cuenta es la cuota que la Jefatura eligió —la
+      // mensual o la anual—, no un valor aparte (decisión del Coordinador,
+      // 23/09/2026). Se calcula aquí aunque el panel ya lo muestre.
+      valorCuota: valorCuotaDe(comprobacion.confirmacion),
       confirmadaPor: usuario.nombre,
       confirmadaEn: new Date().toISOString(),
     };
@@ -1314,17 +1361,22 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     // campos del CRM y el nombre de la carpeta del expediente.
     const adaptador = adaptadorSafi();
 
-    // D-A y D-B: el oficial del que dependen debe ser Activo o Fundador, y su
-    // grado y nombre, tal como constan en SAFI, van a su Parentesco.
-    const delOficial = await comprobarOficial(adaptador, solicitud);
+    // Los socios a los que se refiere el trámite deben ser de la categoría que
+    // su papel exige, y el grado y el nombre del socio del que depende, tal
+    // como constan en SAFI, van a su Parentesco.
+    const referencias = await comprobarReferencias(adaptador, solicitud);
     const conNumeros = {
       ...solicitud,
-      // En un D-A o D-B, el oficial con que se compone el Parentesco es el que
-      // el servidor acaba de comprobar en SAFI, o ninguno: nunca el que trajo
-      // la tableta sin que el servidor pudiera confirmarlo.
-      datos: delOficial.aplica
-        ? { ...solicitud.datos, oficialDependencia: delOficial.oficial }
-        : solicitud.datos,
+      // El socio con que se compone el Parentesco es el que el servidor acaba
+      // de comprobar en SAFI, o ninguno: nunca el que trajo la tableta sin que
+      // el servidor pudiera confirmarlo.
+      datos: {
+        ...solicitud.datos,
+        ...(referencias.dependencia.aplica
+          ? { oficialDependencia: referencias.dependencia.verificacion }
+          : {}),
+        ...(referencias.titular.aplica ? { titularVerificado: referencias.titular.verificacion } : {}),
+      },
       tramite: { ...solicitud.tramite, numeroSocio, ordinalDependiente },
     };
     const verificacion = await adaptador
@@ -1344,7 +1396,7 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     // escriba a mano o por la API.
     const avisos = [
       ...verificacion.avisos,
-      ...delOficial.avisos,
+      ...referencias.avisos,
       ...avisosDeConfirmacion(conNumeros, confirmacion, (await adaptador.listas().catch(() => null)) ?? undefined),
     ];
     const bloqueantes = avisos.filter(
@@ -1358,9 +1410,12 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       });
     }
 
-    if (delOficial.oficial && delOficial.oficial !== solicitud.datos.oficialDependencia) {
-      fijarOficialDependencia(id, delOficial.oficial);
-    }
+    // Lo que SAFI dijo queda en el trámite: es con lo que se compuso el
+    // Parentesco y lo que imprime la línea «de …» del formulario final.
+    fijarVerificaciones(id, {
+      oficialDependencia: referencias.dependencia.verificacion ?? undefined,
+      titularVerificado: referencias.titular.verificacion ?? undefined,
+    });
 
     const alta = await adaptador.darDeAlta({ solicitud: conNumeros, confirmacion, cuentaId });
 

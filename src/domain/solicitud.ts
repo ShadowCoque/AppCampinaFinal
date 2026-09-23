@@ -3,6 +3,7 @@ import type { FormaPago } from "./facturacion";
 import { formatFechaHora } from "./fechas";
 import type { ModoFirma } from "./firmaElectronica";
 import type { ClaveConsentimiento } from "./privacidad";
+import type { VerificacionSocio } from "./sociosSafi";
 import {
   bloquesPara,
   PAIS_POR_DEFECTO,
@@ -229,6 +230,12 @@ export type DatosGarante = {
   numeroSocio: string;
   /** Firma del garante, capturada en pantalla. */
   firmaUri: string | null;
+  /**
+   * Lo que SAFI dijo de este garante al buscarlo por su número o su cédula
+   * (desde el 23/09/2026: debe ser Socio Activo o Fundador). Ausente o `null`,
+   * sin verificar: la bandeja lo comprueba antes del alta.
+   */
+  verificacion?: VerificacionSocio | null;
 };
 
 export function garanteVacio(id: string): DatosGarante {
@@ -240,12 +247,20 @@ export function garanteVacio(id: string): DatosGarante {
     celular: "",
     numeroSocio: "",
     firmaUri: null,
+    verificacion: null,
   };
 }
 
 /* ------------------------------------------------------------------ */
 /* Carta de compromiso                                                 */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Cómo autoriza el socio el débito automático: de una cuenta bancaria o de una
+ * tarjeta de crédito. Es una u otra (decisión del Coordinador, 23/09/2026): la
+ * carta imprime solo la elegida.
+ */
+export type ModalidadDebito = "CUENTA" | "TARJETA";
 
 /**
  * Datos que solo aparecen en la carta de compromiso y no en el formulario de
@@ -257,6 +272,11 @@ export type DatosCartaCompromiso = {
   nacionalidad: string;
   /** Fecha de la sesión del Directorio que autorizó el ingreso. */
   fechaSesionDirectorio: string;
+  /**
+   * Modalidad del débito automático. Ausente en las cartas anteriores al
+   * 23/09/2026, que la dejaban implícita: ver `modalidadDebitoDe`.
+   */
+  modalidadDebito?: ModalidadDebito | null;
   /** Entidad financiera para el débito automático. */
   entidadFinanciera: string;
   tipoCuenta: "AHORROS" | "CORRIENTE" | null;
@@ -264,9 +284,12 @@ export type DatosCartaCompromiso = {
   /** Alternativa al débito de cuenta: tarjeta de crédito y su caducidad. */
   tarjetaCredito: string;
   caducidadTarjeta: string;
-  /** Cuota de mantenimiento anual reconocida en la carta. */
+  /**
+   * Cuota de mantenimiento anual reconocida en la carta. Sale del tarifario
+   * del Club (`src/domain/cuotas.ts`): desde el 23/09/2026 no se pregunta.
+   */
   cuotaAnual: string;
-  /** Valor mensualizado, si el socio se acoge a esa modalidad. */
+  /** Valor mensualizado, si el tipo de socio admite esa modalidad. También del tarifario. */
   cuotaMensualizada: string;
   aceptadaEn: string | null;
 };
@@ -276,6 +299,7 @@ export function cartaVacia(modelo: ModeloCarta): DatosCartaCompromiso {
     modelo,
     nacionalidad: "ECUATORIANA",
     fechaSesionDirectorio: "",
+    modalidadDebito: null,
     entidadFinanciera: "",
     tipoCuenta: null,
     numeroCuenta: "",
@@ -285,6 +309,17 @@ export function cartaVacia(modelo: ModeloCarta): DatosCartaCompromiso {
     cuotaMensualizada: "",
     aceptadaEn: null,
   };
+}
+
+/**
+ * La modalidad de débito de una carta. Las anteriores al 23/09/2026 no la
+ * guardaban: se deduce de lo que se llenó, y si no se llenó nada, no hay.
+ */
+export function modalidadDebitoDe(carta: DatosCartaCompromiso): ModalidadDebito | null {
+  if (carta.modalidadDebito) return carta.modalidadDebito;
+  if (carta.numeroCuenta.trim()) return "CUENTA";
+  if (carta.tarjetaCredito.trim()) return "TARJETA";
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -310,26 +345,35 @@ export type DatosAfiliacion = {
   titularGradoMilitar: string;
   titularSituacion: SituacionMilitar | null;
   vinculoConTitular: VinculoDependiente | null;
+  /**
+   * Lo que SAFI dijo del socio titular al buscarlo por su número o su cédula.
+   * Los padres dependen de un Socio Activo o Fundador; el cónyuge y el juvenil,
+   * de cualquier socio titular salvo el Particular B (decisión del Coordinador,
+   * 23/09/2026). Ausente o `null`, sin verificar.
+   */
+  titularVerificado?: VerificacionSocio | null;
 
   /**
-   * «Número de Socio Activo» del reverso: el oficial FAE del que depende un
-   * socio D-A o D-B, que conserva cuenta y facturación propias.
+   * Número del socio del que depende un socio dependiente con Cuenta propia:
+   * el oficial FAE de un D-A o D-B —la casilla «Número de Socio Activo» del
+   * reverso— y el socio D-B de un D-C.
    */
   numeroSocioActivo: string;
   /**
-   * Lo que el CRM de SAFI dice del oficial de `numeroSocioActivo`, consultado
+   * Lo que el CRM de SAFI dice del socio de `numeroSocioActivo`, consultado
    * desde la tableta al escribir el número o desde la bandeja antes de crear
    * la ficha.
    *
    * `null` —o de otro número— significa **sin verificar**: la tableta trabaja
    * sin red y no se le impide avanzar; la bandeja lo comprueba antes del alta.
    * Lo que sí impide avanzar es una respuesta del CRM que diga que ese número
-   * no existe o que no es de un Socio Activo ni de un Fundador.
+   * no existe o que no es de la categoría que toca (`reglaDependencia`).
    *
-   * Su grado, nombres y apellidos van al campo Parentesco de la ficha del
-   * D-A o D-B en SAFI: es como la Jefatura reconoce de quién depende.
+   * Su grado, nombres y apellidos van al campo Parentesco de la ficha en SAFI
+   * y a la línea «de …» del PGS1-11: es como la Jefatura reconoce de quién
+   * depende.
    */
-  oficialDependencia: OficialDependencia | null;
+  oficialDependencia: VerificacionSocio | null;
 
   /** Identificación. */
   apellidos: string;
@@ -417,6 +461,7 @@ export function datosVacios(): DatosAfiliacion {
     titularGradoMilitar: "",
     titularSituacion: null,
     vinculoConTitular: null,
+    titularVerificado: null,
     numeroSocioActivo: "",
     oficialDependencia: null,
     apellidos: "",
@@ -632,25 +677,6 @@ export type DevolucionTramite = ConstanciaTramite & {
 export function destinoDevolucion(devolucion: DevolucionTramite | null | undefined): Area {
   return devolucion?.destino ?? "SOCIOS";
 }
-
-/**
- * Oficial FAE del que depende un socio D-A o D-B, según el CRM de SAFI.
- *
- *   VERIFICADO               Existe y es Socio Activo o Socio Fundador.
- *   NO_ENCONTRADO            SAFI no tiene ese número de socio.
- *   NO_ES_ACTIVO_NI_FUNDADOR Existe, pero es de otra categoría.
- */
-export type OficialDependencia = {
-  /** El número consultado: si el operador lo cambia, la verificación ya no vale. */
-  numeroSocio: string;
-  resultado: "VERIFICADO" | "NO_ENCONTRADO" | "NO_ES_ACTIVO_NI_FUNDADOR";
-  apellidos: string;
-  nombres: string;
-  gradoMilitar: string;
-  /** Tipo de socio tal como lo guarda SAFI (`cf_917`). */
-  tipoSocioSafi: string;
-  en: string;
-};
 
 /**
  * Recuadro INFORMACIÓN INTERNA DEL CLUB del reverso del formulario impreso,

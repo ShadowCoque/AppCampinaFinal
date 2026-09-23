@@ -1,5 +1,10 @@
 import type { TipoMiembro } from "../../../src/domain/tiposMiembro";
 import type { FormaPago } from "../../../src/domain/facturacion";
+import {
+  TIPO_SOCIO_SAFI,
+  TIPO_SOCIO_SAFI_DB_CASADO,
+  nombreConGrado,
+} from "../../../src/domain/sociosSafi";
 
 /**
  * Correspondencia entre los datos del Club y los campos del CRM de SAFI.
@@ -195,37 +200,12 @@ export const CARPETA_POR_DEFECTO = "1";
 /* ------------------------------------------------------------------ */
 
 /**
- * Tipo de socio (`cf_917`).
- *
- * **`CORRESPONSAL A` hay que crearlo en SAFI.** El levantamiento del 26 de
- * agosto encontró que la lista del CRM no lo tiene, pese a que el formulario
- * R-PGS1-26 existe y el PGS1-11 lo lista como «Socio C - A (Diplomáticos)». La
- * Jefatura de Socios confirmó que la categoría sí debe existir, de modo que se
- * mapea aquí con su nombre natural y queda pendiente añadir ese valor a la lista
- * del CRM; hasta entonces SAFI rechazará el alta de un Corresponsal A y el
- * motivo aparecerá en la bandeja del Área de Socios.
- *
- * El suscriptor de golf desapareció del catálogo: la Jefatura confirmó que esa
- * suscripción ya no existe, lo que explica que SAFI tampoco la tuviera.
+ * Tipo de socio (`cf_917`). La correspondencia vive en el dominio
+ * (`src/domain/sociosSafi.ts`) desde el 23/09/2026, porque la tableta también
+ * necesita reconocer la categoría de un socio que consultó en SAFI; se
+ * reexporta aquí para que este archivo siga siendo la traducción completa.
  */
-export const TIPO_SOCIO_SAFI: Record<TipoMiembro, string> = {
-  SF: "FUNDADOR",
-  SA: "ACTIVO",
-  CONYUGE: "CONYUGE",
-  PADRES: "DEPENDIENTE JUVENIL O PADRES",
-  JUVENIL: "DEPENDIENTE JUVENIL O PADRES",
-  DA: "PARTICULAR DEPENDIENTE A",
-  // El Dependiente B se resuelve por estado civil: ver `tipoSocioSafi`.
-  DB: "PARTICULAR DEPENDIENTE B SOLTERO",
-  DC: "PARTICULAR DEPENDIENTE C",
-  PA: "PARTICULAR A",
-  PB: "PARTICULAR B",
-  CA: "CORRESPONSAL A",
-  CB: "CORRESPONSAL B",
-  CC: "CORRESPONSAL C",
-  SG: "SUSCRIPTOR GIMNASIO",
-  ST: "SUSCRIPTOR TENIS",
-};
+export { TIPO_SOCIO_SAFI };
 
 /**
  * Valores de `cf_917` que se comprobaron presentes en el CRM el 26 de agosto de
@@ -266,9 +246,7 @@ const TIPOS_SOCIO_EN_SAFI = new Set([
  */
 export function tipoSocioSafi(tipo: TipoMiembro | null, esCasado: boolean): string | null {
   if (!tipo) return null;
-  if (tipo === "DB") {
-    return esCasado ? "PARTICULAR DEPENDIENTE B CASADO" : "PARTICULAR DEPENDIENTE B SOLTERO";
-  }
+  if (tipo === "DB") return esCasado ? TIPO_SOCIO_SAFI_DB_CASADO : TIPO_SOCIO_SAFI.DB;
   return TIPO_SOCIO_SAFI[tipo];
 }
 
@@ -519,16 +497,18 @@ export function telefonoPrincipal(celular: string, telefonoDomicilio: string): s
  * militar, si lo tiene, seguido de sus nombres y luego de sus apellidos. Es
  * cómo la Jefatura de Socios reconoce en pantalla de quién cuelga cada ficha.
  *
- * Va vacío en la ficha del propio titular, que no depende de nadie.
+ * Va vacío en la ficha del propio titular, que no depende de nadie. Es la misma
+ * composición que la línea «de …» del PGS1-11 (`nombreConGrado`), que tampoco
+ * escribe el «NO APLICA» de quien no es militar.
  */
 export function parentescoSafi(entrada: {
   gradoMilitarTitular: string;
   nombresTitular: string;
   apellidosTitular: string;
 }): string {
-  return [entrada.gradoMilitarTitular, entrada.nombresTitular, entrada.apellidosTitular]
-    .map((parte) => parte.trim())
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ");
+  return nombreConGrado({
+    gradoMilitar: entrada.gradoMilitarTitular,
+    nombres: entrada.nombresTitular,
+    apellidos: entrada.apellidosTitular,
+  });
 }

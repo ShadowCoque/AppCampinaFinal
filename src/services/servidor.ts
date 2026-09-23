@@ -11,10 +11,10 @@ import {
 } from "../data/solicitudes";
 import { cambiosEntre, type CambioDatos } from "../domain/correccion";
 import type { EstadoFormulario } from "../domain/formularioAfiliacion";
+import type { ConsultaSocio } from "../domain/sociosSafi";
 import {
   ROL_ADJUNTO_META,
   adjuntosFaltantes,
-  type OficialDependencia,
   type RolAdjunto,
   type SolicitudAfiliacion,
 } from "../domain/solicitud";
@@ -794,31 +794,41 @@ export async function reanudarEnvio(id: string): Promise<ResumenSincronizacion> 
 }
 
 /* ------------------------------------------------------------------ */
-/* Oficial FAE del que depende un D-A o D-B                            */
+/* Socios del CRM: garantes, titulares y el socio del que se depende   */
 /* ------------------------------------------------------------------ */
 
 /**
- * Lo que el CRM de SAFI dice de un número de socio: si es de un Socio Activo o
- * de un Fundador, con su grado y su nombre. Pasa por el servidor, que es quien
- * tiene acceso al CRM.
+ * Un socio del CRM de SAFI, por su número o, si no hay número, por su cédula,
+ * con lo que el formulario necesita de él: nombres, cédula, grado, teléfonos,
+ * categoría y estado. Pasa por el servidor, que es quien tiene acceso al CRM.
+ *
+ * Qué categoría vale para cada papel (garante, titular, socio del que depende)
+ * no lo decide el servidor en esta consulta sino el dominio
+ * (`src/domain/sociosSafi.ts`), el mismo en los dos lados.
  *
  * `consultado: false` no es un «no»: es que no se pudo preguntar —sin red, sin
  * sesión o con SAFI caído—. La tableta deja avanzar y la bandeja lo comprueba
  * antes de crear la ficha (decisión del Coordinador, 19/09/2026).
  */
-export type ConsultaOficial =
-  | { consultado: true; oficial: OficialDependencia }
-  | { consultado: false; motivo: string };
-
-export async function consultarOficial(numeroSocio: string): Promise<ConsultaOficial> {
+export async function consultarSocio(criterio: {
+  numeroSocio?: string;
+  cedula?: string;
+}): Promise<ConsultaSocio> {
+  const parametros = criterio.numeroSocio
+    ? `numero=${encodeURIComponent(criterio.numeroSocio)}`
+    : `cedula=${encodeURIComponent(criterio.cedula ?? "")}`;
   try {
-    return await peticion<ConsultaOficial>(
-      `/api/safi/oficiales/${encodeURIComponent(numeroSocio)}`
-    );
+    return await peticion<ConsultaSocio>(`/api/safi/socios?${parametros}`);
   } catch (error) {
+    // Un servidor todavía sin esta consulta responde 404: no es un «no existe».
+    const sinConsulta = error instanceof ErrorServidor && error.codigo === 404;
     return {
       consultado: false,
-      motivo: error instanceof Error ? error.message : "No se pudo consultar el servidor.",
+      motivo: sinConsulta
+        ? "el servidor todavía no tiene esta consulta; hay que actualizarlo"
+        : error instanceof Error
+          ? error.message
+          : "No se pudo consultar el servidor.",
     };
   }
 }

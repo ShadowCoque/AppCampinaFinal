@@ -1,10 +1,16 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { requisitosPara } from "../../domain/documentos";
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
-import { normalizarNombre, normalizarNumeroSocio } from "../../domain/texto";
+import {
+  gradoDesdeSafi,
+  reglaDependencia,
+  reglaTitular,
+  rotuloDependencia,
+} from "../../domain/sociosSafi";
+import { normalizarNombre, normalizarNombreFinal, normalizarNumeroSocio } from "../../domain/texto";
 import {
   GRADOS_OFRECIDOS,
   SITUACIONES_MILITARES,
@@ -16,10 +22,8 @@ import {
   type TipoMiembro,
 } from "../../domain/tiposMiembro";
 import { soloDigitos } from "../../domain/validaciones";
-import { consultarOficial } from "../../services/servidor";
 import { colors, radius, spacing } from "../../theme";
 import {
-  Button,
   Card,
   DataRow,
   InfoNote,
@@ -28,14 +32,20 @@ import {
   TextField,
   type SelectOption,
 } from "../../ui";
+import { AvisosSocioSafi, useBuscarSocio } from "./BuscarSocioSafi";
 
 type Props = {
   datos: DatosAfiliacion;
   errores: Errores;
   setDato: <K extends keyof DatosAfiliacion>(campo: K, valor: DatosAfiliacion[K]) => void;
+  /**
+   * Cambia varios datos a la vez sobre el estado vigente, no sobre el de este
+   * dibujo: la búsqueda en SAFI responde un momento después. `null`, nada.
+   */
+  actualizar: (cambio: (datos: DatosAfiliacion) => Partial<DatosAfiliacion> | null) => void;
 };
 
-export function PasoTipo({ datos, errores, setDato }: Props) {
+export function PasoTipo({ datos, errores, setDato, actualizar }: Props) {
   const opciones = useMemo<SelectOption<TipoMiembro>[]>(
     () =>
       TIPOS_DISPONIBLES.map((tipo) => ({
@@ -49,33 +59,53 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
 
   const reglas = reglasDe(datos.tipoMiembro);
 
-  // Oficial FAE del que depende un D-A o D-B: se consulta en SAFI, a través del
-  // servidor, en cuanto se termina de escribir el número. Si no se puede
-  // consultar, se sigue: la bandeja lo comprobará antes de crear la ficha.
-  const [consultando, setConsultando] = useState(false);
-  const [sinConsulta, setSinConsulta] = useState<string | null>(null);
-  const oficial =
-    datos.oficialDependencia?.numeroSocio === datos.numeroSocioActivo
-      ? datos.oficialDependencia
-      : null;
+  // El socio del que depende un D-A o D-B (su oficial FAE) o un D-C (su padre
+  // o madre D-B), y el titular de un cónyuge, unos padres o un juvenil: se
+  // buscan en SAFI, a través del servidor, en cuanto se termina de escribir el
+  // número o la cédula. Si no se puede consultar, se sigue: la bandeja lo
+  // comprobará antes de crear la ficha.
+  const reglaDep = reglaDependencia(datos.tipoMiembro);
+  const reglaTit = reglaTitular(datos.tipoMiembro);
+  const busquedaDependencia = useBuscarSocio(reglaDep);
+  const busquedaTitular = useBuscarSocio(reglaTit);
 
-  const verificarOficial = async () => {
-    const numero = datos.numeroSocioActivo;
-    if (!numero || consultando) return;
-    setConsultando(true);
-    setSinConsulta(null);
-    try {
-      const consulta = await consultarOficial(numero);
-      if (consulta.consultado) {
-        setDato("oficialDependencia", consulta.oficial);
-      } else {
-        setDato("oficialDependencia", null);
-        setSinConsulta(consulta.motivo);
-      }
-    } finally {
-      setConsultando(false);
-    }
+  const verificarDependencia = async () => {
+    const buscado = normalizarNumeroSocio(datos.numeroSocioActivo);
+    const resultado = await busquedaDependencia.buscar({ numeroSocio: buscado, cedula: "" });
+    if (!resultado) return;
+    // Si mientras tanto se escribió otro número, la respuesta ya no vale.
+    actualizar((actuales) =>
+      normalizarNumeroSocio(actuales.numeroSocioActivo) === buscado
+        ? { oficialDependencia: resultado.verificacion }
+        : null
+    );
   };
+
+  const verificarTitular = async () => {
+    const buscado = { numeroSocio: datos.titularNumeroSocio, cedula: datos.titularCedula };
+    const resultado = await busquedaTitular.buscar(buscado);
+    if (!resultado) return;
+    const { verificacion, socio } = resultado;
+    actualizar((actuales) => {
+      const vigente = buscado.numeroSocio
+        ? normalizarNumeroSocio(actuales.titularNumeroSocio) ===
+          normalizarNumeroSocio(buscado.numeroSocio)
+        : actuales.titularCedula === buscado.cedula;
+      if (!vigente) return null;
+      if (!socio) return { titularVerificado: verificacion };
+      // Lo que SAFI tiene reemplaza a lo escrito; lo que SAFI no tiene, no
+      // borra lo escrito.
+      return {
+        titularVerificado: verificacion,
+        titularNumeroSocio: verificacion.numeroSocio,
+        titularApellidos: normalizarNombreFinal(socio.apellidos) || actuales.titularApellidos,
+        titularNombres: normalizarNombreFinal(socio.nombres) || actuales.titularNombres,
+        titularCedula: socio.cedula || actuales.titularCedula,
+        titularGradoMilitar: gradoDesdeSafi(socio.gradoMilitar, actuales.titularGradoMilitar),
+      };
+    });
+  };
+
   const requisitos = requisitosPara(datos.tipoMiembro);
   const documentos = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
 
@@ -152,6 +182,69 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
           />
 
           <TextField
+            label="N.º de socio del titular"
+            required
+            helper={
+              datos.tipoMiembro === "PADRES"
+                ? "Es el número bajo el que se archivará el expediente. Debe ser de un Socio Activo o de un Fundador: se comprueba en SAFI y se traen sus datos."
+                : "Es el número bajo el que se archivará el expediente. Se comprueba en SAFI y se traen sus datos."
+            }
+            keyboardType="number-pad"
+            maxLength={8}
+            icon="barcode-outline"
+            value={datos.titularNumeroSocio}
+            onChangeText={(v) => {
+              setDato("titularNumeroSocio", normalizarNumeroSocio(v));
+              busquedaTitular.olvidar();
+            }}
+            onBlur={() => {
+              if (
+                datos.titularNumeroSocio &&
+                datos.titularVerificado?.numeroSocio !== datos.titularNumeroSocio
+              ) {
+                void verificarTitular();
+              }
+            }}
+            error={errores.titularNumeroSocio}
+          />
+          <TextField
+            label="Cédula del socio titular"
+            required
+            keyboardType="number-pad"
+            maxLength={10}
+            icon="card-outline"
+            value={datos.titularCedula}
+            onChangeText={(v) => {
+              setDato("titularCedula", soloDigitos(v, 10));
+              busquedaTitular.olvidar();
+            }}
+            onBlur={() => {
+              // Sin número, la cédula completa basta para buscarlo.
+              if (!datos.titularNumeroSocio && datos.titularCedula.length === 10) {
+                void verificarTitular();
+              }
+            }}
+            error={errores.titularCedula}
+            placeholder="10 dígitos"
+          />
+
+          {reglaTit ? (
+            <AvisosSocioSafi
+              verificacion={datos.titularVerificado}
+              numero={datos.titularNumeroSocio}
+              regla={reglaTit}
+              papel="el titular"
+              detalle="Sus datos se trajeron de SAFI; su grado y su nombre irán en el Parentesco de la ficha y en el formulario."
+              cedulaDeclarada={datos.titularCedula}
+              sinConsulta={busquedaTitular.sinConsulta}
+              sinCoincidencia={busquedaTitular.sinCoincidencia}
+              consultando={busquedaTitular.consultando}
+              onBuscar={() => void verificarTitular()}
+              puedeBuscar={Boolean(datos.titularNumeroSocio) || datos.titularCedula.length === 10}
+            />
+          ) : null}
+
+          <TextField
             label="Apellidos del socio titular"
             required
             autoCapitalize="characters"
@@ -171,28 +264,6 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
             onChangeText={(v) => setDato("titularNombres", normalizarNombre(v))}
             error={errores.titularNombres}
             placeholder="NOMBRES"
-          />
-          <TextField
-            label="Cédula del socio titular"
-            required
-            keyboardType="number-pad"
-            maxLength={10}
-            icon="card-outline"
-            value={datos.titularCedula}
-            onChangeText={(v) => setDato("titularCedula", soloDigitos(v, 10))}
-            error={errores.titularCedula}
-            placeholder="10 dígitos"
-          />
-          <TextField
-            label="N.º de socio del titular"
-            required
-            helper="Es el número bajo el que se archivará el expediente."
-            keyboardType="number-pad"
-            maxLength={8}
-            icon="barcode-outline"
-            value={datos.titularNumeroSocio}
-            onChangeText={(v) => setDato("titularNumeroSocio", normalizarNumeroSocio(v))}
-            error={errores.titularNumeroSocio}
           />
 
           <SelectField
@@ -215,62 +286,59 @@ export function PasoTipo({ datos, errores, setDato }: Props) {
         </Card>
       ) : null}
 
-      {reglas?.requiereNumeroSocioActivo ? (
+      {reglaDep ? (
         <Card
-          title="Oficial FAE del que depende"
-          subtitle="Casilla «Número de Socio Activo» del reverso del formulario."
+          title={rotuloDependencia(datos.tipoMiembro)}
+          subtitle={
+            reglaDep === "DEPENDIENTE_B"
+              ? "El padre o la madre del solicitante, socio Dependiente B: así lo pide el PGS1-11."
+              : "Casilla «Número de Socio Activo» del reverso del formulario."
+          }
           icon="shield-checkmark"
         >
           <TextField
-            label="N.º de socio del oficial FAE"
+            label={
+              reglaDep === "DEPENDIENTE_B"
+                ? "N.º de socio del padre o la madre (D-B)"
+                : "N.º de socio del oficial FAE"
+            }
             required
             keyboardType="number-pad"
             maxLength={8}
             icon="barcode-outline"
             value={datos.numeroSocioActivo}
             onChangeText={(v) => {
-              const numero = normalizarNumeroSocio(v);
-              setDato("numeroSocioActivo", numero);
-              // Otro número: lo que se consultó ya no vale.
-              if (datos.oficialDependencia && datos.oficialDependencia.numeroSocio !== numero) {
-                setDato("oficialDependencia", null);
-              }
-              setSinConsulta(null);
+              setDato("numeroSocioActivo", normalizarNumeroSocio(v));
+              busquedaDependencia.olvidar();
             }}
             onBlur={() => {
-              if (datos.numeroSocioActivo && !oficial) void verificarOficial();
+              if (
+                datos.numeroSocioActivo &&
+                datos.oficialDependencia?.numeroSocio !== datos.numeroSocioActivo
+              ) {
+                void verificarDependencia();
+              }
             }}
             error={errores.numeroSocioActivo}
-            helper="Debe ser de un Socio Activo o de un Fundador. Se comprueba en SAFI."
+            helper={
+              reglaDep === "DEPENDIENTE_B"
+                ? "Debe ser de un Socio Dependiente B. Se comprueba en SAFI."
+                : "Debe ser de un Socio Activo o de un Fundador. Se comprueba en SAFI."
+            }
           />
 
-          {oficial?.resultado === "VERIFICADO" ? (
-            <InfoNote tone="success" icon="shield-checkmark">
-              {`${[oficial.gradoMilitar, oficial.nombres, oficial.apellidos].join(" ").trim()} · Socio ${oficial.tipoSocioSafi} en SAFI. Su grado y su nombre irán en el Parentesco de la ficha.`}
-            </InfoNote>
-          ) : null}
-          {oficial && oficial.resultado !== "VERIFICADO" ? (
-            <InfoNote tone="danger" icon="close-circle">
-              {oficial.resultado === "NO_ENCONTRADO"
-                ? `SAFI no tiene el número de socio ${oficial.numeroSocio}. Revíselo con el socio.`
-                : `El N.º ${oficial.numeroSocio} es de ${[oficial.nombres, oficial.apellidos].join(" ").trim()}, socio ${oficial.tipoSocioSafi || "de otra categoría"}: no es Socio Activo ni Fundador. Un D-A o D-B depende de uno de ellos.`}
-            </InfoNote>
-          ) : null}
-          {sinConsulta ? (
-            <InfoNote tone="warning" icon="cloud-offline">
-              {`No se pudo consultar SAFI (${sinConsulta.replace(/\.$/, "")}). Puede continuar: la bandeja comprobará el número antes de crear la ficha.`}
-            </InfoNote>
-          ) : null}
-          {datos.numeroSocioActivo && !oficial ? (
-            <Button
-              label={consultando ? "Consultando SAFI…" : "Comprobar en SAFI"}
-              icon="search-outline"
-              variant="secondary"
-              onPress={() => void verificarOficial()}
-              loading={consultando}
-              fullWidth
-            />
-          ) : null}
+          <AvisosSocioSafi
+            verificacion={datos.oficialDependencia}
+            numero={datos.numeroSocioActivo}
+            regla={reglaDep}
+            papel={reglaDep === "DEPENDIENTE_B" ? "el socio del que depende un D-C" : "el oficial del que depende"}
+            detalle="Su grado y su nombre irán en el Parentesco de la ficha y en el formulario."
+            sinConsulta={busquedaDependencia.sinConsulta}
+            sinCoincidencia={busquedaDependencia.sinCoincidencia}
+            consultando={busquedaDependencia.consultando}
+            onBuscar={() => void verificarDependencia()}
+            puedeBuscar={Boolean(datos.numeroSocioActivo)}
+          />
         </Card>
       ) : null}
     </>

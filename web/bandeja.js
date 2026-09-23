@@ -1468,8 +1468,6 @@ async function abrirDialogoSafi(solicitudId) {
   $("safi-grupo-cuenta").hidden = !ficha.esTitular;
   $("safi-grupo-cuotas").hidden = !ficha.pagaCuota;
 
-  $("safi-valor-cuota").value = ficha.propuesta.valorCuota || "";
-
   llenarSelect(CAMPOS_SAFI.grupoFacturacion, ficha.listas.grupoFacturacion, ficha.propuesta.grupoFacturacion);
   llenarSelect(CAMPOS_SAFI.formaPago, ficha.listas.formaPago, ficha.propuesta.formaPago);
   llenarSelect(CAMPOS_SAFI.tipoContribuyente, ficha.listas.tipoContribuyente, ficha.propuesta.tipoContribuyente);
@@ -1533,6 +1531,9 @@ function dibujarFichasSafi(ficha) {
  * Antes solo se vaciaba la otra al elegir una, y el aviso lo explicaba con una
  * frase; ahora la que no aplica queda **bloqueada** hasta que se suelte la
  * elegida. Se ve lo que pasa en vez de leerlo.
+ *
+ * El «Valor Cuota» de la Cuenta es la cuota elegida (decisión del Coordinador,
+ * 23/09/2026): se escribe solo, y el servidor lo vuelve a calcular al crear.
  */
 function sincronizarCuotas() {
   const anual = $(CAMPOS_SAFI.cuotaAnual);
@@ -1540,6 +1541,8 @@ function sincronizarCuotas() {
 
   anual.disabled = Boolean(mensual.value);
   mensual.disabled = Boolean(anual.value);
+
+  $("safi-valor-cuota").value = valorCuotaElegida(mensual.value) || valorCuotaElegida(anual.value);
 
   for (const [select, otro] of [
     [anual, mensual],
@@ -1553,12 +1556,37 @@ function sincronizarCuotas() {
   }
 }
 
+/** `40` → `40.00`; vacío o cero, nada: no se acoge a esa modalidad. */
+function valorCuotaElegida(valor) {
+  const numero = Number(String(valor).replace(",", ".").trim());
+  return String(valor).trim() && Number.isFinite(numero) && numero > 0 ? numero.toFixed(2) : "";
+}
+
+/**
+ * Al elegir la cuota, las Subscripciones acompañan: «Mensual» con la mensual y
+ * «Anual» con la anual. Solo se cambian si están en una de esas dos o vacías;
+ * otra periodicidad la eligió la Jefatura a propósito.
+ */
+function acompasarSuscripcion(periodicidad) {
+  const suscripcion = $(CAMPOS_SAFI.suscripcion);
+  if (!["", "Anual", "Mensual"].includes(suscripcion.value)) return;
+  if ([...suscripcion.options].some((opcion) => opcion.value === periodicidad)) {
+    suscripcion.value = periodicidad;
+  }
+}
+
 $(CAMPOS_SAFI.cuotaAnual).addEventListener("change", () => {
-  if ($(CAMPOS_SAFI.cuotaAnual).value) $(CAMPOS_SAFI.cuotaMensual).value = "";
+  if ($(CAMPOS_SAFI.cuotaAnual).value) {
+    $(CAMPOS_SAFI.cuotaMensual).value = "";
+    acompasarSuscripcion("Anual");
+  }
   sincronizarCuotas();
 });
 $(CAMPOS_SAFI.cuotaMensual).addEventListener("change", () => {
-  if ($(CAMPOS_SAFI.cuotaMensual).value) $(CAMPOS_SAFI.cuotaAnual).value = "";
+  if ($(CAMPOS_SAFI.cuotaMensual).value) {
+    $(CAMPOS_SAFI.cuotaAnual).value = "";
+    acompasarSuscripcion("Mensual");
+  }
   sincronizarCuotas();
 });
 

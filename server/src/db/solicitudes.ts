@@ -18,11 +18,12 @@ import {
   type ConfirmacionSafi,
   type ConstanciaTramite,
   type EstadoSolicitud,
-  type OficialDependencia,
   type RolAdjunto,
   type SolicitudAfiliacion,
   type TramiteInterno,
 } from "../../../src/domain/solicitud";
+import { conCuotasDelTarifario } from "../../../src/domain/formularioAfiliacion";
+import type { VerificacionSocio } from "../../../src/domain/sociosSafi";
 import { creadoEnSafi, tareasDeSolicitud } from "../../../src/domain/tareas";
 import { fuerzaFijaPara } from "../../../src/domain/tiposMiembro";
 import { normalizarNumeroSocio } from "../../../src/domain/texto";
@@ -316,6 +317,11 @@ function depurarEntrante(
   const fuerzaFija = fuerzaFijaPara(datos.tipoMiembro);
   if (fuerzaFija) datos.fuerza = fuerzaFija;
 
+  // Las cuotas de la carta son las del tarifario del Club y no se preguntan
+  // (decisión del Coordinador, 23/09/2026). Una tableta con una compilación
+  // anterior todavía deja escribirlas: aquí se imponen.
+  if (datos.carta) datos.carta = conCuotasDelTarifario(datos.carta, datos);
+
   return {
     id: entrante.id,
     codigo: "",
@@ -543,18 +549,24 @@ export function aprobar(id: string, entrada: { observacion: string }, actor: Act
 }
 
 /**
- * Guarda en el trámite lo que SAFI dijo del oficial FAE del que depende un D-A
- * o D-B, cuando la bandeja lo verificó antes del alta. No es una corrección de
- * la persona, así que no deja entrada en el historial: es el dato con que se
- * compuso su Parentesco.
+ * Guarda en el trámite lo que SAFI dijo, al verificarlo la bandeja antes del
+ * alta, del socio del que depende un D-A, D-B o D-C y del titular de un
+ * dependiente. No es una corrección de la persona, así que no deja entrada en
+ * el historial: es el dato con que se compuso su Parentesco, y el que imprime
+ * la línea «de …» del formulario final. Lo que no se pudo verificar no se
+ * toca.
  */
-export function fijarOficialDependencia(
+export function fijarVerificaciones(
   id: string,
-  oficial: OficialDependencia
+  verificaciones: { oficialDependencia?: VerificacionSocio; titularVerificado?: VerificacionSocio }
 ): SolicitudAfiliacion | null {
   const actual = obtenerSolicitud(id);
   if (!actual) return null;
-  const actualizada = { ...actual, datos: { ...actual.datos, oficialDependencia: oficial } };
+  const cambios = Object.fromEntries(
+    Object.entries(verificaciones).filter(([, valor]) => valor !== undefined)
+  );
+  if (Object.keys(cambios).length === 0) return actual;
+  const actualizada = { ...actual, datos: { ...actual.datos, ...cambios } };
   guardarDocumento(actualizada);
   return actualizada;
 }

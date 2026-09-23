@@ -30,6 +30,8 @@ type Props = {
   onFirma: (dataUri: string | null) => void;
   /** Bloquea el scroll del formulario mientras se traza la firma. */
   onDibujando: (dibujando: boolean) => void;
+  /** Abre el formulario completo para leerlo antes de firmar. */
+  onVistaPrevia: () => void;
 };
 
 const ESTILO_LIENZO = `
@@ -47,6 +49,7 @@ export function PasoConsentimiento({
   onConsentimiento,
   onFirma,
   onDibujando,
+  onVistaPrevia,
 }: Props) {
   const router = useRouter();
   const lienzo = useRef<SignatureViewRef>(null);
@@ -128,6 +131,25 @@ export function PasoConsentimiento({
           Se registrará la fecha, la hora y la versión del aviso aceptado como evidencia del
           consentimiento otorgado.
         </InfoNote>
+      </Card>
+
+      <Card
+        title="Antes de firmar"
+        subtitle="El formulario completo, tal como se generará."
+        icon="document-text"
+      >
+        <InfoNote tone="info" icon="eye-outline">
+          Enséñele al socio lo que va a firmar: el formulario, su hoja de solicitud, la carta de
+          compromiso si la lleva y el reverso, con todos sus datos. Si algo no está bien, corríjalo
+          en su paso antes de firmar.
+        </InfoNote>
+        <Button
+          label="Ver el formulario completo"
+          icon="document-text-outline"
+          variant="secondary"
+          onPress={onVistaPrevia}
+          fullWidth
+        />
       </Card>
 
       <Card

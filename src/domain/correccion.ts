@@ -73,8 +73,8 @@ const ETIQUETAS: Partial<Record<keyof DatosAfiliacion, string>> = {
   titularNumeroSocio: "Número de socio del titular",
   titularGradoMilitar: "Grado del socio titular",
   titularSituacion: "Situación del socio titular",
-  numeroSocioActivo: "Número de socio del oficial FAE",
-  oficialDependencia: "Oficial FAE del que depende",
+  numeroSocioActivo: "Número de socio del que depende",
+  oficialDependencia: "Socio del que depende",
   apellidos: "Apellidos",
   nombres: "Nombres",
   cedula: "Cédula",
@@ -106,20 +106,41 @@ const ETIQUETAS: Partial<Record<keyof DatosAfiliacion, string>> = {
   carta: "Carta de compromiso",
 };
 
-/** Campos que no se comparan: los decide el sistema, no quien corrige. */
-const IGNORADOS = new Set<keyof DatosAfiliacion>(["vinculoConTitular", "formaPago", "valorAfiliacion"]);
+/**
+ * Campos que no se comparan: los decide el sistema, no quien corrige. La
+ * verificación del titular en SAFI acompaña a su número, que sí se compara.
+ */
+const IGNORADOS = new Set<keyof DatosAfiliacion>([
+  "vinculoConTitular",
+  "formaPago",
+  "valorAfiliacion",
+  "titularVerificado",
+]);
 
 /**
  * Para comparar un bloque compuesto, lo que no es un dato de la persona se
- * quita: las rutas de las firmas son del dispositivo, y la fecha en que se
- * consultó al oficial cambia cada vez que se consulta.
+ * quita: las rutas de las firmas son del dispositivo, la fecha en que se
+ * consultó al oficial cambia cada vez que se consulta, y lo que SAFI dijo de
+ * un garante acompaña a su número.
  */
 function comparable(campo: keyof DatosAfiliacion, valor: unknown): string {
   if (valor === null || valor === undefined) return "";
   if (typeof valor !== "object") return String(valor);
+  if (campo === "oficialDependencia") {
+    // Quién es, no cuándo ni cómo se consultó: una segunda consulta del mismo
+    // socio no es una corrección.
+    const socio = valor as NonNullable<DatosAfiliacion["oficialDependencia"]>;
+    return JSON.stringify([
+      socio.numeroSocio,
+      socio.gradoMilitar,
+      socio.nombres,
+      socio.apellidos,
+      socio.tipoSocioSafi,
+    ]);
+  }
   return JSON.stringify(valor, (clave, dato) => {
     if (clave === "firmaUri" || clave === "aceptadaEn") return undefined;
-    if (campo === "oficialDependencia" && clave === "en") return undefined;
+    if (campo === "garantes" && clave === "verificacion") return undefined;
     return dato;
   });
 }

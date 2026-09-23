@@ -82,9 +82,44 @@ corresponsales militares, la **fuerza** a la que pertenecen. Al **Socio Activo**
 y al **Fundador** no se les pregunta: son oficiales de la FAE y su fuerza es
 siempre la **Aérea**, que la tableta muestra fija y el sistema impone en SAFI.
 
+**Los socios a los que se refiere el trámite se traen de SAFI** (desde el
+23/09/2026): los **garantes**, el **titular** de un cónyuge, unos padres o un
+juvenil, y el **socio del que depende** un D-A, D-B o D-C. Basta escribir su
+número de socio —o su cédula, si no se sabe el número— y la tableta trae de SAFI
+su nombre, su cédula, su grado y sus teléfonos. Cada papel admite solo ciertas
+categorías:
+
+| Quién | Tiene que ser en SAFI |
+|---|---|
+| Garantes | Socio Activo o Fundador |
+| Titular de los padres | Socio Activo o Fundador |
+| Titular del cónyuge o del juvenil | Cualquier socio titular, salvo el Particular B y los suscriptores |
+| Oficial del que depende un D-A o D-B | Socio Activo o Fundador |
+| Socio del que depende un D-C | Socio Dependiente B (su padre o su madre) |
+
+Si SAFI dice que ese número no existe o es de otra categoría, la tableta **no
+deja avanzar**. Si en ese momento no pudo consultar (sin red, SAFI caído), deja
+seguir escribiendo los datos a mano, y lo comprueba el panel del paso 2.
+
+**La carta de compromiso** ya no pregunta las cuotas: la **cuota anual** y el
+**valor mensualizado** salen del tarifario del Club para esa categoría y se
+actualizan solos si cambia la categoría o el estado civil. El **débito
+automático** es de una cuenta bancaria **o** de una tarjeta de crédito: se elige
+primero la modalidad, se piden solo sus datos, y la carta imprime solo esa.
+
+**Antes de firmar**, el paso de consentimiento tiene **«Ver el formulario
+completo»**: el documento tal como se generará —formulario, hoja de solicitud,
+carta y reverso—, para leerlo con el socio y corregir lo que haga falta antes de
+que firme. También está en el paso de revisión.
+
 El formulario que se genera es **uno solo por categoría**: el R-PGS1-1 si es
 Socio Activo, el PGS1-11 en cualquier otro caso, más la hoja de solicitud y la
-carta de compromiso cuando la categoría las lleva.
+carta de compromiso cuando la categoría las lleva. En el PGS1-11 de un cónyuge,
+unos padres, un juvenil, un D-A, un D-B o un D-C, junto a la casilla marcada va
+la línea **«de …»** con el grado y el nombre del socio del que depende —lo mismo
+que va al Parentesco de su ficha en SAFI—. La hoja de solicitud ya no repite la
+cédula del aspirante en su recuadro: la dice el «Yo, … con C.I. …» que la
+encabeza. La del garante, sí.
 
 Al terminar debe decir **«Afiliación registrada y enviada»**. Si dijera
 «registrada» y nada más, quedó en la tableta: abra «Configuración y envío» y
@@ -128,9 +163,14 @@ y la ven Contabilidad y la Gerencia.
      añadió un valor esta semana, aparece aquí sin tocar el código;
    - comprueba, **sin escribir nada**, que el número de socio esté libre, que la
      cédula no esté repetida y qué número toca según la secuencia;
-   - en un dependiente, busca la Cuenta del titular y propone su ordinal.
+   - en un dependiente, busca la Cuenta del titular y propone su ordinal;
+   - vuelve a consultar en SAFI a los **garantes**, al **titular** y al **socio
+     del que depende** (ver abajo).
 2. Escriba el **número de socio** y revise lo propuesto. Los avisos en amarillo
    son cosas que el CRM no podría guardar o que conviene mirar dos veces.
+   Elija la **cuota anual o la mensual**: el **Valor Cuota** de la Cuenta se
+   llena solo con la que elija, y las **Subscripciones** la acompañan (Anual o
+   Mensual).
 3. Confirme. Con la escritura habilitada, el sistema **crea la Cuenta y la ficha
    de Socio** en SAFI y guarda sus identificadores en el expediente.
 
@@ -149,13 +189,22 @@ observación, y entonces hay que corregir también la ficha del CRM a mano (el
 sistema lo recuerda y no deja cambiar la categoría). La corrección necesita
 conexión: si no la hay, la tableta no cambia nada y lo dice.
 
-**Socios D-A y D-B.** Dependen de un oficial FAE, que tiene que ser **Socio
-Activo o Fundador**. La tableta lo comprueba en SAFI al escribir su número y
-muestra su grado y su nombre; si SAFI dice que ese número no existe o es de otra
-categoría, no deja avanzar. Si en ese momento no pudo consultar, deja avanzar y
-lo comprueba este panel, que **no deja crear la ficha** hasta que el oficial sea
-Activo o Fundador. Su grado, nombres y apellidos, tal como constan en SAFI, van
-al campo **Parentesco** de la ficha del D-A o D-B.
+**Garantes, titular y socio del que depende.** La tableta los comprueba en SAFI
+al escribir su número (ver el paso 1), pero si entonces no pudo consultar, deja
+avanzar: por eso este panel **los vuelve a consultar** y **no deja crear la
+ficha** si SAFI dice que alguno no existe o no es de la categoría que su papel
+exige —un garante que no es Activo ni Fundador, un D-C cuyo padre no es D-B, el
+cónyuge de un Particular B—. Si el CRM no se puede consultar, lo avisa sin
+detener, para comprobarlo a mano. También avisa, sin detener, si la cédula del
+trámite no es la que SAFI tiene para ese número o si ese socio no consta como
+«Activo». Lo que dijo la tableta nunca se da por bueno: solo cuenta lo que el
+servidor consulta aquí.
+
+El grado, nombres y apellidos del socio del que depende, **tal como constan en
+SAFI**, van al campo **Parentesco** de la ficha: del oficial en un D-A o D-B, del
+padre o la madre D-B en un D-C, y del titular en un cónyuge, unos padres o un
+juvenil. Si el oficial o el D-B no se pudieron comprobar, el Parentesco va vacío
+antes que equivocado; el del titular, con lo escrito en la tableta.
 
 > **Pendiente del lado del Club:** `CORRESPONSAL A` no existe todavía en la
 > lista `cf_917` de SAFI, ni sus cuotas `480` y `40`. Hasta que se creen, un
@@ -376,6 +425,17 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
         grado y su nombre; con el de un socio de otra categoría, no deja
         avanzar. En SAFI, el Parentesco de la ficha del D-A con ese grado y ese
         nombre.
+14. [ ] Garantes: escribir solo el número de un Socio Activo real y ver que se
+        llenan su nombre, su cédula y sus teléfonos; probar también con su
+        cédula. Con el número de un Particular A, la tableta no deja avanzar.
+15. [ ] Un D-C con el número de un D-B real (pasa) y con el de un Socio
+        Activo (no pasa). Un cónyuge de un Particular A (pasa) y unos padres del
+        mismo Particular A (no pasan).
+16. [ ] Carta: elegir tarjeta y ver que solo pide la tarjeta; en la vista
+        previa, la carta dice solo la tarjeta y las cuotas del tarifario. En el
+        PGS1-11, la línea «de …» junto a la casilla marcada.
+17. [ ] Panel de SAFI: elegir la cuota mensual y ver que el Valor Cuota cambia
+        solo a la mensual y las Subscripciones a «Mensual».
 
 ---
 

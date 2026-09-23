@@ -1,6 +1,7 @@
 import { calcularEdad } from "../../domain/fechas";
 import { CLAUSULA_FORMULARIO, CLAUSULA_SOLICITUD } from "../../domain/privacidad";
 import { nombreCompleto, nombreTitular, type SolicitudAfiliacion } from "../../domain/solicitud";
+import { socioDelQueDepende } from "../../domain/sociosSafi";
 import {
   CATALOGO_TIPOS,
   FORMULARIO_PRINCIPAL,
@@ -23,6 +24,7 @@ import {
   opciones,
   recuadro,
   unir,
+  valor,
 } from "./piezas";
 import type { RecursosFormulario } from "./tipos";
 
@@ -224,9 +226,15 @@ export function paginaPrincipal(solicitud: SolicitudAfiliacion, recursos: Recurs
 /**
  * Columna de tipos de socio del formulario PGS1-11, en el mismo orden y con las
  * mismas glosas que constan impresas.
+ *
+ * El impreso trae una línea «de ____» junto a cada categoría de dependiente
+ * —cónyuge, padres, juvenil, D-A, D-B y D-C— para escribir de qué socio
+ * depende. Se imprime en la casilla marcada, siempre, con el grado y el nombre
+ * de ese socio (ver `socioDelQueDepende`); en blanco si aún no se sabe.
  */
 function columnaTipos(solicitud: SolicitudAfiliacion): string {
   const seleccionado = solicitud.datos.tipoMiembro;
+  const de = socioDelQueDepende(solicitud.datos);
 
   const grupos = ORDEN_CATEGORIAS.map((categoria) => {
     const tipos = TIPOS_MIEMBRO.map((codigo) => CATALOGO_TIPOS[codigo]).filter(
@@ -234,7 +242,14 @@ function columnaTipos(solicitud: SolicitudAfiliacion): string {
     );
     if (tipos.length === 0) return "";
     const items = tipos
-      .map((tipo) => `<div>${casilla(tipo.glosaFormulario, tipo.codigo === seleccionado)}</div>`)
+      .map((tipo) => {
+        const marcada = tipo.codigo === seleccionado;
+        const linea =
+          marcada && de !== null
+            ? `<div style="margin:1px 0 2px 14px">de ${valor(de)}</div>`
+            : "";
+        return `<div>${casilla(tipo.glosaFormulario, marcada)}</div>${linea}`;
+      })
       .join("");
     return `<div style="margin-bottom:3px">
       <div style="font-size:6.8pt;color:#54657A;text-transform:uppercase;letter-spacing:.2px">${escapar(

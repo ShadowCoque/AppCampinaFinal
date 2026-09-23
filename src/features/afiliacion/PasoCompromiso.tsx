@@ -1,9 +1,14 @@
 import React from "react";
 
 import type { Errores } from "../../domain/formularioAfiliacion";
-import type { DatosAfiliacion, DatosCartaCompromiso } from "../../domain/solicitud";
+import {
+  modalidadDebitoDe,
+  type DatosAfiliacion,
+  type DatosCartaCompromiso,
+  type ModalidadDebito,
+} from "../../domain/solicitud";
 import { normalizarTextoInstitucional } from "../../domain/texto";
-import { Card, DateField, InfoNote, OptionGroup, TextField } from "../../ui";
+import { Card, DataRow, DateField, InfoNote, OptionGroup, TextField } from "../../ui";
 import { soloDigitos } from "../../domain/validaciones";
 
 /**
@@ -12,6 +17,11 @@ import { soloDigitos } from "../../domain/validaciones";
  * Recoge lo que la carta contiene y el formulario no: la autorización de débito
  * automático, el valor de la cuota de mantenimiento anual y la sesión del
  * Directorio que autorizó el ingreso.
+ *
+ * Las cuotas no se preguntan: salen del tarifario del Club (decisión del
+ * Coordinador, 23/09/2026). Y el débito es de una cuenta **o** de una tarjeta:
+ * se elige primero la modalidad y se piden solo sus datos, que son los únicos
+ * que la carta imprime.
  */
 
 type Props = {
@@ -19,11 +29,6 @@ type Props = {
   errores: Errores;
   setDato: <K extends keyof DatosAfiliacion>(campo: K, valor: DatosAfiliacion[K]) => void;
 };
-
-/** Solo dígitos, coma o punto: es un valor monetario. */
-function soloMonto(valor: string): string {
-  return valor.replace(/[^\d.,]/g, "").slice(0, 12);
-}
 
 export function PasoCompromiso({ datos, errores, setDato }: Props) {
   const carta = datos.carta;
@@ -33,6 +38,20 @@ export function PasoCompromiso({ datos, errores, setDato }: Props) {
     campo: K,
     valor: DatosCartaCompromiso[K]
   ) => setDato("carta", { ...carta, [campo]: valor });
+
+  const modalidad = modalidadDebitoDe(carta);
+
+  // Al cambiar de modalidad se vacían los datos de la otra: la carta imprime
+  // una sola, y los números de una cuenta o de una tarjeta que el socio no
+  // autorizó no deben quedar guardados.
+  const elegirModalidad = (nueva: ModalidadDebito) =>
+    setDato("carta", {
+      ...carta,
+      modalidadDebito: nueva,
+      ...(nueva === "CUENTA"
+        ? { tarjetaCredito: "", caducidadTarjeta: "" }
+        : { entidadFinanciera: "", tipoCuenta: null, numeroCuenta: "" }),
+    });
 
   return (
     <>
@@ -70,82 +89,118 @@ export function PasoCompromiso({ datos, errores, setDato }: Props) {
 
       <Card
         title="Cuota de mantenimiento"
-        subtitle="Valor que el socio reconoce en la carta."
+        subtitle="Valor que el socio reconoce en la carta, según el tarifario del Club."
         icon="cash"
       >
-        <TextField
-          label="Cuota anual (USD)"
-          required
-          keyboardType="decimal-pad"
-          icon="pricetag-outline"
-          value={carta.cuotaAnual}
-          onChangeText={(v) => setCarta("cuotaAnual", soloMonto(v))}
-          error={errores.cuotaAnual}
-          placeholder="1200.00"
+        <DataRow
+          label="Cuota anual"
+          value={carta.cuotaAnual ? `USD ${carta.cuotaAnual}` : null}
         />
-        <TextField
-          label="Valor mensualizado (USD)"
-          helper="Solo si el socio se acoge al pago mensualizado."
-          keyboardType="decimal-pad"
-          icon="calendar-outline"
-          value={carta.cuotaMensualizada}
-          onChangeText={(v) => setCarta("cuotaMensualizada", soloMonto(v))}
+        <DataRow
+          label="Valor mensualizado"
+          value={
+            carta.cuotaMensualizada
+              ? `USD ${carta.cuotaMensualizada}`
+              : "Este tipo de socio no tiene pago mensualizado"
+          }
         />
+        {errores.cuotaAnual ? (
+          <InfoNote tone="danger" icon="alert-circle">
+            {errores.cuotaAnual}
+          </InfoNote>
+        ) : (
+          <InfoNote tone="info" icon="calculator-outline">
+            No se le preguntan al socio: salen del tarifario del Club para este tipo de socio y se
+            imprimen así en la carta. Si cambia la categoría o el estado civil, se actualizan solas.
+            La modalidad con la que finalmente paga —anual o mensual— la elige la Jefatura de Socios
+            al registrarlo en SAFI.
+          </InfoNote>
+        )}
       </Card>
 
       <Card
         title="Autorización de débito automático"
-        subtitle="Registre una cuenta bancaria o una tarjeta de crédito."
+        subtitle="De una cuenta bancaria o de una tarjeta de crédito: una de las dos."
         icon="card"
       >
-        <TextField
-          label="Banco o cooperativa"
-          autoCapitalize="characters"
-          icon="business-outline"
-          value={carta.entidadFinanciera}
-          onChangeText={(v) => setCarta("entidadFinanciera", normalizarTextoInstitucional(v))}
-          error={errores.entidadFinanciera}
-          placeholder="BANCO PICHINCHA"
-        />
-        <OptionGroup<"AHORROS" | "CORRIENTE">
-          label="Tipo de cuenta"
+        <OptionGroup<ModalidadDebito>
+          label="El débito automático será de"
           options={[
-            { value: "AHORROS", label: "Ahorros" },
-            { value: "CORRIENTE", label: "Corriente" },
+            { value: "CUENTA", label: "Cuenta bancaria" },
+            { value: "TARJETA", label: "Tarjeta de crédito" },
           ]}
-          value={carta.tipoCuenta}
-          onChange={(v) => setCarta("tipoCuenta", v)}
-          error={errores.tipoCuenta}
-        />
-        <TextField
-          label="Número de cuenta"
-          keyboardType="number-pad"
-          maxLength={20}
-          icon="keypad-outline"
-          value={carta.numeroCuenta}
-          onChangeText={(v) => setCarta("numeroCuenta", soloDigitos(v, 20))}
+          value={modalidad}
+          onChange={elegirModalidad}
+          error={errores.modalidadDebito}
         />
 
-        <TextField
-          label="Tarjeta de crédito"
-          helper="Alternativa a la cuenta bancaria."
-          keyboardType="number-pad"
-          maxLength={16}
-          icon="card-outline"
-          value={carta.tarjetaCredito}
-          onChangeText={(v) => setCarta("tarjetaCredito", soloDigitos(v, 16))}
-        />
-        <TextField
-          label="Caducidad de la tarjeta"
-          helper="Mes y año, en formato MM/AA."
-          keyboardType="number-pad"
-          maxLength={5}
-          icon="time-outline"
-          value={carta.caducidadTarjeta}
-          onChangeText={(v) => setCarta("caducidadTarjeta", formatearCaducidad(v))}
-          error={errores.caducidadTarjeta}
-          placeholder="12/29"
-        />
+        {modalidad === "CUENTA" ? (
+          <>
+            <TextField
+              label="Banco o cooperativa"
+              required
+              autoCapitalize="characters"
+              icon="business-outline"
+              value={carta.entidadFinanciera}
+              onChangeText={(v) => setCarta("entidadFinanciera", normalizarTextoInstitucional(v))}
+              error={errores.entidadFinanciera}
+              placeholder="BANCO PICHINCHA"
+            />
+            <OptionGroup<"AHORROS" | "CORRIENTE">
+              label="Tipo de cuenta"
+              options={[
+                { value: "AHORROS", label: "Ahorros" },
+                { value: "CORRIENTE", label: "Corriente" },
+              ]}
+              value={carta.tipoCuenta}
+              onChange={(v) => setCarta("tipoCuenta", v)}
+              error={errores.tipoCuenta}
+            />
+            <TextField
+              label="Número de cuenta"
+              required
+              keyboardType="number-pad"
+              maxLength={20}
+              icon="keypad-outline"
+              value={carta.numeroCuenta}
+              onChangeText={(v) => setCarta("numeroCuenta", soloDigitos(v, 20))}
+              error={errores.numeroCuenta}
+            />
+          </>
+        ) : null}
+
+        {modalidad === "TARJETA" ? (
+          <>
+            <TextField
+              label="Tarjeta de crédito"
+              required
+              keyboardType="number-pad"
+              maxLength={16}
+              icon="card-outline"
+              value={carta.tarjetaCredito}
+              onChangeText={(v) => setCarta("tarjetaCredito", soloDigitos(v, 16))}
+              error={errores.tarjetaCredito}
+            />
+            <TextField
+              label="Caducidad de la tarjeta"
+              required
+              helper="Mes y año, en formato MM/AA."
+              keyboardType="number-pad"
+              maxLength={5}
+              icon="time-outline"
+              value={carta.caducidadTarjeta}
+              onChangeText={(v) => setCarta("caducidadTarjeta", formatearCaducidad(v))}
+              error={errores.caducidadTarjeta}
+              placeholder="12/29"
+            />
+          </>
+        ) : null}
+
+        {!modalidad ? (
+          <InfoNote tone="info" icon="information-circle-outline">
+            Elija primero la modalidad: se piden solo sus datos, y la carta imprime únicamente esa.
+          </InfoNote>
+        ) : null}
       </Card>
     </>
   );

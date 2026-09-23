@@ -150,6 +150,48 @@ export async function crearSolicitud(
 }
 
 /**
+ * El trámite tal como quedaría con lo que hay en el asistente, sin guardar
+ * nada: para enseñar el formulario completo antes de firmar y de enviar.
+ *
+ * Al corregir, parte del trámite registrado —su código, su fecha, sus
+ * constancias y la firma del solicitante, que no se vuelve a pedir—.
+ */
+export function solicitudProvisional(
+  id: string,
+  estado: EstadoFormulario,
+  registrada: SolicitudAfiliacion | null = null
+): SolicitudAfiliacion {
+  const ahora = new Date().toISOString();
+  const hoy = ahora.slice(0, 10);
+  const datos = {
+    ...estado.datos,
+    fechaIngresoClub: estado.datos.fechaIngresoClub || hoy,
+  };
+
+  if (registrada) {
+    return { ...registrada, datos, firmaUri: estado.firmaUri ?? registrada.firmaUri };
+  }
+
+  return {
+    id,
+    codigo: "Sin registrar",
+    esquema: ESQUEMA_SOLICITUD,
+    estado: "BORRADOR",
+    creadaEn: ahora,
+    actualizadaEn: ahora,
+    datos,
+    documentos: estado.documentos,
+    firmaUri: estado.firmaUri,
+    modoFirma: MODO_FIRMA,
+    identidad: estado.identidad,
+    consentimiento: null,
+    tramite: { ...tramiteVacio(), fechaRegistro: hoy },
+    expediente: expedienteVacio(),
+    historial: [],
+  };
+}
+
+/**
  * Lo que el servidor sabe de un trámite y la tableta no: el código definitivo,
  * el estado, las constancias del reverso, el número de socio y el estado del
  * expediente.

@@ -21,6 +21,12 @@ import {
   type ConstanciaTramite,
 } from "../../src/domain/solicitud";
 import { nombreDocumento } from "../../src/domain/documentos";
+import {
+  estadoReferencia,
+  nombreConGrado,
+  reglaDependencia,
+  rotuloDependencia,
+} from "../../src/domain/sociosSafi";
 import { numeroEnExpediente } from "../../src/domain/tareas";
 import { documentosDelTramite, nombreTipo, reglasDe } from "../../src/domain/tiposMiembro";
 import { TarjetaEnvio } from "../../src/features/expediente/TarjetaEnvio";
@@ -139,6 +145,7 @@ export default function DetalleSolicitudScreen() {
   const { datos } = solicitud;
   const meta = ESTADO_META[solicitud.estado];
   const reglas = reglasDe(datos.tipoMiembro);
+  const reglaDep = reglaDependencia(datos.tipoMiembro);
   const documentosTramite = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
   const { tramite, expediente } = solicitud;
   const numero = numeroEnExpediente(solicitud);
@@ -256,21 +263,19 @@ export default function DetalleSolicitudScreen() {
         />
         <DataRow label="Número de socio" value={numero || "Lo asigna el Área de Socios en la bandeja"} />
         <DataRow label="Número de tarjeta" value={tramite.numeroTarjeta} />
-        {reglas?.requiereNumeroSocioActivo ? (
+        {reglaDep ? (
           <>
-            <DataRow label="Número de socio activo" value={datos.numeroSocioActivo} />
             <DataRow
-              label="Oficial FAE del que depende"
+              label={reglas?.requiereNumeroSocioActivo ? "Número de socio activo" : "Número de socio D-B"}
+              value={datos.numeroSocioActivo}
+            />
+            <DataRow
+              label={rotuloDependencia(datos.tipoMiembro)}
               value={
-                datos.oficialDependencia?.resultado === "VERIFICADO" &&
-                datos.oficialDependencia.numeroSocio === datos.numeroSocioActivo
-                  ? `${[
-                      datos.oficialDependencia.gradoMilitar,
-                      datos.oficialDependencia.nombres,
-                      datos.oficialDependencia.apellidos,
-                    ]
-                      .join(" ")
-                      .trim()} · verificado en SAFI`
+                datos.oficialDependencia &&
+                estadoReferencia(datos.oficialDependencia, datos.numeroSocioActivo, reglaDep) ===
+                  "VERIFICADO"
+                  ? `${nombreConGrado(datos.oficialDependencia)} · verificado en SAFI`
                   : "Sin verificar: la bandeja lo comprueba antes de crear en SAFI"
               }
             />

@@ -75,9 +75,42 @@ async function htmlAfiliacion(solicitud: SolicitudAfiliacion): Promise<string | 
   return resultado?.html ?? null;
 }
 
+/**
+ * Lo que la pantalla añade al documento: las hojas separadas sobre un fondo
+ * gris, como papel, y un ancho fijo que la tableta escala a su pantalla —se
+ * lee igual que el PDF y se puede ampliar con dos dedos—. Al imprimir no
+ * cambia nada.
+ */
+const ESTILO_PANTALLA = `
+  @media screen {
+    body { background: #E9EEF4; padding: 10px 0; }
+    .hoja {
+      background: #FFFFFF;
+      width: 210mm;
+      margin: 0 auto 12px;
+      padding: 12mm 11mm;
+      box-shadow: 0 1px 4px rgba(8, 64, 125, 0.18);
+    }
+  }
+`;
+
 /* ------------------------------------------------------------------ */
 /* API pública                                                         */
 /* ------------------------------------------------------------------ */
+
+/**
+ * El formulario completo para leerlo en la tableta antes de firmar: el mismo
+ * documento que el PDF —formulario, hoja de solicitud, carta de compromiso y
+ * reverso—, con lo que haya en ese momento. Es el paso que la firma One Shot
+ * necesitará: que el socio lea lo que va a firmar.
+ */
+export async function htmlVistaPrevia(solicitud: SolicitudAfiliacion): Promise<string | null> {
+  const html = await htmlAfiliacion(solicitud);
+  if (!html) return null;
+  return html
+    .replace("<head>", '<head><meta name="viewport" content="width=840" />')
+    .replace("</style>", `${ESTILO_PANTALLA}</style>`);
+}
 
 async function imprimirYCompartir(html: string, titulo: string): Promise<string | null> {
   try {

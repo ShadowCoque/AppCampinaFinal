@@ -6,56 +6,11 @@
 > desarrollo (el del equipo de la Coordinación de TICs) no tiene acceso a nada
 > de eso: su parte es el código.
 >
-> Escrito el **19/09/2026**, después de las pruebas del Coordinador con el
-> sistema completo. La versión anterior de este archivo sigue en el historial
-> de la rama.
+> Escrito el **23/09/2026**, después de la prueba del Coordinador con el sistema
+> completo. La versión anterior de este archivo —y su nota «Atendido el
+> 19/09/2026»— sigue en el historial de la rama.
 >
 > Cópielo entero como primer mensaje de esa sesión.
-
-> **Atendido el 19/09/2026** por el Claude del servidor. Este encargo se conserva
-> tal como llegó.
->
-> - **Revisión.** `corregirSolicitud`, la rama nueva de `devolver`, las rutas
->   `PUT /api/solicitudes/:id` y `GET /api/safi/oficiales/:numero` y el cambio de
->   hora están bien. **Tres ajustes**, los tres en la verificación del oficial:
->   1. **`oficial.ts`: sin consulta al CRM, lo de la tableta ya no se da por
->      verificado.** Antes, si el servidor no podía consultar SAFI, un
->      `oficialDependencia` con `VERIFICADO` llegado de la tableta quitaba el aviso
->      y pasaba al Parentesco. Es un dato del cliente: contradecía la propia regla
->      de `parentescoDe` («vacío antes que equivocado»). Ahora se avisa siempre
->      —mencionando lo que dijo la tableta y cuándo— y `oficial` es `null`.
->      `comprobarOficial` devuelve además `aplica`.
->   2. **`api.ts`, en el alta:** en un D-A o D-B, el oficial del Parentesco es
->      siempre el que el servidor acaba de comprobar, o ninguno; nunca el que
->      quedó guardado desde la tableta.
->   3. **`adaptador.ts`:** el titular es la ficha con secuencia `00`; la «0» o la
->      vacía solo si no hay ninguna `00`, para que un dependiente sin secuencia no
->      se tome por el oficial.
->   Y se quitó un comentario huérfano sobre `fijarOficialDependencia`.
-> - **Los tres supuestos del CRM, comprobados:** las **1.756** fichas ACTIVO y las
->   **26** FUNDADOR tienen todas secuencia `00`; `cf_917` («Tipo de Socio») trae
->   exactamente «ACTIVO» y «FUNDADOR»; el grado vive en `cf_953` y ninguna de esas
->   1.782 fichas lo tiene vacío.
-> - **Las cuatro consultas contra el CRM real** (contenedor aislado, base temporal,
->   escritura apagada): N.º 1 Activo → `VERIFICADO` con grado y nombre; N.º 9
->   Fundador → `VERIFICADO`; N.º 189 Particular A → `NO_ES_ACTIVO_NI_FUNDADOR`;
->   N.º 99999 → `NO_ENCONTRADO`. Letras → 400; Contabilidad → 403. Los flujos en
->   MANUAL (devolución a Contabilidad con FC guardado y «Revisar de nuevo»,
->   Contabilidad devolviendo siempre a Socios, corrección antes del alta y rechazo
->   del cambio de categoría ya en SAFI, la hora del Ecuador y el «VERIFICADO»
->   falso de la tableta sin efecto): **14 de 14**.
-> - **Reconstruida y desplegada** con respaldo
->   `campina_20260919_141444_antes-de-reconstruir-oficial`. La compilación se
->   lanza ahora como servicio temporal de systemd (`campina-build`): dos veces se
->   cortó a medias al cerrarse la sesión.
-> - **Vaciada** con respaldo `campina_20260919_143142_antes-de-vaciar-para-prueba-real`:
->   5 trámites, 5 adjuntos, 8 archivos, 154 líneas de bitácora, 4 sesiones y las
->   3 firmas de «Mi firma»; carpetas de firmas, trámites, expedientes y escaneos
->   vacías. Esquema 4, siguiente trámite `AF-2026-0001`, los tres usuarios activos.
-> - **En SAFI, para el Coordinador** (no se tocó nada): las fichas y cuentas de sus
->   pruebas ya no están, pero quedan **8 documentos** que publicó la integración el
->   17/09 (2924, 2925 y 2925-1). Y **el 2924 y el 2925 ya están ocupados** por fichas
->   creadas a mano en el CRM el 17/09, con tipo «Complete Aqui» y «PARTICULAR B».
 
 ---
 
@@ -65,152 +20,129 @@ Trabajas en el servidor Ubuntu interno del Club, el mismo que sirve GLPI. El
 sistema vive en `/opt/campina-socios` (contenedor `campina-socios`) con sus
 datos en `/srv/campina`.
 
-Esta ronda trae **tres cambios de funcionamiento** que pidió el Coordinador y
-que tocan `src/domain/`, `server/`, `web/` y la tableta: **hay que reconstruir
-la imagen**. Los escribí de punta a punta y los probé contra tu código
-compilado, **salvo la consulta al CRM**, que desde aquí no se puede hacer: esa
-parte te toca comprobarla a ti, en solo lectura. Después, el Coordinador pide
-**vaciar la base** para una prueba real con la Jefatura de Socios.
+Gracias por la ronda del 19/09: los tres ajustes a la verificación del oficial
+eran justos y se conservan tal cual en el código nuevo (ver abajo). Esta ronda
+trae **cuatro cambios de funcionamiento** que tocan `src/domain/`, `server/`,
+`web/`, `src/services/formularios/` y la tableta: **hay que reconstruir la
+imagen**. Y una tarea nueva: **publicar la bandeja con un nombre propio**,
+`afiliaciones.clublacampina.com.ec`, en lugar de `192.168.2.185:8080`.
 
 ## Reglas de esta sesión
 
-1. **Respalda antes de reconstruir y antes de vaciar.** Dos respaldos, uno por
-   paso, con su nombre.
+1. **Respalda antes de reconstruir** y antes de tocar la configuración del
+   servidor web.
 2. **SAFI tiene la escritura habilitada** y es el CRM real del Club. Esta ronda
-   **solo lee** del CRM: no crees ni modifiques fichas. Lo que el Coordinador
-   borró o borre en SAFI lo hace él.
-3. **GLPI no se toca.**
-4. **La tableta tampoco:** el Coordinador borra él mismo lo que tenga guardado.
+   **solo lee** del CRM: no crees ni modifiques fichas.
+3. **GLPI no se toca.** Si el nombre nuevo obliga a añadir un sitio al servidor
+   web que sirve GLPI, es un sitio **aparte**: el de GLPI no cambia, y GLPI debe
+   responder igual antes y después (compruébalo).
+4. **La base no se vacía** esta vez: el Coordinador está probando con datos
+   reales de prueba.
 5. Informa en español, en lenguaje llano.
 
 ---
 
-## Los tres cambios
+## Los cuatro cambios
 
-### 1. «Devolver con observación» elige destino, y todo lleva hora
+### 1. Garantes, titulares y el socio del que se depende: se traen de SAFI
 
-**Lo que pidió.** La Gerencia elige a quién devolver: al **Área de Socios** o a
-**Contabilidad**. Contabilidad devuelve siempre al Área de Socios. Y todo lo que
-deja rastro, con **hora** además de fecha.
+**Lo que pidió.** Que en la tableta baste escribir el **número de socio o la
+cédula** de un garante —y del titular de un dependiente— para traer del CRM todo
+lo demás, como ya pasaba con el oficial de los D-A y D-B.
 
-**Cómo queda el recorrido:**
+**Decisiones del Coordinador** (23/09/2026):
 
-| Devuelve | A | Al atenderlo, vuelve a |
-| --- | --- | --- |
-| Contabilidad | Área de Socios (siempre) | Contabilidad — como ya hacía |
-| Gerencia | Área de Socios | La Gerencia directo — como ya hacía; la revisión sigue en pie |
-| Gerencia | **Contabilidad** (nuevo) | La Gerencia, cuando Contabilidad la marca revisada otra vez |
+| Quién | Tiene que ser en SAFI (`cf_917`) |
+| --- | --- |
+| Garantes | `ACTIVO` o `FUNDADOR` |
+| Titular de los padres | `ACTIVO` o `FUNDADOR` |
+| Titular del cónyuge o del juvenil | Cualquier socio titular salvo `PARTICULAR B` (y los suscriptores, que no son socios) |
+| Oficial de un D-A o D-B | `ACTIVO` o `FUNDADOR` (como el 19/09) |
+| Socio del que depende un **D-C** | `PARTICULAR DEPENDIENTE B SOLTERO` o `… CASADO` — así lo dice el PGS1-11 |
 
-**Dónde está:**
-
-- `src/domain/solicitud.ts`: `tramite.devolucion` pasa a `DevolucionTramite`,
-  con `destino?: Area` (ausente = Área de Socios, así que las devoluciones
-  guardadas siguen valiendo) y `numeroFacturaAnterior?`. `destinoDevolucion()`
-  lo lee. **Sin cambio de esquema.**
-- `server/src/db/solicitudes.ts` → `devolver()`: si la Gerencia devuelve a
-  Contabilidad, el trámite **vuelve a `REGISTRADA`** con `revision: null` —para
-  que el reverso no imprima un REVISADO que ya no vale— y guarda el FC anterior
-  en la devolución. Todo lo demás del recorrido (tareas, `revisar()`, que ya
-  limpiaba la devolución, `reenviar()`) funciona sin tocarse.
-- `server/src/http/api.ts` → `POST /api/solicitudes/:id/observar` acepta
-  `destino`, pero **solo le hace caso si quien devuelve es la Gerencia**.
-- `src/domain/tareas.ts`: la tarea de Contabilidad se titula **«Revisar de nuevo
-  la afiliación …»** y trae la observación de la Gerencia.
-- `web/`: en el diálogo de la Gerencia aparece «Si lo devuelve, ¿a quién?»
-  (Área de Socios por defecto); el aviso final dice a quién fue; el expediente
-  dice «Devuelta a …»; y al revisar de nuevo, el FC anterior se ofrece solo.
-- **La hora:** `formatFechaHora` (dominio) y `fechaHora` (bandeja) formatean
-  ahora **en hora del Ecuador de forma explícita** (UTC−5 fija), sin depender
-  de la zona del equipo. `observacionesDeArea` —las observaciones del reverso—
-  imprimía solo la fecha, y además tomada de la hora UTC: una observación
-  escrita después de las 19:00 salía con el día siguiente. Ahora lleva fecha y
-  hora correctas. El `TZ` del compose sigue siendo correcto; esto es para que
-  no dependa de él.
-
-### 2. Corregir una afiliación desde la tableta
-
-**Lo que pasó.** El Coordinador registró un Socio Fundador con la cédula de
-otro socio que ya existía en el CRM. Tu panel lo detectó bien, pero la única
-salida era anular y capturar todo de nuevo para cambiar diez dígitos. Pide
-poder **corregir cualquier dato** en la tableta.
-
-**Decisiones del Coordinador:** se corrige libremente **mientras no exista en
-SAFI**; si ya existe, solo cuando se lo **devuelven al Área de Socios**, con
-aviso de corregir también el CRM a mano, y sin cambiar la categoría. **El socio
-no vuelve a firmar**: la trazabilidad es el historial, campo por campo.
+Mismo patrón que el 19/09: sin red la tableta deja avanzar; el panel de SAFI
+vuelve a consultar antes del alta; **bloquea** (`COHERENCIA`) si el CRM dice que
+no existe o no es de la categoría; **avisa sin bloquear** si no pudo consultar.
+Y tu regla: **lo que trae la tableta nunca se da por verificado**.
 
 **Dónde está:**
 
-- `src/domain/correccion.ts` (nuevo): `puedeCorregirse()` —la regla, la misma
-  en los dos lados— y `cambiosEntre()` / `describirCambios()`.
-- **`PUT /api/solicitudes/:id`** (área SOCIOS), `corregirSolicitud()` en
-  `db/solicitudes.ts`: pasa los datos por el mismo `depurarEntrante` del
-  registro (fuerza fija, garantes sin rutas…), conserva código, estado,
-  constancias y expediente, calcula él mismo qué cambió (no se fía del cliente)
-  y lo deja en historial y bitácora (`AFILIACION_CORREGIDA`), con el valor
-  anterior de cada campo. Si ya estaba en SAFI, la nota añade que hay que
-  corregir el CRM. Rechaza con 409 lo que la regla no admite y el cambio de
-  categoría de un socio ya creado. Un reintento idéntico no deja un segundo
-  registro. Si cambió un garante, llega su firma nueva y **sustituye** la
-  anterior, que era de otra persona.
-- La tableta la guarda **solo si el servidor la acepta**: sin conexión o con un
-  rechazo, no cambia nada y lo dice. Así nunca muestra unos datos y el servidor
-  otros.
-- **Tu panel de SAFI no cambia**: vuelve a comprobar con los datos corregidos
-  en cuanto la Jefatura lo abre de nuevo.
+- `src/domain/sociosSafi.ts` (nuevo): las reglas por papel (`reglaDependencia`,
+  `reglaTitular`, `REGLA_GARANTE`, `admiteSocio`), `verificacionDe` y
+  `estadoReferencia`, que vuelve a juzgar una verificación guardada con la
+  categoría del momento. `TIPO_SOCIO_SAFI` **se mudó aquí** desde `campos.ts`
+  (que lo reexporta): la tableta también lo necesita. `CONYUGE Y PADRES
+  TITULARES` cuenta como titular.
+- `DatosAfiliacion.titularVerificado` y `DatosGarante.verificacion` (nuevos,
+  opcionales). `oficialDependencia` sirve ahora también al D-C; sus
+  verificaciones antiguas con `NO_ES_ACTIVO_NI_FUNDADOR` se siguen leyendo.
+  **Sin cambio de esquema.**
+- `AdaptadorSafi.consultarSocio({ numeroSocio?, cedula? })` sustituye a
+  `consultarOficial`: por número, la ficha **`00`** (tu regla: `0` o vacía solo
+  si no hay `00`); por cédula, la ficha de esa persona, con su secuencia. Trae
+  además `cf_927`, `cf_911`, `homephone` y `mobile`.
+- **`GET /api/safi/socios?numero=…`** o **`?cedula=…`** (área SOCIOS): lo que usa
+  la tableta nueva. **`GET /api/safi/oficiales/:numero` se conserva** para la
+  tableta que el Coordinador tiene instalada hoy, y responde igual que antes.
+- `server/src/safi/referencias.ts` (nuevo) → `comprobarReferencias()` sustituye
+  a `oficial.ts` (**borrado**): el oficial o el D-B, el titular y cada garante, en
+  paralelo. Conserva tus tres ajustes: sin consulta, aviso que menciona lo que
+  dijo la tableta y verificación `null`. Añade dos avisos que **no** bloquean:
+  cédula del trámite distinta a la de SAFI, y estado `cf_911` distinto de
+  «Activo». El «titular no encontrado» no se repite: ya lo da `verificar`.
+- `api.ts`, alta: el Parentesco usa solo lo que el servidor acaba de consultar;
+  `fijarOficialDependencia` pasa a **`fijarVerificaciones`** (guarda también la
+  del titular). `registro.ts` → `parentescoDe`: el D-C, de su D-B; el cónyuge,
+  padres y juvenil, del titular según SAFI si se comprobó y, si no, lo escrito
+  (como hasta hoy).
 
-### 3. El oficial FAE del que depende un D-A o D-B
+### 2. PGS1-11 con la línea «de …» y hoja de solicitud sin la cédula repetida
 
-**Lo que pidió.** Que el D-A y el D-B solo avancen si el oficial del que
-dependen es **Socio Activo o Fundador**, comprobado contra SAFI por su número,
-desde la tableta en el momento y trayendo al menos su nombre y grado. Y que el
-**grado, nombres y apellidos** de ese oficial vayan al **Parentesco** de la
-ficha del D-A o D-B.
+- En el PGS1-11 de un cónyuge, padres, juvenil, D-A, D-B o D-C, junto a la
+  casilla marcada va **«de GRADO NOMBRES APELLIDOS»** del socio del que depende
+  —lo mismo que su Parentesco—. Del D-A, D-B o D-C, solo si está verificado; si
+  no, «de socio N.º …» (`socioDelQueDepende`, `layoutFicha.ts`). La hoja sigue
+  cabiendo en una página.
+- Las hojas «SOLICITUD» (R-PGS1-22 y compañía) ya no repiten la **cédula del
+  aspirante** en su recuadro: la dice el «Yo, … con C.I. …». La del garante
+  sigue.
 
-**Decisión del Coordinador:** si la tableta no puede consultar (sin red, SAFI
-caído), **deja avanzar** y lo comprueba la bandeja antes del alta.
+### 3. Carta de compromiso: una modalidad de débito y cuotas automáticas
 
-**Dónde está:**
+- `DatosCartaCompromiso.modalidadDebito` (`CUENTA` | `TARJETA`, opcional; las
+  cartas antiguas la deducen de lo llenado). La carta imprime **solo** la
+  elegida, con las palabras del original, y «En caso de no existir fondos en
+  ambas modalidades de pago» queda en «En caso de no existir fondos». Sin
+  modalidad, se imprime como el original.
+- Las **cuotas de la carta salen del tarifario** y no se preguntan
+  (`conCuotasDelTarifario`). **`depurarEntrante` las impone** al registrar y al
+  corregir: la tableta instalada hoy todavía deja escribirlas.
 
-- `DatosAfiliacion.oficialDependencia` (nuevo, nullable): lo que SAFI dijo de
-  ese número —`VERIFICADO`, `NO_ENCONTRADO` o `NO_ES_ACTIVO_NI_FUNDADOR`—, con
-  grado, nombres, apellidos y tipo. `validarTipo` no deja avanzar si SAFI ya dijo
-  que no; sin verificar, sí.
-- `AdaptadorSafi.consultarOficial(numero)` (nuevo, `adaptador.ts`): busca la
-  ficha de **secuencia 00** de ese número en `Contacts` y compara su `cf_917` con
-  `TIPO_SOCIO_SAFI.SA` / `.SF` («ACTIVO» / «FUNDADOR»). En MANUAL y en HTTP
-  responde `consultado: false`, que **no es un «no»**.
-- **`GET /api/safi/oficiales/:numero`** (área SOCIOS): lo que usa la tableta.
-- `server/src/safi/oficial.ts` (nuevo) → `comprobarOficial()`: en el panel de
-  SAFI y **antes del alta**. Si el CRM dice que no, aviso **bloqueante**
-  (`COHERENCIA`); si no se pudo consultar, aviso que no bloquea, para comprobar
-  a mano. Al dar de alta guarda al oficial en el trámite
-  (`fijarOficialDependencia`).
-- `registro.ts` → `parentescoDe()`: el Parentesco del D-A/D-B sale del oficial
-  **tal como lo devolvió SAFI**, no de lo que alguien escribió; sin verificar, va
-  **vacío** antes que equivocado. El de cónyuge, padres y juvenil, como antes.
+### 4. «Valor Cuota» de la Cuenta = la cuota elegida
+
+`cf_977` ya no es un campo libre del panel: es **la cuota que la Jefatura elige**,
+la mensual si la eligió y si no la anual (`valorCuotaDe` en `registro.ts`), con
+el formato de siempre (`40.00`). El panel lo muestra de solo lectura y **el
+servidor lo recalcula en el alta**, llegue lo que llegue. Al elegir la cuota,
+las Subscripciones pasan a «Mensual» o «Anual» si estaban en una de esas dos.
+
+Y en `web/`: **favicon nuevo** (`web/img/favicon.ico`, el que eligió el
+Coordinador). La paleta de la bandeja no cambia.
 
 ---
 
 ## Lo que probé, y lo que no pude
 
 El banco de siempre —la tableta en Node contra `server/dist`, base nueva,
-`SAFI_MODO=MANUAL`—: **30 comprobaciones de esta ronda, todas en verde**, y las
-**39 anteriores siguen en verde**. Además, el generador de formularios compone
-los tres tipos de trámite sin cambios de maqueta.
+`SAFI_MODO=MANUAL`—: **55 comprobaciones de esta ronda, todas en verde**, y las
+**39 + 30 anteriores siguen en verde**. `comprobarReferencias` y el Parentesco
+se probaron además contra un **SAFI simulado** (Activo, D-B casado, P-A, P-B,
+suspendido, inexistente y caído). Los formularios se generaron y revisé las
+páginas impresas: PGS1-11 de cónyuge y de D-A con su «de …» en una página,
+R-PGS1-22 sin la cédula repetida, carta con solo la tarjeta.
 
-Cubre: la hora del Ecuador (una marca de las 00:30 UTC sale «19:30» del día
-anterior); la corrección antes del alta, repetida, sin enviar todavía, en curso
-en SAFI (rechazada en los dos lados) y devuelta al Área de Socios (admitida con
-aviso, sin cambiar la categoría); los tres recorridos de devolución, con la
-bandeja de Contabilidad mostrando «Revisar de nuevo» y el FC guardado; las
-observaciones del reverso con fecha y hora; la validación del oficial; el
-Parentesco con el oficial verificado y vacío sin él; y el aviso no bloqueante
-del panel en MANUAL.
-
-**Lo que no pude probar, porque exige el CRM real: la consulta
-`consultarOficial` contra SAFI.** El SQL sigue el patrón de `fichasDeNumero`,
-pero hay que confirmarlo.
+**Lo que no pude probar, porque exige el CRM real:** `consultarSocio` contra
+SAFI, sobre todo la búsqueda por `cf_927` y los campos nuevos del `SELECT`.
 
 ---
 
@@ -225,73 +157,113 @@ sudo git pull origin despliegue-servidor
 sudo git diff --stat ORIG_HEAD HEAD -- server web src/domain src/services/formularios
 ```
 
-El diff debe mostrar cambios en `server/`, `web/` y `src/domain/`, **no** en
-`src/services/formularios/`. Léete las piezas nuevas —sobre todo
-`corregirSolicitud`, la rama nueva de `devolver` y `oficial.ts`— y, si algo no te
+Debe mostrar cambios en `server/`, `web/`, `src/domain/` y
+`src/services/formularios/`, y `server/src/safi/oficial.ts` borrado. Léete
+`referencias.ts`, `consultarSocio` y el alta en `api.ts`; si algo no te
 convence, dilo antes de desplegar. Respalda y reconstruye como de costumbre.
 
-## Tarea 2 — Probar la consulta del oficial contra SAFI (solo lectura)
+## Tarea 2 — Probar la consulta de socios contra SAFI (solo lectura)
 
-Con la imagen nueva y la sesión de `socios`, llama a
-`GET /api/safi/oficiales/<número>` con:
+Como el 19/09: contenedor aislado, base temporal, escritura apagada. Con la
+sesión de `socios`:
 
-1. el número de un **Socio Activo** real → `VERIFICADO`, con su grado (`cf_953`),
-   nombres y apellidos;
-2. el de un **Fundador** real → `VERIFICADO`;
-3. el de un socio de **otra categoría** (un particular, por ejemplo) →
-   `NO_ES_ACTIVO_NI_FUNDADOR`, con su tipo tal como lo guarda `cf_917`;
-4. un número que **no exista** → `NO_ENCONTRADO`.
+1. `GET /api/safi/socios?numero=<un Socio Activo real>` → su ficha `00`, con
+   **cédula, grado, teléfonos y estado**.
+2. `?cedula=<la cédula de ese mismo socio>` → la misma ficha.
+3. `?numero=<un D-B real>` → `cf_917` «PARTICULAR DEPENDIENTE B …» y secuencia
+   `00`.
+4. `?cedula=<la de una cónyuge o un juvenil>` → su ficha, con secuencia `01` o
+   la que tenga (la tableta la rechaza como garante).
+5. `?numero=99999` → `socio: null`.
+6. `GET /api/safi/oficiales/1` → sigue devolviendo `VERIFICADO`.
+7. Letras en `numero` o una cédula de 9 dígitos → 400; con la sesión de
+   Contabilidad → 403.
 
-Confirma en el CRM tres supuestos del código: que la ficha del titular tiene
-**secuencia `00`**, que los valores de `cf_917` son exactamente **«ACTIVO»** y
-**«FUNDADOR»**, y que el grado vive en **`cf_953`**. Si alguno falla, corrígelo
-tú en `adaptador.ts` y dilo.
+Y confirma en el CRM, en solo lectura:
 
-**No hagas un alta de prueba** para ver el Parentesco escrito: se verá en la
-prueba real, con un D-A acordado con el Coordinador.
+- que **las fichas D-B tienen secuencia `00`** y sus dos valores exactos de
+  `cf_917`;
+- que existe «CONYUGE Y PADRES TITULARES» en `cf_917` y a quién corresponde;
+- los **valores distintos de `cf_911`** (Estado Socio) —el código trata como
+  alerta todo lo que no sea «Activo»—;
+- el **formato de `cf_977`** en Cuentas existentes (`40.00`, `40` o `40,00`):
+  el sistema envía `40.00`, como antes;
+- cómo vienen `homephone` y `mobile` (con prefijo, guiones…): la tableta los
+  lleva a `0991234567` y `022345678`.
 
-## Tarea 3 — Vaciar la base para la prueba real
+Si algo falla, corrígelo en `adaptador.ts` y dilo. **No hagas altas de prueba.**
 
-Pedido expreso del Coordinador: **borrar todos los datos del sistema, salvo los
-tres usuarios**. Esta vez **también sus firmas** («Mi firma»): cada funcionario
-volverá a cargarla en la prueba.
+## Tarea 3 — La bandeja en `afiliaciones.clublacampina.com.ec`
 
-Con respaldo previo y el contenedor detenido:
+**Lo que pidió el Coordinador:** abrir la bandeja con un nombre en lugar de
+`192.168.2.185:8080`. Él añade el registro en el **DNS interno** (el
+cortafuegos) cuando le digas que el servidor está listo. **Primero dime si es
+viable** tal como se plantea aquí.
 
-- **Base:** trámites, adjuntos, archivos del expediente, incidencias, bitácora
-  y sesiones. En `usuarios`, conservar las filas y poner `firma_en` a `NULL`.
-- **Disco:** `/datos/firmas`, `/datos/tramites` y las carpetas de
-  `/srv/campina/datos/expedientes`, y la carpeta compartida de escaneos, igual
-  que en la limpieza del 12/09: vacías, conservando `_ARCHIVADOS` y `_REVISAR`.
-- **No tocar:** SAFI, GLPI, `server/.env`, los respaldos.
+Lo que propongo, a confirmar por ti:
 
-Al levantar, comprueba que la base arranca en esquema vigente, que el siguiente
-trámite será `AF-2026-0001` y que los tres usuarios entran. Las sesiones
-borradas obligan a la tableta y a los tres navegadores a iniciar sesión otra
-vez: avísale al Coordinador.
+1. **Quién escucha en el 80.** Muy probablemente el servidor web de GLPI
+   (Apache o nginx): `sudo ss -ltnp '( sport = :80 or sport = :443 )'`.
+2. **Un sitio aparte**, por nombre, para `afiliaciones.clublacampina.com.ec`,
+   que haga de proxy inverso a `http://127.0.0.1:8080`:
+   - con `Host`, `X-Forwarded-For` y `X-Forwarded-Proto`;
+   - **límite de cuerpo de 30 MB** o más (los escaneos suben hasta
+     `MAX_ARCHIVO_MB=25`) y **120 s** de espera (el PDF final y el CRM tardan);
+   - el sitio de GLPI, intacto. Respaldo de la configuración, `configtest` /
+     `nginx -t` antes de recargar, y GLPI comprobado después.
+   - Se puede probar antes de que exista el DNS:
+     `curl -H 'Host: afiliaciones.clublacampina.com.ec' http://127.0.0.1/api/salud`.
+3. **`URL_PUBLICA=http://afiliaciones.clublacampina.com.ec`** en `server/.env`
+   (va en el pie de los formularios y en los enlaces).
+4. **`BIND_HOST` y `TRUST_PROXY`, juntos y más tarde.** Mientras la tableta
+   instalada siga apuntando a `:8080`, el puerto tiene que seguir abierto a la
+   LAN, y entonces `TRUST_PROXY` debe seguir en `false` (ver
+   `docker-compose.yml`: nunca uno sin el otro). Cuando el Coordinador haya
+   cambiado la dirección en la tableta y en los tres navegadores, pasa a
+   `BIND_HOST=127.0.0.1` **y** `TRUST_PROXY=true` a la vez. Mientras tanto, todos
+   los accesos por el nombre llegan con la IP del proxy: el freno de intentos
+   fallidos va por usuario **y** IP, así que no bloquea a nadie más.
+5. Con el DNS puesto: `getent hosts afiliaciones.clublacampina.com.ec` desde el
+   servidor y desde un equipo de la LAN, e inicio de sesión en la bandeja por el
+   nombre.
+
+**TLS no entra en esta ronda**, pero déjalo anotado: la política que el Club
+presentará a la DIGERCIC compromete `https://`. Android no confía en una CA
+propia instalada por el usuario, así que para la tableta la vía natural sería un
+certificado público (Let's Encrypt con reto DNS-01, al ser un dominio público del
+Club). Dime qué ves.
+
+## Tarea 4 — Cerrar
+
+- Cuando el nombre funcione, cambia en `PROCESO-AFILIACION.md` la línea «Bandeja
+  de tareas: http://soporte.clublacampina.com.ec:8080» y súbelo a la rama.
+- Dile al Coordinador qué tiene que cambiar él: la dirección de la tableta en
+  «Configuración y envío» (`http://afiliaciones.clublacampina.com.ec`, sin
+  puerto) y los accesos directos de los tres navegadores.
 
 ---
 
 ## Lo que queda pendiente y no es de esta ronda
 
-- **Firma One Shot:** el Club está cotizando con **varios proveedores** y
-  coordinando demostraciones. Alcance: solicitante y garantes; los tres
-  funcionarios, opcional (firma propia de larga duración, o un visto «revisado»,
-  como propuso la Jefatura). **No se cambia nada del sistema mientras tanto.**
-  El seguimiento se lleva en el equipo de desarrollo (`docs/integraciones/`,
-  fuera de esta rama).
-- **SNIC (DIGERCIC):** en espera de que se decida **CampiñaAccess** (control de
-  accesos, parqueadero y app móvil, en lugar del sistema de accesos actual).
-- La lista formal de documentos por tipo de socio; `CORRESPONSAL A` en
-  `cf_917`; la cuenta de Samba de la Jefatura.
+- **La tableta nueva** la instala el Coordinador; hasta entonces la actual sigue
+  funcionando con este servidor (por eso se conserva la ruta del oficial).
+- **Firma One Shot:** en cotización con varios proveedores. La tableta ya
+  enseña el **formulario completo antes de firmar**, que es lo que esa firma
+  pedirá. Nada más cambia mientras tanto.
+- **SNIC (DIGERCIC):** documentación del contrato de adhesión preparada, por
+  firmar.
+- `CORRESPONSAL A` en `cf_917` (con sus cuotas 480 y 40): lo crea el Club en
+  SAFI. El formulario R-PGS1-26 ya se genera.
+- La lista de documentos a escanear por tipo de socio, que el Coordinador
+  confirmará.
 
 ## Lo que debes entregar al final
 
 Un informe corto, en español, con:
 
 1. Tu revisión de las piezas nuevas y si cambiaste algo.
-2. El resultado de las cuatro consultas de la tarea 2 y de los tres supuestos
-   del CRM.
-3. La reconstrucción y el vaciado: nombres de los respaldos, qué quedó y qué se
-   borró, y que el sistema arrancó en limpio.
-4. Lo que quedó pendiente y de quién depende.
+2. Los resultados de la tarea 2 y lo que encontraste en el CRM.
+3. La reconstrucción: nombre del respaldo y que el sistema arrancó.
+4. La viabilidad del nombre nuevo y, si la hay, qué configuraste y qué falta
+   (el DNS del Coordinador, el cambio de dirección en la tableta, el paso a
+   `BIND_HOST=127.0.0.1`).

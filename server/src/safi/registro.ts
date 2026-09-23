@@ -1,6 +1,5 @@
 import {
   cuotaAnualSugerida,
-  cuotaMensualSugerida,
   formatearValor,
   membresiaSugerida,
   periodicidadesDe,
@@ -14,6 +13,11 @@ import {
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
 import {
+  estadoReferencia,
+  reglaDependencia,
+  reglaTitular,
+} from "../../../src/domain/sociosSafi";
+import {
   normalizarNombreFinal,
   normalizarNumeroSocio,
   normalizarTextoInstitucional,
@@ -21,7 +25,6 @@ import {
 import {
   esEstadoCivilCasado,
   fuerzaFijaPara,
-  reglasDe,
   tieneCuentaPropia,
   type Fuerza,
   type TipoMiembro,
@@ -92,18 +95,14 @@ export function sugerirConfirmacion(solicitud: SolicitudAfiliacion): Confirmacio
   const estadoCivil = datos.estadoCivil;
 
   const anual = cuotaAnualSugerida(datos.tipoMiembro, estadoCivil);
-  const mensual = cuotaMensualSugerida(datos.tipoMiembro, estadoCivil);
   const membresia = membresiaSugerida(datos.tipoMiembro, estadoCivil);
-
-  // La carta de compromiso es la que el socio firmó: si declara una cuota, esa
-  // manda sobre la del tarifario.
-  const cuotaDeLaCarta = datos.carta?.cuotaAnual?.trim() ?? "";
 
   return {
     grupoFacturacion: datos.formaPago ? GRUPO_FACTURACION_SUGERIDO[datos.formaPago] ?? "" : "",
     formaPago: datos.formaPago ? FORMA_PAGO_SAFI[datos.formaPago] : "",
     tipoContribuyente: TIPO_CONTRIBUYENTE_POR_DEFECTO,
-    valorCuota: cuotaDeLaCarta || (anual === null ? "" : formatearValor(anual)),
+    // La cuota elegida: la anual, mientras la Jefatura no elija la mensual.
+    valorCuota: anual === null ? "" : formatearValor(anual),
     // El socio se acoge a la modalidad anual salvo que se indique otra cosa: es
     // la que reconoce la carta de compromiso.
     // Los tres importes y la periodicidad son OBLIGATORIOS en SAFI, también
@@ -322,6 +321,28 @@ function sinVacios(campos: Record<string, string>): Record<string, string> {
 }
 
 /**
+ * «Valor Cuota» (`cf_977`) de la Cuenta: la cuota que la Jefatura eligió en su
+ * bandeja, la mensual o la anual (decisión del Coordinador, 23/09/2026).
+ *
+ * Hasta entonces se proponía desde la carta y era editable, de modo que podía
+ * quedar la anual en la Cuenta y la mensual en la ficha. Ahora no se escribe:
+ * se deduce, y el servidor la vuelve a calcular al dar de alta aunque el panel
+ * ya la muestre, para no depender de lo que envíe el navegador.
+ *
+ * Las dos cuotas son excluyentes (ver `avisosDeConfirmacion`); un `0` es «no
+ * se acoge a esa modalidad».
+ */
+export function valorCuotaDe(
+  confirmacion: Pick<ConfirmacionSafi, "cuotaAnual" | "cuotaMensual">
+): string {
+  for (const cuota of [confirmacion.cuotaMensual, confirmacion.cuotaAnual]) {
+    const numero = Number(cuota.replace(",", ".").trim());
+    if (cuota.trim() && Number.isFinite(numero) && numero > 0) return formatearValor(numero);
+  }
+  return "";
+}
+
+/**
  * Importe con el formato exacto que tiene la lista cerrada de SAFI.
  *
  * El CRM guarda `600`, no `600.00`. Son el mismo importe para una persona y dos
@@ -409,28 +430,42 @@ export function noEnviarEmail(solicitud: SolicitudAfiliacion): string {
 /**
  * Parentesco de la ficha, según de quién dependa la persona:
  *
- *   · el cónyuge, los padres y el juvenil, del socio titular de su Cuenta;
- *   · el D-A y el D-B, del oficial FAE cuyo número declaran —tienen Cuenta
- *     propia, pero dependen de él (decisión del Coordinador, 19/09/2026)—. Sus
- *     datos son los que devolvió SAFI al verificarlo, no los que alguien
- *     escribió: si no está verificado, va vacío antes que equivocado;
+ *   · el cónyuge, los padres y el juvenil, del socio titular de su Cuenta: tal
+ *     como consta en SAFI si el servidor lo acaba de comprobar, y si no, como
+ *     lo escribió la tableta —que desde el 23/09/2026 lo trae del propio CRM—;
+ *   · el D-A y el D-B, del oficial FAE cuyo número declaran, y el D-C, del
+ *     socio D-B del que es hijo —tienen Cuenta propia, pero dependen de él
+ *     (decisiones del Coordinador, 19 y 23/09/2026)—. Sus datos son los que
+ *     devolvió SAFI al verificarlo, no los que alguien escribió: si no está
+ *     verificado, va vacío antes que equivocado;
  *   · los demás, de nadie.
+ *
+ * En el alta, `oficialDependencia` y `titularVerificado` son los que el
+ * servidor acaba de consultar (ver `comprobarReferencias`), nunca los que
+ * trajo la tableta.
  */
 function parentescoDe(datos: SolicitudAfiliacion["datos"]): string {
-  if (reglasDe(datos.tipoMiembro)?.requiereNumeroSocioActivo) {
-    const oficial = datos.oficialDependencia;
-    const vigente =
-      oficial?.resultado === "VERIFICADO" &&
-      oficial.numeroSocio === normalizarNumeroSocio(datos.numeroSocioActivo);
-    return vigente && oficial
-      ? parentescoSafi({
-          gradoMilitarTitular: normalizarTextoInstitucional(oficial.gradoMilitar).trim(),
-          nombresTitular: normalizarNombreFinal(oficial.nombres),
-          apellidosTitular: normalizarNombreFinal(oficial.apellidos),
-        })
+  const deSafi = (socio: { gradoMilitar: string; nombres: string; apellidos: string }) =>
+    parentescoSafi({
+      gradoMilitarTitular: normalizarTextoInstitucional(socio.gradoMilitar).trim(),
+      nombresTitular: normalizarNombreFinal(socio.nombres),
+      apellidosTitular: normalizarNombreFinal(socio.apellidos),
+    });
+
+  const dependencia = reglaDependencia(datos.tipoMiembro);
+  if (dependencia) {
+    const socio = datos.oficialDependencia;
+    return socio && estadoReferencia(socio, datos.numeroSocioActivo, dependencia) === "VERIFICADO"
+      ? deSafi(socio)
       : "";
   }
   if (tieneCuentaPropia(datos.tipoMiembro)) return "";
+
+  const regla = reglaTitular(datos.tipoMiembro);
+  const titular = datos.titularVerificado;
+  if (titular && regla && estadoReferencia(titular, datos.titularNumeroSocio, regla) === "VERIFICADO") {
+    return deSafi(titular);
+  }
   return parentescoSafi({
     gradoMilitarTitular: normalizarTextoInstitucional(datos.titularGradoMilitar).trim(),
     nombresTitular: normalizarNombreFinal(datos.titularNombres),

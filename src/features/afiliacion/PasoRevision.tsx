@@ -6,19 +6,72 @@ import { StyleSheet, Text, View } from "react-native";
 import type { EstadoFormulario } from "../../domain/formularioAfiliacion";
 import { formatFechaCorta } from "../../domain/fechas";
 import { CONSENTIMIENTOS, VERSION_AVISO } from "../../domain/privacidad";
-import { ORIGEN_IDENTIDAD_META, nombreCompleto, nombreTitular } from "../../domain/solicitud";
+import {
+  ORIGEN_IDENTIDAD_META,
+  modalidadDebitoDe,
+  nombreCompleto,
+  nombreTitular,
+  type DatosCartaCompromiso,
+} from "../../domain/solicitud";
+import {
+  REGLA_GARANTE,
+  estadoReferencia,
+  nombreConGrado,
+  reglaDependencia,
+  reglaTitular,
+  rotuloDependencia,
+  type ReglaSocio,
+  type VerificacionSocio,
+} from "../../domain/sociosSafi";
 import { documentosDelTramite, nombreTipo, reglasDe } from "../../domain/tiposMiembro";
 import { colors, radius, spacing, typography } from "../../theme";
-import { Card, DataRow, InfoNote } from "../../ui";
+import { Button, Card, DataRow, InfoNote } from "../../ui";
 
 type Props = {
   estado: EstadoFormulario;
+  /** Abre el formulario completo, tal como se generará. */
+  onVistaPrevia: () => void;
 };
 
-export function PasoRevision({ estado }: Props) {
+/** Lo que SAFI dijo de un socio al que se refiere el trámite, en una línea. */
+function enSafi(
+  verificacion: VerificacionSocio | null | undefined,
+  numero: string,
+  regla: ReglaSocio | null
+): string {
+  if (!regla) return "";
+  switch (estadoReferencia(verificacion, numero, regla)) {
+    case "VERIFICADO":
+      return "verificado en SAFI";
+    case "NO_ENCONTRADO":
+      return "SAFI no lo tiene";
+    case "NO_ADMITIDO":
+      return `en SAFI es ${verificacion?.tipoSocioSafi || "de otra categoría"}`;
+    default:
+      return "sin verificar: lo comprueba la bandeja antes de crear en SAFI";
+  }
+}
+
+/** «Cuenta de ahorros · BANCO PICHINCHA» o «Tarjeta de crédito terminada en 1234». */
+function debito(carta: DatosCartaCompromiso): string {
+  switch (modalidadDebitoDe(carta)) {
+    case "CUENTA":
+      return `Cuenta ${carta.tipoCuenta === "CORRIENTE" ? "corriente" : "de ahorros"} · ${
+        carta.entidadFinanciera || "—"
+      }`;
+    case "TARJETA":
+      return `Tarjeta de crédito terminada en ${carta.tarjetaCredito.slice(-4) || "—"}`;
+    default:
+      return "Sin elegir";
+  }
+}
+
+export function PasoRevision({ estado, onVistaPrevia }: Props) {
   const { datos, firmaUri, consentimientos, identidad } = estado;
   const reglas = reglasDe(datos.tipoMiembro);
   const generados = documentosDelTramite(datos.tipoMiembro, datos.estadoCivil);
+  const reglaDep = reglaDependencia(datos.tipoMiembro);
+  const reglaTit = reglaTitular(datos.tipoMiembro);
 
   return (
     <>
@@ -27,6 +80,14 @@ export function PasoRevision({ estado }: Props) {
         y aparece en la bandeja del Área de Socios para crearla en SAFI; después la revisa
         Contabilidad y la aprueba la Gerencia.
       </InfoNote>
+
+      <Button
+        label="Ver el formulario completo"
+        icon="document-text-outline"
+        variant="secondary"
+        onPress={onVistaPrevia}
+        fullWidth
+      />
 
       <Card title="Verificación de identidad" icon="shield-checkmark">
         <DataRow label="Origen de los datos" value={ORIGEN_IDENTIDAD_META[identidad.origen].etiqueta} />
@@ -47,24 +108,25 @@ export function PasoRevision({ estado }: Props) {
         <DataRow label="Tipo solicitado" value={nombreTipo(datos.tipoMiembro)} />
         {reglas?.requiereSocioTitular ? (
           <>
-            <DataRow label="Socio titular" value={nombreTitular(datos)} />
+            <DataRow
+              label={`Socio titular N.º ${datos.titularNumeroSocio || "—"}`}
+              value={`${nombreTitular(datos)} (${enSafi(
+                datos.titularVerificado,
+                datos.titularNumeroSocio,
+                reglaTit
+              )})`}
+            />
             <DataRow label="Cédula del titular" value={datos.titularCedula} />
           </>
         ) : null}
-        {reglas?.requiereNumeroSocioActivo ? (
+        {reglaDep ? (
           <DataRow
-            label={`Oficial FAE N.º ${datos.numeroSocioActivo || "—"}`}
+            label={`${rotuloDependencia(datos.tipoMiembro)} · N.º ${datos.numeroSocioActivo || "—"}`}
             value={
-              datos.oficialDependencia?.resultado === "VERIFICADO" &&
-              datos.oficialDependencia.numeroSocio === datos.numeroSocioActivo
-                ? `${[
-                    datos.oficialDependencia.gradoMilitar,
-                    datos.oficialDependencia.nombres,
-                    datos.oficialDependencia.apellidos,
-                  ]
-                    .join(" ")
-                    .trim()} (verificado en SAFI)`
-                : "Sin verificar: lo comprueba la bandeja antes de crear en SAFI"
+              estadoReferencia(datos.oficialDependencia, datos.numeroSocioActivo, reglaDep) ===
+                "VERIFICADO" && datos.oficialDependencia
+                ? `${nombreConGrado(datos.oficialDependencia)} (verificado en SAFI)`
+                : enSafi(datos.oficialDependencia, datos.numeroSocioActivo, reglaDep)
             }
           />
         ) : null}
@@ -82,15 +144,26 @@ export function PasoRevision({ estado }: Props) {
                 label={
                   datos.garantes.length === 1 ? "Socio garante" : `Socio garante ${indice + 1}`
                 }
-                value={`${garante.apellidosNombres} · Socio N.º ${garante.numeroSocio}`}
+                value={`${garante.apellidosNombres} · Socio N.º ${garante.numeroSocio} (${enSafi(
+                  garante.verificacion,
+                  garante.numeroSocio,
+                  REGLA_GARANTE
+                )})`}
               />
             ))
           : null}
         {datos.carta ? (
-          <DataRow
-            label="Carta de compromiso"
-            value={`Cuota anual USD ${datos.carta.cuotaAnual || "—"}`}
-          />
+          <>
+            <DataRow
+              label="Carta de compromiso"
+              value={`Cuota anual USD ${datos.carta.cuotaAnual || "—"}${
+                datos.carta.cuotaMensualizada
+                  ? ` · mensualizado USD ${datos.carta.cuotaMensualizada}`
+                  : ""
+              }`}
+            />
+            <DataRow label="Débito automático" value={debito(datos.carta)} />
+          </>
         ) : null}
       </Card>
 

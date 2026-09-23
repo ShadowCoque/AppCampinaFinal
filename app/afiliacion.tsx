@@ -27,6 +27,7 @@ import {
   leerBorrador,
   nuevaSolicitudId,
   obtenerSolicitud,
+  solicitudProvisional,
 } from "../src/data/solicitudes";
 import { cambiosEntre, describirCambios, puedeCorregirse } from "../src/domain/correccion";
 import {
@@ -51,6 +52,7 @@ import { fuerzaFijaPara } from "../src/domain/tiposMiembro";
 import type { ValoresDesdeSnic } from "../src/domain/snic";
 import type {
   DatosAfiliacion,
+  DatosGarante,
   RegistroIdentidad,
   SolicitudAfiliacion,
 } from "../src/domain/solicitud";
@@ -64,6 +66,7 @@ import { PasoLaboral } from "../src/features/afiliacion/PasoLaboral";
 import { PasoPersonales } from "../src/features/afiliacion/PasoPersonales";
 import { PasoRevision } from "../src/features/afiliacion/PasoRevision";
 import { PasoTipo } from "../src/features/afiliacion/PasoTipo";
+import { VistaPreviaFormulario } from "../src/features/afiliacion/VistaPreviaFormulario";
 import { colors, radius, shadow, spacing, typography } from "../src/theme";
 import { Button, InfoNote, Stepper } from "../src/ui";
 
@@ -88,6 +91,7 @@ export default function AfiliacionScreen() {
   const [scrollHabilitado, setScrollHabilitado] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [cargando, setCargando] = useState(true);
+  const [vistaPrevia, setVistaPrevia] = useState(false);
   // Nombre del funcionario que captura la afiliación: queda en el historial
   // del trámite. La constancia «REGISTRADO» del reverso la sella la Jefatura de
   // Socios al registrar al socio en su bandeja, no la tableta.
@@ -133,7 +137,9 @@ export default function AfiliacionScreen() {
       setOriginal(solicitud);
       setYaEnSafi(permiso.yaEnSafi);
       setSolicitudId(solicitud.id);
-      setEstado(estadoParaCorregir(solicitud));
+      // Con las cuotas del tarifario, como las deja el servidor al guardar.
+      const paraCorregir = estadoParaCorregir(solicitud);
+      setEstado({ ...paraCorregir, datos: ajustarBloques(paraCorregir.datos) });
       // Todo ya se validó al registrarla: se puede saltar a cualquier paso.
       setCompletados(new Set(Array.from({ length: CLAVES_PASO.length }, (_, i) => i)));
       setCargando(false);
@@ -181,7 +187,9 @@ export default function AfiliacionScreen() {
             text: "Continuar",
             onPress: () => {
               setSolicitudId(borrador.solicitudId);
-              setEstado(borrador.estado);
+              // Un borrador de una versión anterior puede traer cuotas escritas
+              // a mano: desde el 23/09/2026 salen del tarifario.
+              setEstado({ ...borrador.estado, datos: ajustarBloques(borrador.estado.datos) });
               setIndice(borrador.paso);
               setCompletados(new Set(Array.from({ length: borrador.paso }, (_, i) => i)));
               setCargando(false);
@@ -227,6 +235,36 @@ export default function AfiliacionScreen() {
         return { ...previo, datos: requiereAjuste ? ajustarBloques(datos) : datos };
       });
       setErrores((previos) => (previos[campo] ? { ...previos, [campo]: undefined } : previos));
+    },
+    []
+  );
+
+  /**
+   * Varios datos a la vez, calculados sobre el estado vigente. Lo usan las
+   * búsquedas en SAFI, que responden un momento después: sobre el estado del
+   * dibujo en que se pidieron se perdería lo escrito mientras tanto.
+   */
+  const actualizar = useCallback(
+    (cambio: (datos: DatosAfiliacion) => Partial<DatosAfiliacion> | null) => {
+      setEstado((previo) => {
+        const parcial = cambio(previo.datos);
+        return parcial ? { ...previo, datos: { ...previo.datos, ...parcial } } : previo;
+      });
+    },
+    []
+  );
+
+  const actualizarGarante = useCallback(
+    (indice: number, cambio: (garante: DatosGarante) => Partial<DatosGarante> | null) => {
+      setEstado((previo) => {
+        const actual = previo.datos.garantes[indice];
+        const parcial = actual ? cambio(actual) : null;
+        if (!parcial) return previo;
+        const garantes = previo.datos.garantes.map((garante, i) =>
+          i === indice ? { ...garante, ...parcial } : garante
+        );
+        return { ...previo, datos: { ...previo.datos, garantes } };
+      });
     },
     []
   );
@@ -567,7 +605,14 @@ export default function AfiliacionScreen() {
           />
         );
       case "tipo":
-        return <PasoTipo datos={estado.datos} errores={errores} setDato={setDato} />;
+        return (
+          <PasoTipo
+            datos={estado.datos}
+            errores={errores}
+            setDato={setDato}
+            actualizar={actualizar}
+          />
+        );
       case "personales":
         return (
           <PasoPersonales
@@ -588,7 +633,7 @@ export default function AfiliacionScreen() {
           <PasoGarantes
             datos={estado.datos}
             errores={errores}
-            setDato={setDato}
+            actualizarGarante={actualizarGarante}
             onFirma={setFirmaGarante}
             onDibujando={(dibujando) => setScrollHabilitado(!dibujando)}
           />
@@ -604,10 +649,11 @@ export default function AfiliacionScreen() {
             onConsentimiento={setConsentimiento}
             onFirma={setFirma}
             onDibujando={(dibujando) => setScrollHabilitado(!dibujando)}
+            onVistaPrevia={() => setVistaPrevia(true)}
           />
         );
       case "revision":
-        return <PasoRevision estado={estado} />;
+        return <PasoRevision estado={estado} onVistaPrevia={() => setVistaPrevia(true)} />;
       default:
         return null;
     }
@@ -622,6 +668,11 @@ export default function AfiliacionScreen() {
       {modoCorreccion && original ? (
         <Stack.Screen options={{ title: `Corregir ${original.codigo}` }} />
       ) : null}
+      <VistaPreviaFormulario
+        visible={vistaPrevia}
+        solicitud={() => solicitudProvisional(solicitudId, estadoActual.current, original)}
+        onCerrar={() => setVistaPrevia(false)}
+      />
       <Stepper steps={pasos} currentIndex={indiceActual} completed={completados} onSelect={saltarA} />
 
       <ScrollView
