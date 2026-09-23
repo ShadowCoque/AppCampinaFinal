@@ -217,21 +217,24 @@ interno y sin certificado: con `URL_PUBLICA=http://afiliaciones…` (sin `s`),
 la cookie de sesión no se marca `Secure` y el inicio de sesión funciona sobre
 HTTP plano (ver `server/src/http/sesion.ts`).
 
-**Mientras dure el cambio**, el contenedor sigue publicado también en
-`http://soporte.clublacampina.com.ec:8080` (`BIND_HOST=0.0.0.0`), para la
-tableta y los navegadores que aún usan la dirección antigua. Cuando todos usen
-la nueva, se cierra el 8080 cambiando **dos cosas a la vez** en `server/.env`,
-nunca una sin la otra:
+**Desde el 23/09/2026 el 8080 ya no se publica en la LAN**: la única entrada es
+el nombre de arriba. En `server/.env` se cambiaron **dos cosas a la vez**, y
+nunca debe cambiarse una sin la otra:
 
 ```bash
-BIND_HOST=127.0.0.1      # el contenedor deja de publicarse directo en la LAN
-TRUST_PROXY=true         # el servidor pasa a fiarse de X-Forwarded-For
+BIND_HOST=127.0.0.1      # el contenedor solo escucha dentro del servidor
+TRUST_PROXY=true         # el servidor se fía de X-Forwarded-For
 ```
 
-Activar `TRUST_PROXY` mientras el 8080 siga abierto a la LAN permite que
-cualquier equipo de la red falsee su IP y se salte el límite de intentos de
-acceso (`server/src/http/intentos.ts`). Mientras el contenedor se publique
-directo, `TRUST_PROXY` se queda en `false`, que es el valor por defecto.
+Activar `TRUST_PROXY` con el 8080 abierto a la LAN permitiría que cualquier
+equipo de la red falseara su IP y se saltara el límite de intentos de acceso
+(`server/src/http/intentos.ts`). Por eso, si alguna vez se vuelve a publicar
+directo (`BIND_HOST=0.0.0.0`), `TRUST_PROXY` vuelve a `false`.
+
+Por lo mismo, el sitio de Apache borra el `X-Forwarded-For` que mande el
+cliente antes de reenviar (`RequestHeader unset X-Forwarded-For early`). Así,
+`mod_proxy` pone solo la IP real de quien se conecta. Sin esa línea, un cliente
+podría escribir la cabecera a mano y cambiar la IP que ve el servidor.
 
 Para añadir TLS más adelante basta un `<VirtualHost *:443>` en ese mismo sitio.
 La tableta necesitará un certificado **público** (Android no confía en una CA
