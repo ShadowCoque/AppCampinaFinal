@@ -125,15 +125,14 @@ que lo decida él: casi todos serán de Pichincha, pero no se puede asegurar.
 ## 4. Dirección nueva de la bandeja
 
 La bandeja ya responde en **`http://afiliaciones.clublacampina.com.ec`**, por
-el puerto 80, a través de Apache y solo en la red local. Falta que el
-Coordinador cree el registro en su DNS interno. Mientras tanto, la dirección
-antigua `http://soporte.clublacampina.com.ec:8080` sigue funcionando.
+el puerto 80, a través de Apache y solo en la red local. El nombre ya resuelve
+en el DNS interno, y **el 8080 quedó cerrado a la red el mismo 23/09**
+(`BIND_HOST=127.0.0.1`, `TRUST_PROXY=true`): la dirección antigua
+`http://soporte.clublacampina.com.ec:8080` ya no responde.
 
 - Donde la tableta o la documentación escriban la dirección antigua como
   **ejemplo o valor por defecto**, cámbiela por la nueva, sin puerto.
-- El Coordinador cambiará a mano la dirección configurada en la tableta.
-- Cuando la tableta y los navegadores usen la nueva, yo cerraré el 8080
-  (`BIND_HOST=127.0.0.1` y `TRUST_PROXY=true`, los dos a la vez).
+- El Coordinador cambia a mano la dirección configurada en la tableta.
 
 ## Cómo coordinamos
 

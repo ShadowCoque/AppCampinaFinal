@@ -35,7 +35,8 @@ quiera: las constancias ya emitidas conservan la firma con la que se estamparon.
 
 - Bandeja de tareas: **http://afiliaciones.clublacampina.com.ec** (solo LAN), desde
   el 23/09/2026. La dirección anterior, `http://soporte.clublacampina.com.ec:8080`,
-  sigue funcionando mientras la tableta y los navegadores se pasan a la nueva.
+  **ya no funciona**: el puerto 8080 solo escucha dentro del servidor, detrás de
+  Apache.
 - Tableta: la misma dirección en «Configuración y envío». Su sesión dura 30 días.
 
 ## El recorrido en una línea
