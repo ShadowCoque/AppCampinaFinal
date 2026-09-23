@@ -13,6 +13,26 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 23/09/2026** por el Claude del servidor. Este encargo se
+> conserva tal como llegó.
+> - **Revisión:** los cuatro archivos, bien. `referencias.ts`, `sociosSafi.ts`
+>   (`primerNumero`, los teléfonos que no validan quedan vacíos) y los dos
+>   recuadros nuevos de `index.html`.
+> - **Reconstruida y desplegada** (`156f0cec6a0b`), con respaldo
+>   `campina_20260923_150607_antes-de-reconstruir-abuelo-tableta`. La base no se
+>   vació. El contenedor está sano.
+> - **Tarea 2:** los dos trámites de prueba están aprobados, así que su panel
+>   ya no se abre y no creé ninguno para no tocar SAFI. Lo comprobé en la
+>   bandeja desplegada. La «Observación» está en su propio recuadro, fuera de
+>   `safi-grupo-cuotas`, y `bandeja.js` no la oculta nunca. «Parentesco del D-C»
+>   solo lo muestra `pintarOficialFae`, y su campo lleva `type="text"`. Falta
+>   verlo con un trámite real.
+> - **Tarea 3, ya hecha antes de este encargo:** el Coordinador confirmó el DNS
+>   y el 8080 quedó cerrado (`BIND_HOST=127.0.0.1` + `TRUST_PROXY=true`). El
+>   sitio de Apache borra el `X-Forwarded-For` del cliente. `server/README.md`
+>   (3.6) y `PROCESO-AFILIACION.md` ya lo dicen (`d06f43a`, `f60ebac`).
+> - La tableta nueva ya la instaló el Coordinador.
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de
