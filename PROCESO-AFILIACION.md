@@ -33,7 +33,9 @@ quiera: las constancias ya emitidas conservan la firma con la que se estamparon.
 > envía las afiliaciones. La propia pantalla lo advierte y ofrece cerrarla; al
 > volver hay que iniciar sesión otra vez con el usuario `socios`.
 
-- Bandeja de tareas: **http://soporte.clublacampina.com.ec:8080** (solo LAN).
+- Bandeja de tareas: **http://afiliaciones.clublacampina.com.ec** (solo LAN), desde
+  el 23/09/2026. La dirección anterior, `http://soporte.clublacampina.com.ec:8080`,
+  sigue funcionando mientras la tableta y los navegadores se pasan a la nueva.
 - Tableta: la misma dirección en «Configuración y envío». Su sesión dura 30 días.
 
 ## El recorrido en una línea
@@ -117,7 +119,8 @@ Socio Activo, el PGS1-11 en cualquier otro caso, más la hoja de solicitud y la
 carta de compromiso cuando la categoría las lleva. En el PGS1-11 de un cónyuge,
 unos padres, un juvenil, un D-A, un D-B o un D-C, junto a la casilla marcada va
 la línea **«de …»** con el grado y el nombre del socio del que depende —lo mismo
-que va al Parentesco de su ficha en SAFI—. La hoja de solicitud ya no repite la
+que va al Parentesco de su ficha en SAFI—. En un D-C es **el oficial FAE del que
+desciende** (su abuelo), no su padre o madre D-B. La hoja de solicitud ya no repite la
 cédula del aspirante en su recuadro: la dice el «Yo, … con C.I. …» que la
 encabeza. La del garante, sí.
 
@@ -201,10 +204,21 @@ trámite no es la que SAFI tiene para ese número o si ese socio no consta como
 servidor consulta aquí.
 
 El grado, nombres y apellidos del socio del que depende, **tal como constan en
-SAFI**, van al campo **Parentesco** de la ficha: del oficial en un D-A o D-B, del
-padre o la madre D-B en un D-C, y del titular en un cónyuge, unos padres o un
-juvenil. Si el oficial o el D-B no se pudieron comprobar, el Parentesco va vacío
-antes que equivocado; el del titular, con lo escrito en la tableta.
+SAFI**, van al campo **Parentesco** de la ficha. **El Parentesco es siempre el del
+socio oficial con el que la persona tiene relación:**
+
+- un D-A o un D-B: el oficial FAE del que depende;
+- un **D-C**: el **oficial FAE del que desciende —su abuelo—**, el padre o la
+  madre de su socio D-B. **Nunca el D-B.** Como SAFI no guarda de quién es hijo
+  un D-B, el número de ese oficial se escribe: lo trae la tableta o lo completa
+  la Jefatura en el panel (campo «N.º de socio del oficial FAE del que
+  desciende»), y si el D-B se afilió por este sistema, se toma de su trámite.
+  Se comprueba en SAFI que sea Activo o Fundador, y **sin él no se crea la
+  ficha**;
+- un cónyuge, unos padres o un juvenil: su titular.
+
+Si el oficial no se pudo comprobar en SAFI, el Parentesco va vacío antes que
+equivocado; el del titular, con lo escrito en la tableta.
 
 > **Pendiente del lado del Club:** `CORRESPONSAL A` no existe todavía en la
 > lista `cf_917` de SAFI, ni sus cuotas `480` y `40`. Hasta que se creen, un

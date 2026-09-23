@@ -249,6 +249,26 @@ export function personaEnExpediente(
   return fila ? aSolicitud(fila) : null;
 }
 
+/**
+ * El oficial FAE de un socio D-B que se afilió por este sistema: sirve al D-C
+ * que depende de él, cuyo Parentesco lleva a ese oficial —su abuelo—.
+ *
+ * Solo el número: el servidor lo vuelve a comprobar en SAFI antes del alta,
+ * como cualquier otro. `null` si ese D-B no pasó por aquí —la mayoría de los
+ * D-B del Club son anteriores— o si su trámite no declara oficial; entonces
+ * lo escribe la Jefatura en el panel.
+ */
+export function oficialDeUnDependienteB(
+  numeroSocioDependienteB: string
+): { numero: string; codigo: string } | null {
+  const numero = normalizarNumeroSocio(numeroSocioDependienteB);
+  if (!numero) return null;
+  const dependienteB = personaEnExpediente(numero, null);
+  if (!dependienteB || dependienteB.datos.tipoMiembro !== "DB") return null;
+  const oficial = normalizarNumeroSocio(dependienteB.datos.numeroSocioActivo);
+  return oficial ? { numero: oficial, codigo: dependienteB.codigo } : null;
+}
+
 /** El trámite del socio titular de una cuenta, si se registró por este sistema. */
 export function titularPorNumero(numeroSocio: string): SolicitudAfiliacion | null {
   return personaEnExpediente(numeroSocio, null);
@@ -558,7 +578,13 @@ export function aprobar(id: string, entrada: { observacion: string }, actor: Act
  */
 export function fijarVerificaciones(
   id: string,
-  verificaciones: { oficialDependencia?: VerificacionSocio; titularVerificado?: VerificacionSocio }
+  verificaciones: {
+    oficialDependencia?: VerificacionSocio;
+    titularVerificado?: VerificacionSocio;
+    /** El oficial del que desciende un D-C, con el número que se comprobó. */
+    oficialFaeVerificado?: VerificacionSocio;
+    numeroOficialFae?: string;
+  }
 ): SolicitudAfiliacion | null {
   const actual = obtenerSolicitud(id);
   if (!actual) return null;

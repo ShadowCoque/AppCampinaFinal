@@ -375,6 +375,29 @@ export type DatosAfiliacion = {
    */
   oficialDependencia: VerificacionSocio | null;
 
+  /**
+   * Número de socio del **oficial FAE del que desciende un D-C**: su abuelo, el
+   * padre o la madre del socio D-B del que depende.
+   *
+   * El D-C depende de un D-B —así lo dice el PGS1-11, y es lo que comprueba
+   * `numeroSocioActivo`—, pero su Parentesco en SAFI y la línea «de …» del
+   * formulario llevan **siempre al oficial**, con su grado, nombres y
+   * apellidos, nunca al D-B (decisión del Coordinador, 23/09/2026). En SAFI
+   * no hay forma de deducirlo: la ficha de un D-B no guarda el número de su
+   * oficial y su Parentesco está vacío en ocho de cada diez. Por eso se pide:
+   * lo escribe la tableta o la Jefatura en la bandeja, y si el D-B se afilió
+   * por este sistema, el servidor lo toma de su trámite.
+   *
+   * Vacío u opcional en los demás tipos y en los trámites anteriores.
+   */
+  numeroOficialFae?: string;
+  /**
+   * Lo que SAFI dijo del oficial de `numeroOficialFae`. Como las demás
+   * verificaciones, la de la tableta no se da por buena: el servidor la vuelve
+   * a hacer antes del alta, y la suya es la que queda.
+   */
+  oficialFaeVerificado?: VerificacionSocio | null;
+
   /** Identificación. */
   apellidos: string;
   nombres: string;
@@ -464,6 +487,8 @@ export function datosVacios(): DatosAfiliacion {
     titularVerificado: null,
     numeroSocioActivo: "",
     oficialDependencia: null,
+    numeroOficialFae: "",
+    oficialFaeVerificado: null,
     apellidos: "",
     nombres: "",
     cedula: "",

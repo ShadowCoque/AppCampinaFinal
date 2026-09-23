@@ -24,6 +24,7 @@ import {
 import { incluyeBiometria } from "./snic";
 import {
   REGLA_GARANTE,
+  REGLA_OFICIAL,
   motivoRechazo,
   reglaDependencia,
   reglaTitular,
@@ -259,7 +260,8 @@ function validarTipo(estado: EstadoFormulario): Errores {
   }
 
   // El socio del que depende un D-A o D-B (el oficial FAE de la casilla
-  // «Número de Socio Activo» del reverso) o un D-C (su padre o madre D-B).
+  // «Número de Socio Activo» del reverso) o un D-C (su padre o madre D-B; su
+  // Parentesco, en cambio, es el del oficial, más abajo).
   const regla = reglaDependencia(datos.tipoMiembro);
   if (regla) {
     const numero = datos.numeroSocioActivo.trim();
@@ -276,6 +278,24 @@ function validarTipo(estado: EstadoFormulario): Errores {
         regla === "DEPENDIENTE_B" ? "el socio del que depende un D-C" : "el oficial del que depende"
       );
       if (rechazo) errores.numeroSocioActivo = rechazo;
+    }
+  }
+
+  // El oficial FAE del que desciende un D-C —su abuelo—, el que va a su
+  // Parentesco. No se exige aquí: si la persona no lo sabe en ese momento, la
+  // Jefatura lo completa en la bandeja antes del alta, que no sigue sin él.
+  // Pero si SAFI ya dijo que ese número no es de un Activo ni de un Fundador,
+  // no se deja avanzar con él.
+  if (datos.tipoMiembro === "DC") {
+    const numero = (datos.numeroOficialFae ?? "").trim();
+    if (numero) {
+      const rechazo = motivoRechazo(
+        datos.oficialFaeVerificado,
+        numero,
+        REGLA_OFICIAL,
+        "el oficial FAE del que desciende"
+      );
+      if (rechazo) errores.numeroOficialFae = rechazo;
     }
   }
 

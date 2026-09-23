@@ -16,7 +16,9 @@ import { GRADO_NO_APLICA, GRADOS_OFRECIDOS, type TipoMiembro } from "./tiposMiem
  *
  *   · garantes, padres, D-A y D-B → un **Socio Activo o Fundador**;
  *   · D-C → un **Socio Dependiente B**, como dice el PGS1-11 («hijo de un socio
- *     dependiente B»);
+ *     dependiente B»). Su Parentesco, en cambio, es el del **oficial FAE del
+ *     que desciende** —su abuelo—, que también se comprueba (ver
+ *     `oficialDelParentesco`);
  *   · cónyuge y juvenil → **cualquier socio titular**, salvo el Particular B,
  *     que es una sociedad individual.
  *
@@ -150,6 +152,38 @@ export function reglaDependencia(tipo: TipoMiembro | null): ReglaSocio | null {
       return null;
   }
 }
+
+/**
+ * El oficial FAE cuyo grado, nombres y apellidos van al **Parentesco** de un
+ * socio dependiente con Cuenta propia, y a la línea «de …» del PGS1-11.
+ *
+ *   · D-A y D-B: el oficial del que dependen (`numeroSocioActivo`).
+ *   · D-C: el oficial del que **desciende** —su abuelo— (`numeroOficialFae`),
+ *     **no** el D-B del que depende. El Parentesco es siempre el del socio
+ *     oficial con el que la persona tiene relación (Coordinador, 23/09/2026).
+ *
+ * `null` en los demás tipos. El oficial ha de ser siempre Activo o Fundador.
+ */
+export function oficialDelParentesco(datos: {
+  tipoMiembro: TipoMiembro | null;
+  numeroSocioActivo: string;
+  oficialDependencia: VerificacionSocio | null;
+  numeroOficialFae?: string;
+  oficialFaeVerificado?: VerificacionSocio | null;
+}): { numero: string; verificacion: VerificacionSocio | null | undefined } | null {
+  switch (datos.tipoMiembro) {
+    case "DA":
+    case "DB":
+      return { numero: datos.numeroSocioActivo, verificacion: datos.oficialDependencia };
+    case "DC":
+      return { numero: datos.numeroOficialFae ?? "", verificacion: datos.oficialFaeVerificado };
+    default:
+      return null;
+  }
+}
+
+/** El oficial del Parentesco es siempre un Socio Activo o un Fundador. */
+export const REGLA_OFICIAL: ReglaSocio = "ACTIVO_O_FUNDADOR";
 
 /** Qué tiene que ser el socio titular de un dependiente sin Cuenta propia. */
 export function reglaTitular(tipo: TipoMiembro | null): ReglaSocio | null {
@@ -379,8 +413,9 @@ export function gradoDesdeSafi(valor: string, escrito: string): string {
  *
  *   · Del titular, lo que SAFI dijo si está verificado; si no, lo escrito en
  *     la tableta, que desde el 23/09/2026 se trae del propio CRM.
- *   · Del socio del que depende un D-A, D-B o D-C, solo lo que SAFI dijo: la
- *     tableta únicamente escribe su número. Sin verificar, va el número.
+ *   · De un D-A o D-B, el oficial del que depende; de un D-C, el oficial del
+ *     que desciende —su abuelo—, nunca el D-B (ver `oficialDelParentesco`).
+ *     Solo lo que SAFI dijo: sin verificar, va el número del oficial.
  *
  * `null` cuando la categoría no depende de nadie; cadena vacía cuando depende
  * pero todavía no se sabe de quién, y la línea se imprime en blanco.
@@ -394,6 +429,8 @@ export function socioDelQueDepende(datos: {
   titularVerificado?: VerificacionSocio | null;
   numeroSocioActivo: string;
   oficialDependencia: VerificacionSocio | null;
+  numeroOficialFae?: string;
+  oficialFaeVerificado?: VerificacionSocio | null;
 }): string | null {
   const titular = reglaTitular(datos.tipoMiembro);
   if (titular) {
@@ -410,14 +447,16 @@ export function socioDelQueDepende(datos: {
     return escrito || (numero ? `socio N.º ${numero}` : "");
   }
 
-  const dependencia = reglaDependencia(datos.tipoMiembro);
-  if (dependencia) {
-    const socio = datos.oficialDependencia;
-    if (socio && estadoReferencia(socio, datos.numeroSocioActivo, dependencia) === "VERIFICADO") {
-      return nombreConGrado(socio);
+  // D-A, D-B y D-C: el oficial FAE, igual que su Parentesco. En un D-C es el
+  // abuelo, no el D-B del que depende.
+  const oficial = oficialDelParentesco(datos);
+  if (oficial) {
+    const { numero, verificacion } = oficial;
+    if (verificacion && estadoReferencia(verificacion, numero, REGLA_OFICIAL) === "VERIFICADO") {
+      return nombreConGrado(verificacion);
     }
-    const numero = normalizarNumeroSocio(datos.numeroSocioActivo);
-    return numero ? `socio N.º ${numero}` : "";
+    const normalizado = normalizarNumeroSocio(numero);
+    return normalizado ? `socio N.º ${normalizado}` : "";
   }
 
   return null;

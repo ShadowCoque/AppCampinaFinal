@@ -13,8 +13,9 @@ import {
   type SolicitudAfiliacion,
 } from "../../../src/domain/solicitud";
 import {
+  REGLA_OFICIAL,
   estadoReferencia,
-  reglaDependencia,
+  oficialDelParentesco,
   reglaTitular,
 } from "../../../src/domain/sociosSafi";
 import {
@@ -433,16 +434,18 @@ export function noEnviarEmail(solicitud: SolicitudAfiliacion): string {
  *   · el cónyuge, los padres y el juvenil, del socio titular de su Cuenta: tal
  *     como consta en SAFI si el servidor lo acaba de comprobar, y si no, como
  *     lo escribió la tableta —que desde el 23/09/2026 lo trae del propio CRM—;
- *   · el D-A y el D-B, del oficial FAE cuyo número declaran, y el D-C, del
- *     socio D-B del que es hijo —tienen Cuenta propia, pero dependen de él
- *     (decisiones del Coordinador, 19 y 23/09/2026)—. Sus datos son los que
- *     devolvió SAFI al verificarlo, no los que alguien escribió: si no está
- *     verificado, va vacío antes que equivocado;
+ *   · el D-A y el D-B, del oficial FAE cuyo número declaran;
+ *   · el D-C, **del oficial FAE del que desciende —su abuelo—**, no del socio
+ *     D-B del que es hijo. El Parentesco es siempre el del socio oficial con
+ *     el que la persona tiene relación (Coordinador, 23/09/2026). Estos tres
+ *     tienen Cuenta propia; los datos del oficial son los que devolvió SAFI al
+ *     verificarlo, no los que alguien escribió: si no está verificado, va
+ *     vacío antes que equivocado;
  *   · los demás, de nadie.
  *
- * En el alta, `oficialDependencia` y `titularVerificado` son los que el
- * servidor acaba de consultar (ver `comprobarReferencias`), nunca los que
- * trajo la tableta.
+ * En el alta, `oficialDependencia`, `oficialFaeVerificado` y
+ * `titularVerificado` son los que el servidor acaba de consultar (ver
+ * `comprobarReferencias`), nunca los que trajo la tableta.
  */
 function parentescoDe(datos: SolicitudAfiliacion["datos"]): string {
   const deSafi = (socio: { gradoMilitar: string; nombres: string; apellidos: string }) =>
@@ -452,11 +455,14 @@ function parentescoDe(datos: SolicitudAfiliacion["datos"]): string {
       apellidosTitular: normalizarNombreFinal(socio.apellidos),
     });
 
-  const dependencia = reglaDependencia(datos.tipoMiembro);
-  if (dependencia) {
-    const socio = datos.oficialDependencia;
-    return socio && estadoReferencia(socio, datos.numeroSocioActivo, dependencia) === "VERIFICADO"
-      ? deSafi(socio)
+  // D-A, D-B y D-C: el oficial FAE —en un D-C, el que es su abuelo, nunca el
+  // D-B del que depende—, y solo como lo devolvió SAFI al servidor. Sin
+  // verificar, vacío antes que equivocado.
+  const oficial = oficialDelParentesco(datos);
+  if (oficial) {
+    const { numero, verificacion } = oficial;
+    return verificacion && estadoReferencia(verificacion, numero, REGLA_OFICIAL) === "VERIFICADO"
+      ? deSafi(verificacion)
       : "";
   }
   if (tieneCuentaPropia(datos.tipoMiembro)) return "";

@@ -75,6 +75,8 @@ const ETIQUETAS: Partial<Record<keyof DatosAfiliacion, string>> = {
   titularSituacion: "Situación del socio titular",
   numeroSocioActivo: "Número de socio del que depende",
   oficialDependencia: "Socio del que depende",
+  numeroOficialFae: "Número de socio del oficial FAE (abuelo)",
+  oficialFaeVerificado: "Oficial FAE del que desciende",
   apellidos: "Apellidos",
   nombres: "Nombres",
   cedula: "Cédula",
@@ -126,7 +128,7 @@ const IGNORADOS = new Set<keyof DatosAfiliacion>([
 function comparable(campo: keyof DatosAfiliacion, valor: unknown): string {
   if (valor === null || valor === undefined) return "";
   if (typeof valor !== "object") return String(valor);
-  if (campo === "oficialDependencia") {
+  if (campo === "oficialDependencia" || campo === "oficialFaeVerificado") {
     // Quién es, no cuándo ni cómo se consultó: una segunda consulta del mismo
     // socio no es una corrección.
     const socio = valor as NonNullable<DatosAfiliacion["oficialDependencia"]>;
@@ -149,7 +151,7 @@ function legible(campo: keyof DatosAfiliacion, valor: unknown): string {
   if (valor === null || valor === undefined || valor === "") return "—";
   if (campo === "tipoMiembro") return nombreTipo(valor as DatosAfiliacion["tipoMiembro"]);
   if (typeof valor !== "object") return String(valor);
-  if (campo === "oficialDependencia") {
+  if (campo === "oficialDependencia" || campo === "oficialFaeVerificado") {
     const oficial = valor as NonNullable<DatosAfiliacion["oficialDependencia"]>;
     return [oficial.gradoMilitar, oficial.nombres, oficial.apellidos].join(" ").trim() || "—";
   }

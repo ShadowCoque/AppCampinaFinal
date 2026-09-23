@@ -943,3 +943,7 @@ dialog h2 {
   display: block;
   margin-bottom: 2px;
 }
+
+/* Resultado de la consulta del oficial FAE de un D-C, en el panel de SAFI. */
+.texto-exito { color: var(--exito); font-weight: 600; }
+.texto-peligro { color: var(--peligro); font-weight: 600; }

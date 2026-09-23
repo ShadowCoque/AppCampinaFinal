@@ -67,6 +67,7 @@ import {
   listarSolicitudes,
   motivoParaNoBorrar,
   obtenerSolicitud,
+  oficialDeUnDependienteB,
   omitirAdjunto,
   omitirEscaneo,
   personaEnExpediente,
@@ -92,6 +93,7 @@ import { archivarContenido, rutaSegura } from "../expediente/repositorio";
 import { apartarEscaneo, asignarEscaneo, recorrer, vigilanciaActiva } from "../expediente/vigilante";
 import { adaptadorSafi, type ListasSafi, type VerificacionSafi } from "../safi/adaptador";
 import { comprobarReferencias } from "../safi/referencias";
+import { normalizarNumeroSocio } from "../../../src/domain/texto";
 import {
   CUOTAS_ANUALES_SAFI,
   CUOTAS_MENSUALES_SAFI,
@@ -1070,6 +1072,37 @@ export async function registrarApi(app: FastifyInstance): Promise<void> {
  * funcionario no ha cargado su firma desde la tableta, devuelve `null` y la
  * constancia se imprime solo con su nombre, como se venía haciendo.
  */
+/**
+ * Un D-C con el número del oficial FAE del que desciende —su abuelo, el de su
+ * Parentesco— ya resuelto, y de dónde salió:
+ *
+ *   1. el que escribe la Jefatura en el panel, si escribe uno;
+ *   2. el que trajo la tableta;
+ *   3. el del trámite de su socio D-B, si ese D-B se afilió por este sistema.
+ *
+ * Sea cual sea el origen, el servidor lo comprueba en SAFI antes del alta
+ * (`comprobarReferencias`). Los demás tipos pasan sin cambios.
+ */
+function conOficialDelDC(
+  solicitud: SolicitudAfiliacion,
+  delPanel: string
+): { solicitud: SolicitudAfiliacion; origen: string | null } {
+  if (solicitud.datos.tipoMiembro !== "DC") return { solicitud, origen: null };
+  const panel = normalizarNumeroSocio(delPanel);
+  const tableta = normalizarNumeroSocio(solicitud.datos.numeroOficialFae ?? "");
+  const deSuDependienteB =
+    panel || tableta ? null : oficialDeUnDependienteB(solicitud.datos.numeroSocioActivo);
+  const numero = panel || tableta || deSuDependienteB?.numero || "";
+  const origen = panel
+    ? "escrito en el panel"
+    : tableta
+      ? "declarado en la tableta"
+      : deSuDependienteB
+        ? `tomado del trámite ${deSuDependienteB.codigo} de su socio D-B`
+        : null;
+  return { solicitud: { ...solicitud, datos: { ...solicitud.datos, numeroOficialFae: numero } }, origen };
+}
+
 function actorConFirma(usuario: Usuario, solicitudId: string) {
   return {
     usuario: usuario.usuario,
@@ -1264,8 +1297,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       : solicitud.tramite.ordinalDependiente ?? verificacion.ordinalSugerido ?? ordinalLocal;
 
     // Los socios a los que se refiere el trámite: el oficial de un D-A o D-B,
-    // el D-B de un D-C, el titular de un dependiente y los garantes.
-    const referencias = await comprobarReferencias(adaptador, solicitud);
+    // el D-B de un D-C y el oficial del que desciende (su abuelo), el titular
+    // de un dependiente y los garantes.
+    const delDC = conOficialDelDC(solicitud, "");
+    const referencias = await comprobarReferencias(adaptador, delDC.solicitud);
 
     const cuentaTitular = esTitular
       ? null
@@ -1302,6 +1337,16 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
         ...avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
       ],
       oficialDependencia: referencias.dependencia.verificacion,
+      // D-C: el oficial FAE del que desciende. El panel lo muestra en un campo
+      // que la Jefatura puede completar o corregir; su grado y su nombre van al
+      // Parentesco.
+      oficialFae: referencias.oficialFae.aplica
+        ? {
+            numero: delDC.solicitud.datos.numeroOficialFae ?? "",
+            origen: delDC.origen,
+            verificacion: referencias.oficialFae.verificacion,
+          }
+        : null,
       yaCreado: creadoEnSafi(solicitud),
     });
   });
@@ -1364,16 +1409,28 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     // Los socios a los que se refiere el trámite deben ser de la categoría que
     // su papel exige, y el grado y el nombre del socio del que depende, tal
     // como constan en SAFI, van a su Parentesco.
-    const referencias = await comprobarReferencias(adaptador, solicitud);
+    const numeroOficialDelPanel = String(
+      (peticion.body as { numeroOficialFae?: unknown } | undefined)?.numeroOficialFae ?? ""
+    ).trim();
+    if (numeroOficialDelPanel && !/^\d{1,8}$/.test(numeroOficialDelPanel)) {
+      return respuesta
+        .code(400)
+        .send({ error: "El número de socio del oficial FAE solo lleva dígitos." });
+    }
+    const delDC = conOficialDelDC(solicitud, numeroOficialDelPanel);
+    const referencias = await comprobarReferencias(adaptador, delDC.solicitud);
     const conNumeros = {
-      ...solicitud,
+      ...delDC.solicitud,
       // El socio con que se compone el Parentesco es el que el servidor acaba
       // de comprobar en SAFI, o ninguno: nunca el que trajo la tableta sin que
       // el servidor pudiera confirmarlo.
       datos: {
-        ...solicitud.datos,
+        ...delDC.solicitud.datos,
         ...(referencias.dependencia.aplica
           ? { oficialDependencia: referencias.dependencia.verificacion }
+          : {}),
+        ...(referencias.oficialFae.aplica
+          ? { oficialFaeVerificado: referencias.oficialFae.verificacion }
           : {}),
         ...(referencias.titular.aplica ? { titularVerificado: referencias.titular.verificacion } : {}),
       },
@@ -1415,6 +1472,12 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     fijarVerificaciones(id, {
       oficialDependencia: referencias.dependencia.verificacion ?? undefined,
       titularVerificado: referencias.titular.verificacion ?? undefined,
+      ...(referencias.oficialFae.aplica
+        ? {
+            oficialFaeVerificado: referencias.oficialFae.verificacion ?? undefined,
+            numeroOficialFae: delDC.solicitud.datos.numeroOficialFae,
+          }
+        : {}),
     });
 
     const alta = await adaptador.darDeAlta({ solicitud: conNumeros, confirmacion, cuentaId });

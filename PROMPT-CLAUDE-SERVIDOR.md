@@ -12,6 +12,74 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 23/09/2026** por el Claude del servidor. Este encargo se conserva
+> tal como llegó.
+>
+> **Corrección del Coordinador sobre el D-C, aplicada.** «El Parentesco siempre
+> debe ser el del socio oficial con el que tenga relación»: en un **D-C es el
+> oficial FAE del que desciende —su abuelo—**, nunca su padre o madre D-B. El
+> D-C sigue *dependiendo* de un D-B (así lo dice el PGS1-11 y se sigue
+> comprobando), pero el Parentesco y la línea «de …» son del oficial.
+> - En SAFI no se puede deducir: de las 535 fichas D-B, **441 tienen el
+>   Parentesco vacío** y ninguna guarda el número de su oficial. Así que se pide.
+> - Dominio: `numeroOficialFae` y `oficialFaeVerificado` (opcionales, sin cambio
+>   de esquema); `oficialDelParentesco()` y `REGLA_OFICIAL` en `sociosSafi.ts`;
+>   `parentescoDe` y `socioDelQueDepende` salen de ahí. `validarTipo` no exige
+>   el número, pero rechaza uno que SAFI ya dijo que no es Activo ni Fundador.
+> - Servidor: `comprobarReferencias` comprueba ese oficial (`oficialFae`); si no
+>   hay número, **aviso bloqueante**. `conOficialDelDC` lo toma del panel, de la
+>   tableta o —si el D-B se afilió por este sistema— de su trámite
+>   (`oficialDeUnDependienteB`). `fijarVerificaciones` lo guarda.
+> - Bandeja: en el panel de SAFI de un D-C, campo «N.º de socio del oficial FAE
+>   del que desciende», que consulta `GET /api/safi/socios` al escribirlo.
+> - Lo de la tableta está en `PROMPT-CLAUDE-DESARROLLO.md`.
+>
+> **Tu revisión.** `referencias.ts`, `consultarSocio` y el alta, bien: conservan
+> los tres ajustes del 19/09. Sin otros cambios.
+>
+> **Tarea 2, contra el CRM real** (contenedor aislado, escritura apagada), todo
+> en verde: Activo N.º 1 con cédula, grado, teléfono y estado; la misma ficha por
+> su cédula; un D-B con «PARTICULAR DEPENDIENTE B SOLTERO» y secuencia 00; una
+> cónyuge por cédula con secuencia 01; 99999 → `null`; la ruta antigua del
+> oficial sigue en `VERIFICADO`; 400 y 403 donde toca. Y el D-C: sin oficial,
+> con un Particular A y con el propio D-B → 409; con un Activo pasa, y el
+> Parentesco y el «de …» salen del oficial.
+>
+> **Lo que dice el CRM:**
+> - D-B: las 288 SOLTERO y las 247 CASADO tienen secuencia `00`.
+> - «CONYUGE Y PADRES TITULARES»: 61 fichas, 60 con secuencia `00`: son
+>   titulares con Cuenta propia; bien que cuenten como titular.
+> - `cf_911` en 5.977 fichas: Activo 4.758, **Inactivo 1.116**, DADO DE BAJA 70,
+>   Suspendido 26, Completar Aqui 7. El aviso «estado distinto de Activo» saldrá
+>   a menudo.
+> - `cf_977` en 2.843 Cuentas: siempre punto y dos decimales (`40.00`): coincide.
+> - **`homephone`: 2.723 fichas con 7 dígitos** (sin código de provincia), 390
+>   con 8, 207 con 9, 2.528 vacías. `convencionalDesdeSafi` deja los 7 dígitos y
+>   la validación del convencional los rechazará. Ver el encargo de desarrollo.
+> - `mobile`: 4.384 con 10 dígitos, 323 con 9 (se completan bien), 12 con dos
+>   números separados por « / » (se toma el primero).
+>
+> **Reconstruida y desplegada** con respaldo
+> `campina_20260923_133528_antes-de-reconstruir-parentesco-dc`. La base no se
+> vació: siguen los 2 trámites de prueba.
+>
+> **Tarea 3, viable y hecha:** Apache escucha en el 80 y era el único sitio.
+> Sitio aparte `socios-afiliaciones.conf` (el nombre hace que cargue después de
+> `glpi.conf`, que sigue siendo el sitio por defecto), proxy a `127.0.0.1:8080`
+> con `ProxyPreserveHost`, `X-Forwarded-Proto`, 120 s y 30 MB; módulos `proxy`,
+> `proxy_http` y `headers` activados. Respaldo de `/etc/apache2`, `configtest`
+> y recarga sin corte. **GLPI responde igual antes y después** (por nombre, por
+> IP y con un nombre desconocido). `URL_PUBLICA` ya es el nombre nuevo (solo
+> gobierna la cookie `Secure` y el mensaje de arranque). `BIND_HOST` y
+> `TRUST_PROXY` siguen igual hasta que el Coordinador cambie la tableta y los
+> navegadores. Falta el registro en su DNS interno.
+>
+> **TLS, para más adelante:** el sitio ya está separado, así que añadir `https`
+> es añadir un `<VirtualHost *:443>` a este mismo archivo. Para la tableta hace
+> falta un certificado público: Let's Encrypt con reto DNS-01 exige poder
+> publicar registros TXT en la zona **pública** de `clublacampina.com.ec`, que
+> hoy no tiene este nombre (solo lo resuelve el DNS interno).
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

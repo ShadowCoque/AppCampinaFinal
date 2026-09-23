@@ -3,6 +3,7 @@ import type { SolicitudAfiliacion } from "../../../src/domain/solicitud";
 import {
   REGLA_GARANTE,
   REGLA_META,
+  REGLA_OFICIAL,
   estadoNoActivo,
   estadoReferencia,
   motivoRechazo,
@@ -22,6 +23,7 @@ import type { AvisoSafi } from "./registro";
 /**
  * Comprobación, antes de crear la ficha en SAFI, de los socios a los que el
  * trámite hace referencia: el socio del que depende un D-A, D-B o D-C, el
+ * oficial FAE del que desciende un D-C (su abuelo, el de su Parentesco), el
  * titular de un cónyuge, unos padres o un juvenil, y los garantes.
  *
  * La tableta ya los consulta al escribir su número o su cédula, pero trabaja
@@ -51,6 +53,8 @@ export type ReferenciasComprobadas = {
   dependencia: ReferenciaComprobada;
   /** El titular de un cónyuge, unos padres o un juvenil. */
   titular: ReferenciaComprobada;
+  /** El oficial FAE del que desciende un D-C: su abuelo, el de su Parentesco. */
+  oficialFae: ReferenciaComprobada;
 };
 
 type Referencia = {
@@ -69,6 +73,8 @@ type Referencia = {
   sinComprobar: string;
   /** El «no encontrado» ya lo avisa otra comprobación. */
   omitirNoEncontrado?: boolean;
+  /** Dónde se corrige, al final del aviso. Por omisión, en la tableta. */
+  comoCorregir?: string;
 };
 
 const NO_APLICA: ReferenciaComprobada = { aplica: false, verificacion: null };
@@ -129,7 +135,7 @@ async function comprobarUna(
       valor: numero,
       bloquea: true,
       origen: "COHERENCIA",
-      mensaje: `${rechazo} Corríjalo desde la tableta.`,
+      mensaje: `${rechazo} ${referencia.comoCorregir ?? "Corríjalo desde la tableta."}`,
     });
   }
 
@@ -186,9 +192,48 @@ export async function comprobarReferencias(
           regla: reglaDep,
           deLaTableta: datos.oficialDependencia,
           cedulaDeclarada: "",
-          sinComprobar: ": el Parentesco quedará vacío y habrá que escribirlo a mano",
+          // En un D-C, el D-B del que depende no va al Parentesco: va el
+          // oficial del que desciende, que se comprueba aparte.
+          sinComprobar:
+            reglaDep === "DEPENDIENTE_B"
+              ? ""
+              : ": el Parentesco quedará vacío y habrá que escribirlo a mano",
         })
       : null;
+
+  // El oficial FAE del que desciende un D-C —su abuelo—, que es el que va a su
+  // Parentesco (Coordinador, 23/09/2026). Si nadie lo ha indicado, el alta no
+  // sigue: la Jefatura lo escribe en el panel, que es donde se resuelve.
+  const esDC = datos.tipoMiembro === "DC";
+  const numeroOficial = normalizarNumeroSocio(datos.numeroOficialFae ?? "");
+  const oficialFae =
+    esDC && numeroOficial
+      ? comprobarUna(adaptador, {
+          campo: "numeroOficialFae",
+          papel: "el oficial FAE del que desciende",
+          etiqueta: "Oficial FAE (abuelo)",
+          numero: numeroOficial,
+          regla: REGLA_OFICIAL,
+          deLaTableta: datos.oficialFaeVerificado,
+          cedulaDeclarada: "",
+          sinComprobar: ": el Parentesco quedará vacío y habrá que escribirlo a mano",
+          comoCorregir: "Corrija el número en este panel o desde la tableta.",
+        })
+      : null;
+  const faltaOficial: AvisoSafi[] =
+    esDC && !numeroOficial
+      ? [
+          {
+            campo: "numeroOficialFae",
+            etiqueta: "Falta el oficial FAE del que desciende",
+            valor: "",
+            bloquea: true,
+            origen: "COHERENCIA",
+            mensaje:
+              "Escriba el número de socio del oficial FAE del que desciende este D-C —el padre o la madre de su socio D-B, Activo o Fundador—. Su grado y su nombre van al Parentesco de la ficha, que no puede quedar con el del D-B.",
+          },
+        ]
+      : [];
 
   const reglaTit = reglaTitular(datos.tipoMiembro);
   const numeroTit = normalizarNumeroSocio(datos.titularNumeroSocio);
@@ -225,15 +270,20 @@ export async function comprobarReferencias(
     });
   });
 
-  const [deDependencia, delTitular, ...deGarantes] = await Promise.all([
+  const [deDependencia, delOficial, delTitular, ...deGarantes] = await Promise.all([
     dependencia,
+    oficialFae,
     titular,
     ...garantes,
   ]);
 
   return {
-    avisos: [deDependencia, delTitular, ...deGarantes].flatMap((resultado) => resultado?.avisos ?? []),
+    avisos: [
+      ...faltaOficial,
+      ...[deDependencia, delOficial, delTitular, ...deGarantes].flatMap((resultado) => resultado?.avisos ?? []),
+    ],
     dependencia: reglaDep ? { aplica: true, verificacion: deDependencia?.verificacion ?? null } : NO_APLICA,
     titular: reglaTit ? { aplica: true, verificacion: delTitular?.verificacion ?? null } : NO_APLICA,
+    oficialFae: esDC ? { aplica: true, verificacion: delOficial?.verificacion ?? null } : NO_APLICA,
   };
 }

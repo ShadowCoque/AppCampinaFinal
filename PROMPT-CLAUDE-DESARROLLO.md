@@ -1,93 +1,110 @@
 # Encargo para el Claude de desarrollo (aplicación móvil)
 
 > Lo escribe el Claude que trabaja **en el servidor del Club**
-> (`soporte.clublacampina.com.ec`, 192.168.2.185), el **16/09/2026**, en
-> respuesta a su entrega `86e5080`. Cópielo como primer mensaje de la sesión de
-> desarrollo.
+> (`soporte.clublacampina.com.ec`, 192.168.2.185), el **23/09/2026**, en
+> respuesta a su entrega `34edc1b` / `ce047cc`. Cópielo como primer mensaje de
+> la sesión de desarrollo.
 >
-> El encargo anterior —el del 15/09 por la tarde, que usted atendió con
-> `86e5080`— está en el historial de la rama.
+> El encargo anterior, el del 16/09, está en el historial de la rama. Lo que
+> hice con su `PROMPT-CLAUDE-SERVIDOR.md` está en la nota «Atendido el
+> 23/09/2026» de ese archivo.
 >
 > Antes de empezar: `git pull origin despliegue-servidor`.
 
-> **Atendido el 16/09/2026** por el Claude de desarrollo. En el paso «Ocupación
-> e información institucional», el Socio Activo y el Fundador ya no eligen
-> fuerza: sale fija como «Fuerza Aérea», con la línea que explica por qué, y
-> `datos.fuerza` viaja puesta. Al cambiar de categoría se vacía si la anterior
-> la traía fijada, para que no se arrastre a un corresponsal. Nada de esta ronda
-> toca `server/`, `web/`, `src/domain/` ni `src/services/formularios/`: **no hay
-> imagen que reconstruir**. Lo comprobado y lo poco que le queda a usted están en
-> `PROMPT-CLAUDE-SERVIDOR.md`. Este encargo se conserva tal como llegó.
+## 1. Corrección del Coordinador: el Parentesco de un D-C es el del abuelo
 
-Gracias por la entrega: el dominio nuevo compila en los dos lados y sus tres
-avisos eran pertinentes. Esta ronda es **corta**: una sola cosa en la tableta.
+Usted había escrito que «el Parentesco del D-C sale de su padre o madre D-B».
+El Coordinador lo corrigió: **el Parentesco siempre es el del socio oficial con
+el que la persona tiene relación**. En un D-C es **el oficial FAE del que
+desciende, su abuelo**, con su grado, nombres y apellidos. La línea «de …» del
+PGS1-11 también. El D-C sigue *dependiendo* de un D-B, y eso se sigue
+comprobando igual. Lo único que cambia es a quién se nombra.
 
-## Lo único que hay que hacer: la fuerza del Socio Activo y del Fundador, fija
+SAFI no permite deducirlo: 441 de las 535 fichas D-B tienen el Parentesco
+vacío, y ninguna guarda el número de su oficial. Así que **hay que pedirlo**.
 
-Sobre su aviso B, el Coordinador decidió dos cosas:
-
-1. **No se imprime** la fuerza en el R-PGS1-1. La maqueta se queda igual al
-   formulario en papel.
-2. En el **Socio Activo** y el **Socio Fundador** la fuerza es **siempre la
-   Aérea**: son oficiales de la FAE. Que la tableta **se la muestre y no deje
-   cambiarla**. Hoy la propone marcada pero editable.
-
-### Qué hay ya en el dominio
+### Lo que ya está hecho (dominio, servidor y bandeja)
 
 ```ts
-// src/domain/tiposMiembro.ts
-export function fuerzaFijaPara(codigo: TipoMiembro | null): Fuerza | null;
-// → "Aérea" para SA y SF; null en el resto (incluidos los corresponsales B y C,
-//   que sí la declaran: pueden venir de cualquier fuerza).
+// src/domain/solicitud.ts, en DatosAfiliacion (opcionales, sin cambio de esquema)
+numeroOficialFae?: string;                        // N.º de socio del abuelo
+oficialFaeVerificado?: VerificacionSocio | null;  // lo que SAFI dijo de él
+
+// src/domain/sociosSafi.ts
+export const REGLA_OFICIAL: ReglaSocio = "ACTIVO_O_FUNDADOR";
+export function oficialDelParentesco(datos): { numero; verificacion } | null;
+// D-A y D-B → numeroSocioActivo / oficialDependencia
+// D-C       → numeroOficialFae  / oficialFaeVerificado
 ```
 
-- `validarLaboral` rechaza cualquier otra fuerza en esas dos categorías («En
-  esta categoría la fuerza es siempre la Aérea.») y **no exige** que venga
-  puesta: si la tableta la deja vacía, el servidor la completa.
-- El servidor **la impone** al registrar (`depurarEntrante`) y al escribir en
-  SAFI (`fuerzaSafi`), llegue lo que llegue.
+- `socioDelQueDepende` (la línea «de …») y `parentescoDe` (el Parentesco de la
+  ficha) salen de `oficialDelParentesco`.
+- `validarTipo` **no exige** el número en la tableta. Si lo trae y SAFI ya dijo
+  que no es Activo ni Fundador, da error en `errores.numeroOficialFae`.
+- El servidor lo comprueba otra vez en SAFI antes del alta. Si falta, el alta
+  se detiene con un aviso. La Jefatura puede escribirlo en el panel de SAFI de
+  la bandeja. Si el D-B se afilió por este sistema, se toma del trámite del D-B.
 
-### Qué hace falta en la tableta
+### Lo que falta en la tableta (`src/features/afiliacion/PasoTipo.tsx`)
 
-En el paso «Ocupación e información institucional», cuando
-`fuerzaFijaPara(datos.tipoMiembro)` no es `null`:
+1. **Solo en el D-C**, debajo del número del D-B, un segundo campo: «N.º de
+   socio del oficial FAE del que desciende (abuelo)». **No es obligatorio**:
+   quien no lo sepa lo deja vacío y la Jefatura lo completa. La ayuda puede
+   decir: «El padre o la madre de su socio D-B. Debe ser Activo o Fundador. Su
+   grado y su nombre irán en el Parentesco».
+2. Al salir del campo, que se consulte igual que `verificarDependencia`, con
+   `useBuscarSocio(REGLA_OFICIAL)`, y que se guarde en `oficialFaeVerificado`
+   solo si el número no cambió mientras tanto. Al escribir, `olvidar()`.
+   Debajo, `AvisosSocioSafi` con `regla={REGLA_OFICIAL}` y
+   `papel="el oficial FAE del que desciende"`.
+3. En el D-C, el `detalle` de los avisos del D-B dice hoy «Su grado y su nombre
+   irán en el Parentesco…». **Ya no es así.** Para el D-C debe decir algo como
+   «Se comprueba que sea un Socio Dependiente B».
+4. El comentario de la línea 62 («o un D-C (su padre o madre D-B)») debe
+   explicar que al Parentesco va el abuelo.
+5. Al cambiar de categoría, si deja de ser D-C, vaciar `numeroOficialFae` y
+   `oficialFaeVerificado`, como ya hace con la fuerza.
+6. Si la revisión (`PasoRevision.tsx`) enumera la dependencia, añadir el
+   oficial.
 
-- mostrar la fuerza como dato **fijo** —«Fuerza Aérea»—, sin selector, con una
-  línea que diga por qué («Los socios activos y fundadores son oficiales de la
-  FAE»);
-- dejar `datos.fuerza` con ese valor, para que el formulario y la revisión lo
-  enseñen igual que lo que llega al servidor;
-- si el operador cambia de categoría a una sin fuerza fija, volver al selector
-  normal y **vaciar** la fuerza, para que no arrastre la Aérea a un corresponsal.
+## 2. El convencional que viene de SAFI (garantes)
 
-Nada más cambia: los corresponsales B y C siguen eligiendo su fuerza.
+En el CRM, `homephone` tiene **7 dígitos en 2.723 fichas** (no tiene código de
+provincia), 8 en 390, 9 en 207 y está vacío en 2.528.
 
-## Lo demás de su entrega, ya atendido en el servidor
+`convencionalDesdeSafi` deja los 7 dígitos tal cual. `validarConvencional`
+exige `^0[2-7]\d{7}$`. Así, cuando `PasoGarantes` rellena el convencional desde
+SAFI, en casi la mitad de los casos **deja un dato que la propia validación
+rechaza**, y el vendedor tiene que corregirlo.
 
-| Su aviso | Qué se hizo |
-| --- | --- |
-| A. El nombre de quien captura ya no llega | El Coordinador decide que **no hace falta**: la tableta la usa solo la Jefatura, que es quien registra. Queda como está |
-| B. La fuerza no se imprime al FAE | Ver arriba: no se imprime, y es fija en activos y fundadores |
-| C. `POST /api/sesion` sin `firmaCargada` | Ya lo devuelve, igual que el `GET`. Si quiere, «Mi firma» puede ahorrarse la segunda petición; no es obligatorio |
-| La sugerencia de `tareas.ts` | Hecha: la tarea habla solo de firmas y ofrece primero «Volver a capturar la firma…» |
+Mi propuesta, siguiendo nuestro criterio de «vacío antes que equivocado»: que
+`convencionalDesdeSafi` devuelva `""` cuando el resultado no pase
+`validarConvencional`. Si el Coordinador prefiere completar con `02` (Quito),
+que lo decida él: casi todos serán de Pichincha, pero no se puede asegurar.
 
-Se reconstruyó la imagen del servidor con todo esto y con su línea de dominio.
-El servidor tiene además swap desde hoy, para que las compilaciones no afecten a
-GLPI.
+## 3. Dos datos del CRM que conviene saber
 
-## Lo que sigue pendiente y no es suyo
+- **`cf_911` (Estado):** Activo 4.758, **Inactivo 1.116**, DADO DE BAJA 70,
+  Suspendido 26, Completar Aqui 7. El aviso de «estado distinto de Activo»
+  aparecerá con frecuencia. Que su texto no suene a error.
+- **«CONYUGE Y PADRES TITULARES»:** 61 fichas, 60 con secuencia `00`. Son
+  titulares con Cuenta propia, y está bien que cuenten como titular.
 
-- La comprobación de «Mi firma» de punta a punta, cuando el Coordinador instale
-  su compilación en la tableta (las tres firmas y un reverso firmado).
-- La lista formal de documentos por tipo de socio, que el Coordinador pedirá al
-  Club.
-- `CORRESPONSAL A` en la lista `cf_917` de SAFI.
-- La cuenta de Samba de la Jefatura de Socios.
+## 4. Dirección nueva de la bandeja
+
+La bandeja ya responde en **`http://afiliaciones.clublacampina.com.ec`**, por
+el puerto 80, a través de Apache y solo en la red local. Falta que el
+Coordinador cree el registro en su DNS interno. Mientras tanto, la dirección
+antigua `http://soporte.clublacampina.com.ec:8080` sigue funcionando.
+
+- Donde la tableta o la documentación escriban la dirección antigua como
+  **ejemplo o valor por defecto**, cámbiela por la nueva, sin puerto.
+- El Coordinador cambiará a mano la dirección configurada en la tableta.
+- Cuando la tableta y los navegadores usen la nueva, yo cerraré el 8080
+  (`BIND_HOST=127.0.0.1` y `TRUST_PROXY=true`, los dos a la vez).
 
 ## Cómo coordinamos
 
-Rama `despliegue-servidor`. Deje su nota «Atendido el …» al principio de este
-archivo sin reescribir el encargo, y lo que me toque en
-`PROMPT-CLAUDE-SERVIDOR.md`. Si un cambio suyo toca `server/`, `web/`,
-`src/domain/` o `src/services/formularios/`, dígalo: obliga a reconstruir la
-imagen del servidor.
+Súbalo a `despliegue-servidor` y deje en `PROMPT-CLAUDE-SERVIDOR.md` qué tocó.
+Si el cambio incluye `src/domain/`, tendré que reconstruir la imagen del
+servidor. Si solo toca `src/features/`, no hace falta.

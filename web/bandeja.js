@@ -1482,11 +1482,83 @@ async function abrirDialogoSafi(solicitudId) {
 
   sincronizarCuotas();
   $("safi-observacion").value = "";
+  pintarOficialFae(ficha.oficialFae);
   dibujarAvisosSafi(ficha.avisos);
   dibujarFichasSafi(ficha);
   $("error-safi").hidden = true;
   if (!dialogoSafi.open) dialogoSafi.showModal();
 }
+
+/**
+ * El oficial FAE del que desciende un D-C —su abuelo—, cuyo grado y nombre van
+ * al Parentesco de la ficha en SAFI (Coordinador, 23/09/2026). Solo aparece en
+ * un D-C. La Jefatura puede completarlo o corregirlo; se consulta en el CRM al
+ * escribirlo, y el servidor lo vuelve a comprobar al crear la ficha.
+ */
+function pintarOficialFae(oficial) {
+  const grupo = $("safi-oficial-fae-grupo");
+  grupo.hidden = !oficial;
+  if (!oficial) return;
+  $("safi-oficial-fae").value = oficial.numero || "";
+  const origen = oficial.origen ? ` (${oficial.origen})` : "";
+  if (!oficial.numero) {
+    resultadoOficialFae("Escriba el número: sin él no se puede crear la ficha.", "no");
+  } else if (oficial.verificacion) {
+    describirOficialFae(oficial.verificacion, origen);
+  } else {
+    resultadoOficialFae(`N.º ${oficial.numero}${origen}: no se pudo comprobar en SAFI ahora.`, "");
+  }
+}
+
+const OFICIALES_FAE = ["ACTIVO", "FUNDADOR"];
+
+function describirOficialFae(socio, origen = "") {
+  if (!socio || socio.resultado === "NO_ENCONTRADO") {
+    resultadoOficialFae("SAFI no tiene un socio con ese número.", "no");
+    return;
+  }
+  const nombre = [socio.gradoMilitar, socio.nombres, socio.apellidos]
+    .filter((parte) => parte && parte.toUpperCase() !== "NO APLICA")
+    .join(" ");
+  const tipo = (socio.tipoSocioSafi || "").toUpperCase();
+  if (OFICIALES_FAE.includes(tipo)) {
+    resultadoOficialFae(`✔ ${nombre} · socio ${tipo}${origen}. Irá al Parentesco.`, "ok");
+  } else {
+    resultadoOficialFae(`✘ ${nombre} es socio ${tipo || "de otra categoría"}: el oficial debe ser Activo o Fundador.`, "no");
+  }
+}
+
+function resultadoOficialFae(texto, clase) {
+  const linea = $("safi-oficial-fae-resultado");
+  linea.textContent = texto;
+  linea.className = `pista ${clase === "ok" ? "texto-exito" : clase === "no" ? "texto-peligro" : ""}`.trim();
+}
+
+let consultaOficialFae = 0;
+$("safi-oficial-fae").addEventListener("change", async (evento) => {
+  const numero = evento.target.value.trim();
+  const turno = ++consultaOficialFae;
+  if (!numero) {
+    resultadoOficialFae("Escriba el número: sin él no se puede crear la ficha.", "no");
+    return;
+  }
+  if (!/^\d{1,8}$/.test(numero)) {
+    resultadoOficialFae("El número de socio solo lleva dígitos.", "no");
+    return;
+  }
+  resultadoOficialFae("Consultando en SAFI…", "");
+  try {
+    const respuesta = await api(`/api/safi/socios?numero=${encodeURIComponent(numero)}`);
+    if (turno !== consultaOficialFae) return;
+    if (!respuesta.consultado) {
+      resultadoOficialFae("No se pudo consultar SAFI ahora; se comprobará al crear la ficha.", "");
+      return;
+    }
+    describirOficialFae(respuesta.socio);
+  } catch (error) {
+    if (turno === consultaOficialFae) resultadoOficialFae(error.message, "no");
+  }
+});
 
 function dibujarAvisosSafi(avisos) {
   const contenedor = $("safi-avisos");
@@ -1613,6 +1685,7 @@ $("safi-confirmar").addEventListener("click", async () => {
           ordinalDependiente: estado.safi.ficha.esTitular ? null : $("safi-ordinal").value,
           confirmacion,
           observacion: $("safi-observacion").value.trim(),
+          numeroOficialFae: $("safi-oficial-fae-grupo").hidden ? "" : $("safi-oficial-fae").value.trim(),
           cuentaSafiId: $("safi-cuenta-id").value.trim(),
           socioSafiId: $("safi-socio-id").value.trim(),
         }),
