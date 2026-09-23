@@ -1,5 +1,6 @@
 import { normalizarNumeroSocio } from "./texto";
 import { GRADO_NO_APLICA, GRADOS_OFRECIDOS, type TipoMiembro } from "./tiposMiembro";
+import { validarCelular, validarConvencional } from "./validaciones";
 
 /**
  * Socios del Club a los que un trámite hace referencia, según el CRM de SAFI.
@@ -372,21 +373,41 @@ export function estadoNoActivo(verificacion: VerificacionSocio | null | undefine
 /* ------------------------------------------------------------------ */
 
 /**
- * Celular como lo pide el formulario: `0991234567`. SAFI a veces lo guarda con
- * el prefijo internacional o con separadores.
+ * El primer número de un campo de teléfono de SAFI: unas pocas fichas guardan
+ * dos, separados por « / ».
  */
-export function celularDesdeSafi(valor: string): string {
-  let digitos = valor.replace(/\D/g, "");
-  if (digitos.startsWith("593") && digitos.length === 12) digitos = `0${digitos.slice(3)}`;
-  if (digitos.length === 9 && digitos.startsWith("9")) digitos = `0${digitos}`;
-  return digitos.slice(0, 10);
+function primerNumero(valor: string): string {
+  return (valor.split(/[/;,]/)[0] ?? "").replace(/\D/g, "");
 }
 
-/** Convencional como lo pide el formulario: `022345678`. */
+/**
+ * Celular como lo pide el formulario: `0991234567`. SAFI a veces lo guarda con
+ * el prefijo internacional, sin el cero o con separadores. Lo que ni así pasa
+ * la validación del formulario se deja vacío —vacío antes que equivocado—: el
+ * operador escribe el número en lugar de corregir uno que no sirve.
+ */
+export function celularDesdeSafi(valor: string): string {
+  let digitos = primerNumero(valor);
+  if (digitos.startsWith("593") && digitos.length === 12) digitos = `0${digitos.slice(3)}`;
+  if (digitos.length === 9 && digitos.startsWith("9")) digitos = `0${digitos}`;
+  return validarCelular(digitos) === null ? digitos : "";
+}
+
+/**
+ * Convencional como lo pide el formulario: `022345678`.
+ *
+ * En el CRM, casi la mitad de los `homephone` tienen siete dígitos, sin código
+ * de provincia (revisión del 23/09/2026: 2.723 fichas). No se completa con un
+ * `02` supuesto: aunque la mayoría serán de Pichincha, no se puede asegurar, y
+ * el número quedaría mal escrito en el formulario. Esos, y cualquier otro que
+ * no pase la validación, se dejan vacíos. El que trae el código sin el cero
+ * (`22345678`) sí se completa: el número es el mismo.
+ */
 export function convencionalDesdeSafi(valor: string): string {
-  let digitos = valor.replace(/\D/g, "");
+  let digitos = primerNumero(valor);
   if (digitos.startsWith("593") && digitos.length === 11) digitos = `0${digitos.slice(3)}`;
-  return digitos.slice(0, 9);
+  if (digitos.length === 8 && /^[2-7]/.test(digitos)) digitos = `0${digitos}`;
+  return validarConvencional(digitos) === null ? digitos : "";
 }
 
 /**

@@ -15,6 +15,7 @@ import {
 } from "../../domain/solicitud";
 import {
   REGLA_GARANTE,
+  REGLA_OFICIAL,
   estadoReferencia,
   nombreConGrado,
   reglaDependencia,
@@ -127,6 +128,19 @@ export function PasoRevision({ estado, onVistaPrevia }: Props) {
                 "VERIFICADO" && datos.oficialDependencia
                 ? `${nombreConGrado(datos.oficialDependencia)} (verificado en SAFI)`
                 : enSafi(datos.oficialDependencia, datos.numeroSocioActivo, reglaDep)
+            }
+          />
+        ) : null}
+        {datos.tipoMiembro === "DC" ? (
+          <DataRow
+            label={`Oficial FAE del que desciende · N.º ${datos.numeroOficialFae || "—"}`}
+            value={
+              !datos.numeroOficialFae
+                ? "Sin indicar: la Jefatura de Socios lo completa en la bandeja"
+                : estadoReferencia(datos.oficialFaeVerificado, datos.numeroOficialFae, REGLA_OFICIAL) ===
+                      "VERIFICADO" && datos.oficialFaeVerificado
+                  ? `${nombreConGrado(datos.oficialFaeVerificado)} (verificado en SAFI)`
+                  : enSafi(datos.oficialFaeVerificado, datos.numeroOficialFae, REGLA_OFICIAL)
             }
           />
         ) : null}

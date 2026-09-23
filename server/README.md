@@ -199,37 +199,44 @@ sudo systemctl restart smbd
 Este compartido **no sustituye al respaldo**: la copia diaria de `/srv/campina/datos`
 (sección 4) sigue siendo la que protege ante una pérdida del servidor.
 
-### 3.6 Cómo se publica: directo, sin proxy ni TLS
+### 3.6 Cómo se publica: `afiliaciones.clublacampina.com.ec`
 
-Este servidor es interno (`soporte.clublacampina.com.ec`, red del Club) y no
-tiene certificado. **No hace falta nginx ni TLS para esto**: por defecto
-(`BIND_HOST=0.0.0.0` en `server/.env.example`) el contenedor publica su puerto
-directo en la interfaz de la LAN, y la bandeja queda accesible así:
+Desde el 23/09/2026 la bandeja tiene nombre propio y se abre sin puerto:
 
 ```
-http://soporte.clublacampina.com.ec:8080
+http://afiliaciones.clublacampina.com.ec
 ```
 
-El nombre de host **ya existe** en el DNS del Club —es el mismo que resuelve
-GLPI—, así que no hay que dar de alta nada nuevo. Con `URL_PUBLICA=http://...`
-(sin `s`), la cookie de sesión no se marca `Secure` y el inicio de sesión
-funciona con normalidad sobre HTTP plano (ver `server/src/http/sesion.ts`).
+La publica el **Apache que ya sirve GLPI**, en el puerto 80, con un sitio
+**aparte** (`socios-afiliaciones.conf`, que carga después de `glpi.conf`, el
+sitio por defecto): proxy inverso al `127.0.0.1:8080` del contenedor, con
+`ProxyPreserveHost`, `X-Forwarded-Proto`, 120 s de espera y 30 MB de cuerpo
+(módulos `proxy`, `proxy_http` y `headers`). GLPI no cambió. El nombre lo
+resuelve el **DNS interno** del Club, hacia `192.168.2.185`. Es un servidor
+interno y sin certificado: con `URL_PUBLICA=http://afiliaciones…` (sin `s`),
+la cookie de sesión no se marca `Secure` y el inicio de sesión funciona sobre
+HTTP plano (ver `server/src/http/sesion.ts`).
 
-**Si más adelante se quisiera un proxy inverso** —por ejemplo, para servir esto
-en el puerto 80 junto a GLPI, o para añadir TLS con un certificado propio—, la
-receta es la de siempre (nginx, con `proxy_pass` al `127.0.0.1:8080` del
-contenedor), pero entonces hay que cambiar **dos cosas a la vez** en
-`server/.env`, nunca una sin la otra:
+**Mientras dure el cambio**, el contenedor sigue publicado también en
+`http://soporte.clublacampina.com.ec:8080` (`BIND_HOST=0.0.0.0`), para la
+tableta y los navegadores que aún usan la dirección antigua. Cuando todos usen
+la nueva, se cierra el 8080 cambiando **dos cosas a la vez** en `server/.env`,
+nunca una sin la otra:
 
 ```bash
 BIND_HOST=127.0.0.1      # el contenedor deja de publicarse directo en la LAN
 TRUST_PROXY=true         # el servidor pasa a fiarse de X-Forwarded-For
 ```
 
-Activar `TRUST_PROXY` sin que exista de verdad un proxy que sobrescriba esa
-cabecera permite que cualquier equipo de la red falsee su IP y se salte el
-límite de intentos de acceso (`server/src/http/intentos.ts`). Mientras no haya
-proxy, `TRUST_PROXY` debe quedarse en `false`, que es el valor por defecto.
+Activar `TRUST_PROXY` mientras el 8080 siga abierto a la LAN permite que
+cualquier equipo de la red falsee su IP y se salte el límite de intentos de
+acceso (`server/src/http/intentos.ts`). Mientras el contenedor se publique
+directo, `TRUST_PROXY` se queda en `false`, que es el valor por defecto.
+
+Para añadir TLS más adelante basta un `<VirtualHost *:443>` en ese mismo sitio.
+La tableta necesitará un certificado **público** (Android no confía en una CA
+propia instalada por el usuario): Let's Encrypt con reto DNS-01 exige publicar
+registros TXT en la zona pública de `clublacampina.com.ec`.
 
 ---
 

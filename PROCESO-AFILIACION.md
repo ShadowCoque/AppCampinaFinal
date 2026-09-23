@@ -98,6 +98,7 @@ categorías:
 | Titular del cónyuge o del juvenil | Cualquier socio titular, salvo el Particular B y los suscriptores |
 | Oficial del que depende un D-A o D-B | Socio Activo o Fundador |
 | Socio del que depende un D-C | Socio Dependiente B (su padre o su madre) |
+| Oficial FAE del que desciende un D-C (su abuelo, el de su Parentesco) | Socio Activo o Fundador. En la tableta **no es obligatorio**: si no lo saben, la Jefatura lo completa en el panel de SAFI |
 
 Si SAFI dice que ese número no existe o es de otra categoría, la tableta **no
 deja avanzar**. Si en ese momento no pudo consultar (sin red, SAFI caído), deja
@@ -443,13 +444,19 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
         llenan su nombre, su cédula y sus teléfonos; probar también con su
         cédula. Con el número de un Particular A, la tableta no deja avanzar.
 15. [ ] Un D-C con el número de un D-B real (pasa) y con el de un Socio
-        Activo (no pasa). Un cónyuge de un Particular A (pasa) y unos padres del
-        mismo Particular A (no pasan).
+        Activo (no pasa). Su abuelo: con el número del oficial FAE, la tableta
+        trae su grado y su nombre; sin él, el panel de SAFI lo pide y no crea la
+        ficha hasta que se escriba. En SAFI y en el «de …» del PGS1-11, el
+        abuelo, no el D-B. Un cónyuge de un Particular A (pasa) y unos padres
+        del mismo Particular A (no pasan).
 16. [ ] Carta: elegir tarjeta y ver que solo pide la tarjeta; en la vista
         previa, la carta dice solo la tarjeta y las cuotas del tarifario. En el
         PGS1-11, la línea «de …» junto a la casilla marcada.
 17. [ ] Panel de SAFI: elegir la cuota mensual y ver que el Valor Cuota cambia
         solo a la mensual y las Subscripciones a «Mensual».
+18. [ ] Panel de SAFI de un cónyuge, unos padres o un juvenil: se puede
+        escribir la «Observación Control de Socios» (antes quedaba oculta con
+        las cuotas).
 
 ---
 

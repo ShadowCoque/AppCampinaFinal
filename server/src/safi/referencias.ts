@@ -155,17 +155,19 @@ async function comprobarUna(
       });
     }
 
+    // Informa, no detiene: un estado distinto de «Activo» es frecuente en el
+    // CRM (el 23/09/2026, 1.116 fichas «Inactivo»).
     const estado = estadoNoActivo(verificacion);
     if (estado) {
       avisos.push({
         campo,
-        etiqueta: `${etiqueta}: estado «${estado}»`,
+        etiqueta: `${etiqueta}: estado «${estado}» en SAFI`,
         valor: numero,
         bloquea: false,
         origen: "COHERENCIA",
         mensaje: `En SAFI, el socio N.º ${numero} (${nombreConGrado(
           verificacion
-        )}) consta como «${estado}». Compruébelo antes de crear la ficha.`,
+        )}) tiene el estado «${estado}». No impide crear la ficha; es para tenerlo en cuenta.`,
       });
     }
   }

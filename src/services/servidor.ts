@@ -53,7 +53,8 @@ export type ConfiguracionServidor = {
   /**
    * URL base del servidor, sin barra final. El servidor institucional es
    * interno y hoy no tiene certificado TLS, así que suele ser `http://`, no
-   * `https://`. Ej. `http://soporte.clublacampina.com.ec:8080`.
+   * `https://`. Ej. `http://afiliaciones.clublacampina.com.ec` (desde el
+   * 23/09/2026; antes, `http://soporte.clublacampina.com.ec:8080`).
    */
   url: string;
   /** Usuario del Área de Socios con el que la tableta se identifica. */

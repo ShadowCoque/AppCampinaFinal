@@ -231,6 +231,12 @@ export default function AfiliacionScreen() {
           const fija = fuerzaFijaPara(datos.tipoMiembro);
           if (fija) datos.fuerza = fija;
           else if (fuerzaFijaPara(previo.datos.tipoMiembro)) datos.fuerza = null;
+          // El oficial FAE del que desciende solo lo tiene el D-C: si deja de
+          // serlo, no se arrastra a otra categoría.
+          if (previo.datos.tipoMiembro === "DC" && datos.tipoMiembro !== "DC") {
+            datos.numeroOficialFae = "";
+            datos.oficialFaeVerificado = null;
+          }
         }
         return { ...previo, datos: requiereAjuste ? ajustarBloques(datos) : datos };
       });

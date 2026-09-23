@@ -238,7 +238,7 @@ export default function ConfiguracionScreen() {
           icon="globe-outline"
           value={url}
           onChangeText={setUrl}
-          placeholder="http://soporte.clublacampina.com.ec:8080"
+          placeholder="http://afiliaciones.clublacampina.com.ec"
           helper="Complete, con http:// al inicio y sin barra al final. Se escribe una sola vez por tableta."
         />
         <Button

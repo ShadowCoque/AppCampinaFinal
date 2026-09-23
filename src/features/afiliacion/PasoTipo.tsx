@@ -5,6 +5,7 @@ import { requisitosPara } from "../../domain/documentos";
 import type { Errores } from "../../domain/formularioAfiliacion";
 import type { DatosAfiliacion } from "../../domain/solicitud";
 import {
+  REGLA_OFICIAL,
   gradoDesdeSafi,
   reglaDependencia,
   reglaTitular,
@@ -64,10 +65,18 @@ export function PasoTipo({ datos, errores, setDato, actualizar }: Props) {
   // buscan en SAFI, a través del servidor, en cuanto se termina de escribir el
   // número o la cédula. Si no se puede consultar, se sigue: la bandeja lo
   // comprobará antes de crear la ficha.
+  //
+  // El D-C tiene además al oficial FAE del que desciende —su abuelo—: es el que
+  // va a su Parentesco y a la línea «de …» del formulario, no el D-B del que
+  // depende (Coordinador, 23/09/2026). No es obligatorio aquí: si no lo saben,
+  // la Jefatura lo completa en la bandeja, y sin él no se crea la ficha.
   const reglaDep = reglaDependencia(datos.tipoMiembro);
   const reglaTit = reglaTitular(datos.tipoMiembro);
+  const esDC = datos.tipoMiembro === "DC";
   const busquedaDependencia = useBuscarSocio(reglaDep);
   const busquedaTitular = useBuscarSocio(reglaTit);
+  const busquedaOficial = useBuscarSocio(esDC ? REGLA_OFICIAL : null);
+  const numeroOficialFae = datos.numeroOficialFae ?? "";
 
   const verificarDependencia = async () => {
     const buscado = normalizarNumeroSocio(datos.numeroSocioActivo);
@@ -77,6 +86,18 @@ export function PasoTipo({ datos, errores, setDato, actualizar }: Props) {
     actualizar((actuales) =>
       normalizarNumeroSocio(actuales.numeroSocioActivo) === buscado
         ? { oficialDependencia: resultado.verificacion }
+        : null
+    );
+  };
+
+  const verificarOficialFae = async () => {
+    const buscado = normalizarNumeroSocio(numeroOficialFae);
+    const resultado = await busquedaOficial.buscar({ numeroSocio: buscado, cedula: "" });
+    if (!resultado) return;
+    // Si mientras tanto se escribió otro número, la respuesta ya no vale.
+    actualizar((actuales) =>
+      normalizarNumeroSocio(actuales.numeroOficialFae ?? "") === buscado
+        ? { oficialFaeVerificado: resultado.verificacion }
         : null
     );
   };
@@ -332,12 +353,56 @@ export function PasoTipo({ datos, errores, setDato, actualizar }: Props) {
             numero={datos.numeroSocioActivo}
             regla={reglaDep}
             papel={reglaDep === "DEPENDIENTE_B" ? "el socio del que depende un D-C" : "el oficial del que depende"}
-            detalle="Su grado y su nombre irán en el Parentesco de la ficha y en el formulario."
+            detalle={
+              esDC
+                ? "Se comprueba que sea un Socio Dependiente B."
+                : "Su grado y su nombre irán en el Parentesco de la ficha y en el formulario."
+            }
             sinConsulta={busquedaDependencia.sinConsulta}
             sinCoincidencia={busquedaDependencia.sinCoincidencia}
             consultando={busquedaDependencia.consultando}
             onBuscar={() => void verificarDependencia()}
             puedeBuscar={Boolean(datos.numeroSocioActivo)}
+          />
+        </Card>
+      ) : null}
+
+      {esDC ? (
+        <Card
+          title="Oficial FAE del que desciende"
+          subtitle="Su abuelo: el padre o la madre de su socio D-B. Va al Parentesco y al «de …» del formulario."
+          icon="ribbon"
+        >
+          <TextField
+            label="N.º de socio del oficial FAE (abuelo)"
+            keyboardType="number-pad"
+            maxLength={8}
+            icon="barcode-outline"
+            value={numeroOficialFae}
+            onChangeText={(v) => {
+              setDato("numeroOficialFae", normalizarNumeroSocio(v));
+              busquedaOficial.olvidar();
+            }}
+            onBlur={() => {
+              if (numeroOficialFae && datos.oficialFaeVerificado?.numeroSocio !== numeroOficialFae) {
+                void verificarOficialFae();
+              }
+            }}
+            error={errores.numeroOficialFae}
+            helper="El padre o la madre de su socio D-B. Debe ser Activo o Fundador. Su grado y su nombre irán en el Parentesco. Si no lo saben, déjelo vacío: la Jefatura de Socios lo completa en la bandeja."
+          />
+
+          <AvisosSocioSafi
+            verificacion={datos.oficialFaeVerificado}
+            numero={numeroOficialFae}
+            regla={REGLA_OFICIAL}
+            papel="el oficial FAE del que desciende"
+            detalle="Su grado y su nombre irán en el Parentesco de la ficha y en el formulario."
+            sinConsulta={busquedaOficial.sinConsulta}
+            sinCoincidencia={busquedaOficial.sinCoincidencia}
+            consultando={busquedaOficial.consultando}
+            onBuscar={() => void verificarOficialFae()}
+            puedeBuscar={Boolean(numeroOficialFae)}
           />
         </Card>
       ) : null}

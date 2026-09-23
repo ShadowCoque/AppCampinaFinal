@@ -231,28 +231,33 @@
           <p class="pista">
             El socio se acoge a una modalidad o a la otra: al elegir una cuota, la otra se vacía.
           </p>
-        
-          <div id="safi-oficial-fae-grupo" style="margin-top:10px" hidden>
-            <label for="safi-oficial-fae">N.º de socio del oficial FAE del que desciende (su abuelo)</label>
-            <input id="safi-oficial-fae" inputmode="numeric" maxlength="8" autocomplete="off"
-              placeholder="Número de socio del padre o la madre del socio D-B" />
-            <p class="pista" id="safi-oficial-fae-resultado" aria-live="polite"></p>
-            <p class="pista">
-              Un D-C depende de su padre o madre D-B, pero su Parentesco en SAFI lleva al
-              oficial FAE —Activo o Fundador— con su grado y su nombre. Sin él no se crea la ficha.
-            </p>
-          </div>
+        </fieldset>
 
-          <div style="margin-top:10px">
-            <label for="safi-observacion">Observación Control de Socios (opcional)</label>
-            <textarea id="safi-observacion" rows="2"
-              placeholder="Lo que deba constar en el formulario sobre este registro."></textarea>
-            <p class="pista">
-              Se imprime en el reverso del formulario, con la fecha, y la ven Contabilidad y la
-              Gerencia. Puede añadir más observaciones cuando el trámite vuelva a sus manos.
-            </p>
-          </div>
-</fieldset>
+        <!-- Fuera del recuadro de cuotas, que se oculta en el cónyuge, los padres
+             y el juvenil (no pagan cuota propia): la observación y el oficial
+             del D-C no dependen de eso. -->
+        <fieldset class="grupo-campos" id="safi-oficial-fae-grupo" hidden>
+          <legend>Parentesco del D-C</legend>
+          <label for="safi-oficial-fae">N.º de socio del oficial FAE del que desciende (su abuelo)</label>
+          <input id="safi-oficial-fae" type="text" inputmode="numeric" maxlength="8" autocomplete="off"
+            placeholder="Número de socio del padre o la madre del socio D-B" />
+          <p class="pista" id="safi-oficial-fae-resultado" aria-live="polite"></p>
+          <p class="pista">
+            Un D-C depende de su padre o madre D-B, pero su Parentesco en SAFI lleva al
+            oficial FAE —Activo o Fundador— con su grado y su nombre. Sin él no se crea la ficha.
+          </p>
+        </fieldset>
+
+        <fieldset class="grupo-campos">
+          <legend>Observación</legend>
+          <label for="safi-observacion">Observación Control de Socios (opcional)</label>
+          <textarea id="safi-observacion" rows="2"
+            placeholder="Lo que deba constar en el formulario sobre este registro."></textarea>
+          <p class="pista">
+            Se imprime en el reverso del formulario, con la fecha, y la ven Contabilidad y la
+            Gerencia. Puede añadir más observaciones cuando el trámite vuelva a sus manos.
+          </p>
+        </fieldset>
 
         <fieldset class="grupo-campos" id="safi-campo-manual" hidden>
           <legend>Alta hecha a mano en el CRM</legend>

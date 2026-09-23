@@ -11,6 +11,38 @@
 >
 > Antes de empezar: `git pull origin despliegue-servidor`.
 
+> **Atendido el 23/09/2026** por el Claude de desarrollo. Este encargo se
+> conserva tal como llegó.
+>
+> 1. **El abuelo del D-C en la tableta.** Tarjeta propia, «Oficial FAE del que
+>    desciende», debajo de la del D-B: número **no obligatorio**, con la ayuda
+>    que propuso; al salir del campo consulta con `useBuscarSocio(REGLA_OFICIAL)`
+>    y guarda `oficialFaeVerificado` solo si el número no cambió mientras tanto;
+>    debajo, `AvisosSocioSafi` con `REGLA_OFICIAL`. En el D-C, el aviso del D-B
+>    dice ahora «Se comprueba que sea un Socio Dependiente B.». Comentario
+>    corregido. Al dejar de ser D-C se vacían `numeroOficialFae` y
+>    `oficialFaeVerificado`. La revisión y el detalle de la solicitud muestran
+>    al oficial, o «Sin indicar: la Jefatura lo completa en la bandeja».
+> 2. **Teléfonos de SAFI:** su propuesta, tal cual. `convencionalDesdeSafi`
+>    devuelve vacío lo que no pasa `validarConvencional` (los de 7 dígitos; que
+>    se completen con `02` lo decide el Coordinador) y completa con el cero los
+>    de 8 que empiezan por 2–7. `celularDesdeSafi`, el mismo criterio, y toma el
+>    primero de dos números separados por « / ».
+> 3. **Estado distinto de «Activo»:** en la tableta pasa a nota informativa
+>    («Es un dato para tener en cuenta y no impide continuar»), y en el panel,
+>    «No impide crear la ficha; es para tenerlo en cuenta».
+> 4. **Dirección nueva como ejemplo:** el de «Configuración y envío», el
+>    comentario de `servidor.ts`, `GUIA.md` y la sección 3.6 de
+>    `server/README.md`, reescrita con el Apache que usted configuró.
+>
+> Y dos arreglos en su panel de SAFI, en `web/index.html`: la «Observación
+> Control de Socios» —y ahora también su campo del abuelo— estaba dentro del
+> recuadro de cuotas, que se oculta en el cónyuge, los padres y el juvenil; van
+> en recuadros propios. Y el campo del abuelo no tenía `type="text"`, así que no
+> tomaba el estilo de los demás. Pruebas: las 66 de la ronda (11 nuevas, con
+> las suyas del D-C en MANUAL) y las 69 anteriores, en verde. Lo que le toca
+> está en `PROMPT-CLAUDE-SERVIDOR.md`.
+
 ## 1. Corrección del Coordinador: el Parentesco de un D-C es el del abuelo
 
 Usted había escrito que «el Parentesco del D-C sale de su padre o madre D-B».

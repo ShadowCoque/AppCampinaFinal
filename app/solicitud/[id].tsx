@@ -22,6 +22,7 @@ import {
 } from "../../src/domain/solicitud";
 import { nombreDocumento } from "../../src/domain/documentos";
 import {
+  REGLA_OFICIAL,
   estadoReferencia,
   nombreConGrado,
   reglaDependencia,
@@ -280,6 +281,20 @@ export default function DetalleSolicitudScreen() {
               }
             />
           </>
+        ) : null}
+        {datos.tipoMiembro === "DC" ? (
+          <DataRow
+            label="Oficial FAE del que desciende"
+            value={
+              !datos.numeroOficialFae
+                ? "Sin indicar: la Jefatura de Socios lo completa en la bandeja"
+                : datos.oficialFaeVerificado &&
+                    estadoReferencia(datos.oficialFaeVerificado, datos.numeroOficialFae, REGLA_OFICIAL) ===
+                      "VERIFICADO"
+                  ? `N.º ${datos.numeroOficialFae} · ${nombreConGrado(datos.oficialFaeVerificado)} · verificado en SAFI`
+                  : `N.º ${datos.numeroOficialFae} · sin verificar: la bandeja lo comprueba antes de crear en SAFI`
+            }
+          />
         ) : null}
         {documentosTramite.map((documento) => (
           <DataRow

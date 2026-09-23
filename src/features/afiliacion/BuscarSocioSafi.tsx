@@ -142,8 +142,8 @@ export function AvisosSocioSafi({
         </InfoNote>
       ) : null}
       {inactivo ? (
-        <InfoNote tone="warning" icon="alert-circle">
-          {`En SAFI consta como «${inactivo}». Compruébelo con la Jefatura de Socios antes de continuar.`}
+        <InfoNote tone="info" icon="information-circle-outline">
+          {`En SAFI su estado es «${inactivo}». Es un dato para tener en cuenta y no impide continuar.`}
         </InfoNote>
       ) : null}
       {otraCedula ? (
