@@ -826,7 +826,7 @@ export async function consultarSocio(criterio: {
     return {
       consultado: false,
       motivo: sinConsulta
-        ? "el servidor todavía no tiene esta consulta; hay que actualizarlo"
+        ? "el servidor todavía no tiene esta consulta, hay que actualizarlo"
         : error instanceof Error
           ? error.message
           : "No se pudo consultar el servidor.",

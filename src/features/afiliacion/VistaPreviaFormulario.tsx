@@ -63,7 +63,7 @@ export function VistaPreviaFormulario({ visible, solicitud, onCerrar }: Props) {
           <View style={styles.titulos}>
             <Text style={styles.titulo}>Formulario completo</Text>
             <Text style={styles.subtitulo}>
-              Así se generará. Léalo con el socio antes de firmar; amplíe con dos dedos.
+              Así se generará. Léalo con el socio antes de firmar. Amplíe con dos dedos.
             </Text>
           </View>
           <Pressable

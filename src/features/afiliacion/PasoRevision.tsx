@@ -78,7 +78,7 @@ export function PasoRevision({ estado, onVistaPrevia }: Props) {
     <>
       <InfoNote tone="warning" icon="eye-outline">
         Revise la información antes de enviar. Al enviarla, la afiliación pasa al servidor del Club
-        y aparece en la bandeja del Área de Socios para crearla en SAFI; después la revisa
+        y aparece en la bandeja del Área de Socios para crearla en SAFI. Después la revisa
         Contabilidad y la aprueba la Gerencia.
       </InfoNote>
 

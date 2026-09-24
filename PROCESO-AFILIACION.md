@@ -87,19 +87,31 @@ siempre la **Aérea**, que la tableta muestra fija y el sistema impone en SAFI.
 
 **Los socios a los que se refiere el trámite se traen de SAFI** (desde el
 23/09/2026): los **garantes**, el **titular** de un cónyuge, unos padres o un
-juvenil, y el **socio del que depende** un D-A, D-B o D-C. Basta escribir su
-número de socio —o su cédula, si no se sabe el número— y la tableta trae de SAFI
-su nombre, su cédula, su grado y sus teléfonos. Cada papel admite solo ciertas
-categorías:
+juvenil, y el **socio del que depende** un D-A, D-B o D-C. A todos se los busca
+**por número de socio o por cédula**: la cédula se busca sola al completar sus
+diez dígitos; el número, al salir del campo o con «Buscar en SAFI». La tableta
+trae de SAFI su nombre, su cédula, su grado y sus teléfonos. **Si después se
+cambia el número o la cédula, lo que se trajo se vacía** hasta volver a buscar,
+para no mezclar a dos personas. El grado y la situación militar del titular
+solo se piden si es oficial FAE (Activo o Fundador). Cada papel admite solo
+ciertas categorías (revisado con la Jefatura de Socios el 24/09/2026):
 
 | Quién | Tiene que ser en SAFI |
 |---|---|
 | Garantes | Socio Activo o Fundador |
-| Titular de los padres | Socio Activo o Fundador |
-| Titular del cónyuge o del juvenil | Cualquier socio titular, salvo el Particular B y los suscriptores |
+| Titular del cónyuge | Activo, Fundador, D-B casado, D-C, Particular A, corresponsal o titular por traspaso |
+| Titular del juvenil | Los mismos, y además el D-B soltero |
+| Titular de los padres | Activo, Fundador o titular por traspaso |
 | Oficial del que depende un D-A o D-B | Socio Activo o Fundador |
 | Socio del que depende un D-C | Socio Dependiente B (su padre o su madre) |
 | Oficial FAE del que desciende un D-C (su abuelo, el de su Parentesco) | Socio Activo o Fundador. En la tableta **no es obligatorio**: si no lo saben, la Jefatura lo completa en el panel de SAFI |
+
+Nunca pueden afiliar dependientes el **D-A**, el **Particular B** ni los
+**suscriptores**; el **D-B soltero**, solo a sus hijos juveniles. El **titular
+por traspaso** («CONYUGE Y PADRES TITULARES», quien heredó la titularidad de un
+Activo o Fundador fallecido) solo mantiene el beneficio para la familia de ese
+socio: su cónyuge, sus hijos y sus padres, no los suyos propios. El sistema no
+puede comprobar ese parentesco y lo recuerda en la tableta y en el panel.
 
 Si SAFI dice que ese número no existe o es de otra categoría, la tableta **no
 deja avanzar**. Si en ese momento no pudo consultar (sin red, SAFI caído), deja
@@ -173,9 +185,13 @@ y la ven Contabilidad y la Gerencia.
      del que depende** (ver abajo).
 2. Escriba el **número de socio** y revise lo propuesto. Los avisos en amarillo
    son cosas que el CRM no podría guardar o que conviene mirar dos veces.
-   Elija la **cuota anual o la mensual**: el **Valor Cuota** de la Cuenta se
-   llena solo con la que elija, y las **Subscripciones** la acompañan (Anual o
-   Mensual).
+   Elija la **Subscripción**: la cuota se llena sola con la del tarifario de la
+   categoría (Anual pone la cuota anual, Mensual la mensual; Trimestral y
+   Semestral, que SAFI no tiene como cuota, van en el Valor Cuota). La lista
+   solo ofrece las periodicidades que esa categoría admite. El **Valor Cuota**
+   de la Cuenta sale de la elegida.
+   Si el trámite se corrige desde la tableta con el panel abierto, al confirmar
+   el panel se vuelve a abrir con los datos vigentes y no se crea nada.
 3. Confirme. Con la escritura habilitada, el sistema **crea la Cuenta y la ficha
    de Socio** en SAFI y guarda sus identificadores en el expediente.
 

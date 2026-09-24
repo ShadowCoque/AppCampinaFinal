@@ -76,7 +76,7 @@ function bloqueDatosPersonales(solicitud: SolicitudAfiliacion, bloques: BloquesF
     encabezadoCasillas,
     filaDoble(
       "Lugar y fecha de nacimiento",
-      unir([datos.lugarNacimiento, fecha(datos.fechaNacimiento)], " — "),
+      unir([datos.lugarNacimiento, fecha(datos.fechaNacimiento)], ", "),
       "Mail",
       datos.correo
     ),
@@ -84,7 +84,7 @@ function bloqueDatosPersonales(solicitud: SolicitudAfiliacion, bloques: BloquesF
     filaDoble("Ciudad", datos.ciudad, "Celular", datos.celular),
     filaDoble("Lugar de trabajo", datos.lugarTrabajo, "Teléfono", datos.telefonoTrabajo),
     `<tr><th>Ocupación</th><td colspan="3">${
-      escapar(unir([datos.profesion, datos.cargo], " — ")) || "&nbsp;"
+      escapar(unir([datos.profesion, datos.cargo], ", ")) || "&nbsp;"
     }</td></tr>`,
   ];
 
@@ -129,7 +129,7 @@ function bloqueConyuge(solicitud: SolicitudAfiliacion): string {
       filaDoble("Apellidos", conyuge.apellidos, "Nombres", conyuge.nombres),
       filaDoble(
         "Lugar y fecha de nacimiento",
-        unir([conyuge.lugarNacimiento, fecha(conyuge.fechaNacimiento)], " — "),
+        unir([conyuge.lugarNacimiento, fecha(conyuge.fechaNacimiento)], ", "),
         "Teléfono",
         conyuge.telefono
       ),

@@ -273,7 +273,7 @@ export default function ActualizacionScreen() {
       >
         <InfoNote tone="info" icon="sync-outline">
           Registre aquí las correcciones a la ficha de un socio ya existente. La actualización no
-          genera cobro; solo lo hace la credencial, si debe reimprimirse.
+          genera cobro. Solo lo hace la credencial, si debe reimprimirse.
         </InfoNote>
 
         <Card title="Socio a actualizar" icon="person">

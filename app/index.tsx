@@ -247,7 +247,7 @@ export default function Portal() {
         </Pressable>
 
         <Text style={styles.pie}>
-          Club Social y Deportivo de Oficiales de la FAE — Club La Campiña{"\n"}
+          Club Social y Deportivo de Oficiales de la FAE (Club La Campiña){"\n"}
           Aplicación institucional · versión 2.2
         </Text>
       </View>

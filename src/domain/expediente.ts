@@ -246,7 +246,7 @@ export const INSTRUCTIVO_ESCANEO = [
   "Nombre cada documento con el número de socio, un espacio, los apellidos y nombres y la etiqueta del documento. Ejemplo: «280 COQUE VEGA JOEL SEBASTIAN CEDULA.pdf».",
   "Para un dependiente, escriba el número del titular, un guion y el número del dependiente, seguido de sus propios apellidos y nombres. Ejemplo: «280-1 COQUE VEGA ANA MARIA CEDULA.pdf».",
   "Puede dejar los archivos sueltos en la carpeta compartida o dentro de una carpeta por socio titular con el formato «280 COQUE VEGA JOEL SEBASTIAN».",
-  "Escriba siempre en MAYÚSCULAS y sin tildes —la Ñ sí se conserva—, tal como consta el nombre en el CRM de SAFI.",
+  "Escriba siempre en MAYÚSCULAS y sin tildes (la Ñ sí se conserva), tal como consta el nombre en el CRM de SAFI.",
   "No escanee el formulario ni la carta de compromiso: el sistema los genera con las firmas de la tableta y los archiva solos al aprobarse el ingreso.",
   "Lo que el sistema archiva pasa a la subcarpeta _ARCHIVADOS y queda copiado en el expediente del socio. Lo que no puede identificar pasa a _REVISAR y aparece aquí como tarea. Si el número todavía no corresponde a ningún trámite, el archivo se queda donde está, en espera, hasta que se asigne: nunca se borra.",
   "Etiquetas reconocidas: CEDULA, CEDULA TITULAR, TARJETA MILITAR, ACTA DE MATRIMONIO, PARTIDA DE NACIMIENTO, CREDENCIAL ANTERIOR, FACTURA, FOTO, OTROS.",

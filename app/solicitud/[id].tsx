@@ -308,14 +308,14 @@ export default function DetalleSolicitudScreen() {
           <InfoNote tone="warning" icon="return-down-back">
             {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió al Área de Socios el ${formatFechaHora(
               tramite.devolucion.en
-            )}: «${tramite.devolucion.observacion}». Si hay que corregir datos, use «Corregir datos»; después se reenvía desde la bandeja web del Área de Socios.`}
+            )}: «${tramite.devolucion.observacion}». Si hay que corregir datos, use «Corregir datos». Después se reenvía desde la bandeja web del Área de Socios.`}
           </InfoNote>
         ) : null}
         {tramite.devolucion && destinoDevolucion(tramite.devolucion) === "CONTABILIDAD" ? (
           <InfoNote tone="info" icon="return-down-back">
             {`${AREA_META[tramite.devolucion.area].etiqueta} la devolvió a Contabilidad el ${formatFechaHora(
               tramite.devolucion.en
-            )}: «${tramite.devolucion.observacion}». Contabilidad la revisa de nuevo; el Área de Socios no tiene que hacer nada.`}
+            )}: «${tramite.devolucion.observacion}». Contabilidad la revisa de nuevo. El Área de Socios no tiene que hacer nada.`}
           </InfoNote>
         ) : null}
         {tramite.anulacion ? (

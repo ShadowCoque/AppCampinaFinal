@@ -15,13 +15,13 @@ import { validarCelular, validarConvencional } from "./validaciones";
  *
  * Cada papel admite solo ciertas categorías (decisiones del Coordinador):
  *
- *   · garantes, padres, D-A y D-B → un **Socio Activo o Fundador**;
+ *   · garantes, D-A y D-B → un **Socio Activo o Fundador**;
  *   · D-C → un **Socio Dependiente B**, como dice el PGS1-11 («hijo de un socio
  *     dependiente B»). Su Parentesco, en cambio, es el del **oficial FAE del
  *     que desciende** —su abuelo—, que también se comprueba (ver
  *     `oficialDelParentesco`);
- *   · cónyuge y juvenil → **cualquier socio titular**, salvo el Particular B,
- *     que es una sociedad individual.
+ *   · cónyuge, juvenil y padres → un titular que pueda afiliarlos, según su
+ *     categoría (ver `ReglaSocio`, revisado el 24/09/2026).
  *
  * Sin red, la tableta deja avanzar y la bandeja lo vuelve a consultar antes de
  * crear la ficha. Lo único que cuenta es lo que el servidor consulta él mismo:
@@ -86,32 +86,51 @@ export const TIPO_SOCIO_SAFI_TITULAR_POR_TRASPASO = "CONYUGE Y PADRES TITULARES"
 /**
  * Qué tiene que ser en SAFI el socio al que se refiere el trámite.
  *
- *   ACTIVO_O_FUNDADOR  El oficial FAE: garantes, padres, D-A y D-B.
+ *   ACTIVO_O_FUNDADOR  El oficial FAE: garantes, D-A, D-B y el abuelo de un D-C.
  *   DEPENDIENTE_B      El padre o la madre de un D-C.
- *   TITULAR            El titular de un cónyuge o de un juvenil: cualquier
- *                      socio titular salvo el Particular B.
+ *   TITULAR_CONYUGE    El titular de un cónyuge.
+ *   TITULAR_JUVENIL    El titular de un juvenil.
+ *   TITULAR_PADRES     El titular de unos padres.
+ *
+ * Quién puede afiliar a quién (Coordinador y Jefatura de Socios, 24/09/2026):
+ *
+ *   · Activo y Fundador: cónyuge, juveniles y padres.
+ *   · D-B casado, D-C, Particular A y corresponsales: cónyuge y juveniles.
+ *   · D-B soltero: solo juveniles, sus hijos menores de 21 años.
+ *   · D-A, Particular B y suscriptores: nadie. El D-A y el Particular B son
+ *     afiliaciones individuales; los suscriptores no son socios.
+ *   · Quien heredó la titularidad de un Activo o Fundador fallecido
+ *     («CONYUGE Y PADRES TITULARES»): lo mismo que el socio al que sustituye,
+ *     pero solo para la familia de ese socio (ver `avisoTraspaso`).
  */
-export type ReglaSocio = "ACTIVO_O_FUNDADOR" | "DEPENDIENTE_B" | "TITULAR";
+export type ReglaSocio =
+  | "ACTIVO_O_FUNDADOR"
+  | "DEPENDIENTE_B"
+  | "TITULAR_CONYUGE"
+  | "TITULAR_JUVENIL"
+  | "TITULAR_PADRES";
+
+const OFICIALES = [TIPO_SOCIO_SAFI.SA, TIPO_SOCIO_SAFI.SF];
+
+/** Titulares que pueden afiliar a su cónyuge. */
+const CON_CONYUGE = [
+  ...OFICIALES,
+  TIPO_SOCIO_SAFI_DB_CASADO,
+  TIPO_SOCIO_SAFI.DC,
+  TIPO_SOCIO_SAFI.PA,
+  TIPO_SOCIO_SAFI.CA,
+  TIPO_SOCIO_SAFI.CB,
+  TIPO_SOCIO_SAFI.CC,
+  TIPO_SOCIO_SAFI_TITULAR_POR_TRASPASO,
+];
 
 const ADMITIDOS: Record<ReglaSocio, ReadonlySet<string>> = {
-  ACTIVO_O_FUNDADOR: new Set([TIPO_SOCIO_SAFI.SA, TIPO_SOCIO_SAFI.SF]),
+  ACTIVO_O_FUNDADOR: new Set(OFICIALES),
   DEPENDIENTE_B: new Set([TIPO_SOCIO_SAFI.DB, TIPO_SOCIO_SAFI_DB_CASADO]),
-  // Los socios con Cuenta propia. Quedan fuera el Particular B —una sociedad
-  // individual—, los suscriptores —no son socios— y los propios dependientes
-  // del titular, que no tienen Cuenta.
-  TITULAR: new Set([
-    TIPO_SOCIO_SAFI.SF,
-    TIPO_SOCIO_SAFI.SA,
-    TIPO_SOCIO_SAFI.DA,
-    TIPO_SOCIO_SAFI.DB,
-    TIPO_SOCIO_SAFI_DB_CASADO,
-    TIPO_SOCIO_SAFI.DC,
-    TIPO_SOCIO_SAFI.PA,
-    TIPO_SOCIO_SAFI.CA,
-    TIPO_SOCIO_SAFI.CB,
-    TIPO_SOCIO_SAFI.CC,
-    TIPO_SOCIO_SAFI_TITULAR_POR_TRASPASO,
-  ]),
+  TITULAR_CONYUGE: new Set(CON_CONYUGE),
+  // El D-B soltero no tiene cónyuge, pero sí puede afiliar a sus hijos.
+  TITULAR_JUVENIL: new Set([...CON_CONYUGE, TIPO_SOCIO_SAFI.DB]),
+  TITULAR_PADRES: new Set([...OFICIALES, TIPO_SOCIO_SAFI_TITULAR_POR_TRASPASO]),
 };
 
 /** Cómo se dice, en un aviso, lo que el papel exige. */
@@ -124,11 +143,38 @@ export const REGLA_META: Record<ReglaSocio, { exige: string; noEs: string }> = {
     exige: "un Socio Dependiente B",
     noEs: "no es Socio Dependiente B",
   },
-  TITULAR: {
-    exige: "un socio titular que no sea Particular B ni suscriptor",
-    noEs: "no admite dependientes",
+  TITULAR_CONYUGE: {
+    exige:
+      "un socio que pueda afiliar a su cónyuge (Activo, Fundador, D-B casado, D-C, Particular A o corresponsal)",
+    noEs: "esa categoría no puede afiliar a un cónyuge",
+  },
+  TITULAR_JUVENIL: {
+    exige:
+      "un socio que pueda afiliar juveniles (no lo pueden el D-A, el Particular B ni los suscriptores)",
+    noEs: "esa categoría no puede afiliar juveniles",
+  },
+  TITULAR_PADRES: {
+    exige: "un Socio Activo o un Fundador (o quien heredó su titularidad)",
+    noEs: "esa categoría no puede afiliar a sus padres",
   },
 };
+
+/**
+ * El titular heredó la titularidad de un Activo o Fundador fallecido: solo
+ * mantiene el beneficio para la familia de ese socio (su cónyuge, sus hijos y
+ * sus padres), no para la suya propia. El sistema no puede comprobar el
+ * parentesco con el fallecido; lo recuerda para que lo compruebe la Jefatura.
+ */
+export function avisoTraspaso(verificacion: VerificacionSocio | null | undefined): string | null {
+  return verificacion?.tipoSocioSafi.trim().toUpperCase() === TIPO_SOCIO_SAFI_TITULAR_POR_TRASPASO
+    ? "Es titular por traspaso de un socio fallecido: solo puede afiliar a la familia de ese socio (su cónyuge, sus hijos y sus padres), no a la suya propia. Compruébelo antes de continuar."
+    : null;
+}
+
+/** Si el socio es un oficial FAE (Activo o Fundador), y tiene grado y situación militar. */
+export function esOficial(verificacion: VerificacionSocio | null | undefined): boolean {
+  return Boolean(verificacion && OFICIALES.includes(verificacion.tipoSocioSafi.trim().toUpperCase()));
+}
 
 /** Si un Tipo de Socio de SAFI puede ocupar el papel. */
 export function admiteSocio(regla: ReglaSocio, tipoSocioSafi: string): boolean {
@@ -190,10 +236,11 @@ export const REGLA_OFICIAL: ReglaSocio = "ACTIVO_O_FUNDADOR";
 export function reglaTitular(tipo: TipoMiembro | null): ReglaSocio | null {
   switch (tipo) {
     case "PADRES":
-      return "ACTIVO_O_FUNDADOR";
+      return "TITULAR_PADRES";
     case "CONYUGE":
+      return "TITULAR_CONYUGE";
     case "JUVENIL":
-      return "TITULAR";
+      return "TITULAR_JUVENIL";
     default:
       return null;
   }

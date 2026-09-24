@@ -571,7 +571,7 @@ export default function AfiliacionScreen() {
 
   const confirmarSalida = () => {
     if (modoCorreccion) {
-      Alert.alert("Salir sin guardar", "La afiliación queda como estaba; los cambios se descartan.", [
+      Alert.alert("Salir sin guardar", "La afiliación queda como estaba. Los cambios se descartan.", [
         { text: "Seguir aquí", style: "cancel" },
         { text: "Salir", style: "destructive", onPress: () => router.back() },
       ]);

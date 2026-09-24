@@ -1,7 +1,8 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   REGLA_META,
+  avisoTraspaso,
   estadoNoActivo,
   estadoReferencia,
   motivoRechazo,
@@ -12,8 +13,9 @@ import {
   type VerificacionSocio,
 } from "../../domain/sociosSafi";
 import { normalizarNumeroSocio } from "../../domain/texto";
+import { soloDigitos } from "../../domain/validaciones";
 import { consultarSocio } from "../../services/servidor";
-import { Button, InfoNote } from "../../ui";
+import { Button, InfoNote, TextField } from "../../ui";
 
 /**
  * Búsqueda en SAFI de un socio al que el trámite hace referencia —un garante,
@@ -25,7 +27,7 @@ import { Button, InfoNote } from "../../ui";
  * seguir: la bandeja lo vuelve a comprobar antes de crear la ficha.
  */
 
-type Resultado = { verificacion: VerificacionSocio; socio: SocioSafi | null };
+export type Resultado = { verificacion: VerificacionSocio; socio: SocioSafi | null };
 
 export function useBuscarSocio(regla: ReglaSocio | null) {
   const [consultando, setConsultando] = useState(false);
@@ -122,6 +124,7 @@ export function AvisosSocioSafi({
   const estado = estadoReferencia(verificacion, numero, regla);
   const rechazo = motivoRechazo(verificacion, numero, regla, papel);
   const inactivo = estado === "VERIFICADO" ? estadoNoActivo(verificacion) : null;
+  const traspaso = estado === "VERIFICADO" ? avisoTraspaso(verificacion) : null;
   const cedulaSafi = verificacion?.cedula ?? "";
   const declarada = (cedulaDeclarada ?? "").replace(/\D/g, "");
   const otraCedula =
@@ -139,6 +142,11 @@ export function AvisosSocioSafi({
       {rechazo ? (
         <InfoNote tone="danger" icon="close-circle">
           {rechazo}
+        </InfoNote>
+      ) : null}
+      {traspaso ? (
+        <InfoNote tone="warning" icon="people-outline">
+          {traspaso}
         </InfoNote>
       ) : null}
       {inactivo ? (
@@ -171,6 +179,140 @@ export function AvisosSocioSafi({
           fullWidth
         />
       ) : null}
+    </>
+  );
+}
+
+type CamposProps = {
+  regla: ReglaSocio;
+  /** «el garante», «el titular»…: para los avisos. */
+  papel: string;
+  /** Lo que se hace con el socio verificado, al final del aviso verde. */
+  detalle?: string;
+  etiquetaNumero: string;
+  ayudaNumero?: string;
+  requerido?: boolean;
+  numero: string;
+  /**
+   * La cédula, cuando el paso la guarda (la del garante, la del titular). Sin
+   * ella, la cédula solo sirve para buscar y se lleva aquí.
+   */
+  cedula?: string;
+  verificacion: VerificacionSocio | null | undefined;
+  errorNumero?: string;
+  errorCedula?: string;
+  onNumero: (valor: string) => void;
+  onCedula?: (valor: string) => void;
+  /**
+   * Se cambió el número o la cédula de un socio que ya se había encontrado:
+   * hay que vaciar lo que se trajo de SAFI, que era de otra persona.
+   */
+  onDescartar: () => void;
+  /** SAFI respondió a la búsqueda de lo que sigue escrito. */
+  onEncontrado: (resultado: Resultado) => void;
+};
+
+/**
+ * Número de socio y cédula de un socio al que se refiere el trámite, con su
+ * búsqueda en SAFI (Coordinador, 24/09/2026):
+ *
+ *   · se busca por cualquiera de los dos: la cédula, en cuanto tiene sus diez
+ *     dígitos; el número, al salir del campo o con «Buscar en SAFI»;
+ *   · si se cambia cualquiera de los dos después de encontrarlo, lo que se trajo
+ *     se vacía hasta que se vuelva a buscar, para no mezclar a dos personas;
+ *   · sin conexión con SAFI se puede seguir escribiendo a mano: la bandeja lo
+ *     comprueba antes de crear la ficha.
+ */
+export function CamposBusquedaSocio(props: CamposProps) {
+  const { regla, numero, verificacion } = props;
+  const busqueda = useBuscarSocio(regla);
+  const [cedulaPropia, setCedulaPropia] = useState("");
+  const cedula = props.cedula ?? cedulaPropia;
+  const ponerCedula = props.onCedula ?? setCedulaPropia;
+
+  // Lo escrito en este momento, para descartar una respuesta que llegue
+  // cuando ya se escribió otra cosa.
+  const actual = useRef({ numero, cedula });
+  useEffect(() => {
+    actual.current = { numero, cedula };
+  }, [numero, cedula]);
+
+  const encontrado = estadoReferencia(verificacion, numero, regla) !== "SIN_VERIFICAR";
+
+  const buscar = async (criterio: { numeroSocio: string; cedula: string }) => {
+    const resultado = await busqueda.buscar(criterio);
+    if (!resultado) return;
+    const vigente = criterio.numeroSocio
+      ? normalizarNumeroSocio(actual.current.numero) === normalizarNumeroSocio(criterio.numeroSocio)
+      : actual.current.cedula === criterio.cedula;
+    if (!vigente) return;
+    if (!props.cedula && resultado.socio?.cedula) setCedulaPropia(resultado.socio.cedula);
+    props.onEncontrado(resultado);
+  };
+
+  const cambiarNumero = (texto: string) => {
+    const nuevo = normalizarNumeroSocio(texto);
+    if (encontrado && nuevo !== numero) {
+      props.onDescartar();
+      if (verificacion?.cedula && cedula === verificacion.cedula) ponerCedula("");
+    }
+    busqueda.olvidar();
+    props.onNumero(nuevo);
+  };
+
+  const cambiarCedula = (texto: string) => {
+    const nueva = soloDigitos(texto, 10);
+    if (encontrado && nueva !== cedula) {
+      props.onDescartar();
+      if (verificacion && numero === verificacion.numeroSocio) props.onNumero("");
+    }
+    busqueda.olvidar();
+    ponerCedula(nueva);
+    if (nueva.length === 10 && nueva !== cedula) void buscar({ numeroSocio: "", cedula: nueva });
+  };
+
+  return (
+    <>
+      <TextField
+        label={props.etiquetaNumero}
+        required={props.requerido}
+        keyboardType="number-pad"
+        maxLength={8}
+        icon="barcode-outline"
+        value={numero}
+        onChangeText={cambiarNumero}
+        onBlur={() => {
+          if (numero && !encontrado) void buscar({ numeroSocio: numero, cedula: "" });
+        }}
+        error={props.errorNumero}
+        helper={props.ayudaNumero}
+      />
+      <TextField
+        label="Cédula"
+        keyboardType="number-pad"
+        maxLength={10}
+        icon="card-outline"
+        value={cedula}
+        onChangeText={cambiarCedula}
+        error={props.errorCedula}
+        helper="Si no sabe el número de socio, escriba la cédula: al completar los diez dígitos se busca sola."
+        placeholder="10 dígitos"
+      />
+      <AvisosSocioSafi
+        verificacion={verificacion}
+        numero={numero}
+        regla={regla}
+        papel={props.papel}
+        detalle={props.detalle}
+        cedulaDeclarada={cedula}
+        sinConsulta={busqueda.sinConsulta}
+        sinCoincidencia={busqueda.sinCoincidencia}
+        consultando={busqueda.consultando}
+        onBuscar={() =>
+          void buscar(numero ? { numeroSocio: numero, cedula: "" } : { numeroSocio: "", cedula })
+        }
+        puedeBuscar={Boolean(numero) || cedula.length === 10}
+      />
     </>
   );
 }

@@ -710,7 +710,7 @@ class AdaptadorConectado implements AdaptadorSafi {
             campo.name,
             `${campo.label} (${campo.name}) de ${etiquetaModulo}`,
             valor,
-            `SAFI no admite «${valor}» en la lista «${campo.label}». El campo es opcional, así que se creará vacío; añada el valor en el CRM si debe constar.`,
+            `SAFI no admite «${valor}» en la lista «${campo.label}». El campo es opcional, así que se creará vacío. Añada el valor en el CRM si debe constar.`,
             false
           )
         );
@@ -749,7 +749,7 @@ class AdaptadorConectado implements AdaptadorSafi {
         requiereAltaManual: true,
         mensaje:
           "La escritura en SAFI está deshabilitada (SAFI_ESCRITURA=false). Cree la Cuenta y el Socio en el CRM " +
-          "con los valores confirmados y registre aquí los identificadores; el sistema los comprueba contra el CRM.",
+          "con los valores confirmados y registre aquí los identificadores. El sistema los comprueba contra el CRM.",
       };
     }
 

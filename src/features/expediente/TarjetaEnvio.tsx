@@ -171,19 +171,19 @@ export function TarjetaEnvio({ situacion, onCambio, onDibujando }: Props) {
           {`El servidor rechazó el envío el ${formatFechaHora(rechazado.en)}: «${rechazado.mensaje}». Un reintento automático no lo resolvería, así que la tableta dejó de insistir. ${
             rechazado.rol
               ? `Vuelva a capturar ${enumerarAdjuntos([rechazado.rol])} y se enviará de nuevo.`
-              : "Si el problema ya se corrigió, vuelva a intentarlo; si persiste, avise a la Coordinación de TICs."
+              : "Si el problema ya se corrigió, vuelva a intentarlo. Si persiste, avise a la Coordinación de TICs."
           }`}
         </InfoNote>
       ) : !enviada ? (
         <InfoNote tone="danger" icon="cloud-offline">
           Esta afiliación todavía no llegó al servidor, así que no aparece en ninguna bandeja. Se
-          envía sola en cuanto hay conexión y sesión; también puede enviarla ahora.
+          envía sola en cuanto hay conexión y sesión. También puede enviarla ahora.
         </InfoNote>
       ) : disponibles.length > 0 ? (
         <InfoNote tone="warning" icon="alert-circle-outline">
           {`El servidor tiene el trámite pero le falta ${enumerarAdjuntos(disponibles)}. La tableta ${
             disponibles.length === 1 ? "la envía sola" : "las envía solas"
-          } en la próxima sincronización; también puede enviarla ahora.`}
+          } en la próxima sincronización. También puede enviarla ahora.`}
         </InfoNote>
       ) : faltantes.length === 0 ? (
         <InfoNote tone="success" icon="cloud-done">

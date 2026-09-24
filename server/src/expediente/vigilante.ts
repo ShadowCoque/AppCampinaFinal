@@ -252,7 +252,7 @@ function procesar(candidato: Candidato): ResumenPasada {
     const detalle =
       familia.length === 0
         ? `Ningún trámite tiene todavía el número de socio ${clave.numeroSocio}. El archivo se queda en la carpeta compartida y se archivará solo en cuanto se asigne ese número con «Confirmar y crear en SAFI». Si el número está mal escrito, corríjalo en el nombre del archivo.`
-        : `La cuenta ${clave.numeroSocio} no tiene registrada a la persona ${prefijo}. Si es un dependiente, se archivará cuando se le asigne ese número en la bandeja; si el número está mal escrito, corríjalo.`;
+        : `La cuenta ${clave.numeroSocio} no tiene registrada a la persona ${prefijo}. Si es un dependiente, se archivará cuando se le asigne ese número en la bandeja. Si el número está mal escrito, corríjalo.`;
     esperar(candidato, detalle, clave.numeroSocio);
     return { ...vacio(), enEspera: 1 };
   }

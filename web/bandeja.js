@@ -70,7 +70,12 @@ async function api(ruta, opciones = {}) {
   }
 
   if (!respuesta.ok) {
-    throw new Error((datos && datos.error) || `Error ${respuesta.status}`);
+    const fallo = new Error((datos && datos.error) || `Error ${respuesta.status}`);
+    // Quien llama puede necesitar el detalle: el panel de SAFI, por ejemplo,
+    // se vuelve a abrir si el trámite cambió mientras estaba abierto.
+    fallo.estado = respuesta.status;
+    fallo.datos = datos;
+    throw fallo;
   }
   return datos;
 }
@@ -849,7 +854,7 @@ document.addEventListener("click", async (evento) => {
       await pedirTexto({
         titulo: `Continuar sin ${boton.dataset.etiqueta.toLowerCase()}`,
         detalle:
-          "Diga dónde consta —normalmente, en el formulario firmado en papel que se escaneará—. Queda en el expediente y en la bitácora con su nombre.",
+          "Diga dónde consta (normalmente, en el formulario firmado en papel que se escaneará). Queda en el expediente y en la bitácora con su nombre.",
         etiqueta: "Motivo",
         ruta: `/api/solicitudes/${encodeURIComponent(
           boton.dataset.id
@@ -1392,7 +1397,7 @@ const CAMPOS_SAFI = {
  * no existen en el CRM. Ocultarlo obligaría a elegir una cuota que no es la del
  * socio; mostrarlo deja ver exactamente qué hay que añadir en SAFI.
  */
-function llenarSelect(id, opciones, valor, { vacio = "— sin valor —" } = {}) {
+function llenarSelect(id, opciones, valor, { vacio = "(sin valor)" } = {}) {
   const select = $(id);
   const lista = [...opciones];
   const fueraDeLista = valor && !lista.some((o) => String(o) === String(valor));
@@ -1443,7 +1448,7 @@ async function abrirDialogoSafi(solicitudId) {
   $("safi-pista-manual").textContent = manual
     ? ficha.modo === "MANUAL"
       ? "La integración está en modo manual. Cree la Cuenta y el Socio en SAFI con los valores de arriba y copie aquí los identificadores que les asignó: son el número que aparece en record= en la barra de direcciones al abrir cada ficha."
-      : "La escritura en SAFI está deshabilitada (SAFI_ESCRITURA=false). Cree la Cuenta y el Socio en el CRM con los valores de arriba y copie aquí sus identificadores; el sistema comprueba en SAFI que correspondan a esta persona."
+      : "La escritura en SAFI está deshabilitada (SAFI_ESCRITURA=false). Cree la Cuenta y el Socio en el CRM con los valores de arriba y copie aquí sus identificadores. El sistema comprueba en SAFI que correspondan a esta persona."
     : "";
   $("safi-cuenta-id").value = ficha.cuentaTitular || "";
   $("safi-socio-id").value = "";
@@ -1471,13 +1476,22 @@ async function abrirDialogoSafi(solicitudId) {
   llenarSelect(CAMPOS_SAFI.grupoFacturacion, ficha.listas.grupoFacturacion, ficha.propuesta.grupoFacturacion);
   llenarSelect(CAMPOS_SAFI.formaPago, ficha.listas.formaPago, ficha.propuesta.formaPago);
   llenarSelect(CAMPOS_SAFI.tipoContribuyente, ficha.listas.tipoContribuyente, ficha.propuesta.tipoContribuyente);
-  llenarSelect(CAMPOS_SAFI.suscripcion, ficha.listas.suscripcion, ficha.propuesta.suscripcion);
+  // Solo las periodicidades que el tarifario admite para esta categoría: un
+  // Particular B no se puede mensualizar, un suscriptor de tenis no paga mensual.
+  const periodicidades = Object.keys(ficha.tarifas || {}).map((clave) => NOMBRE_PERIODICIDAD[clave]);
+  llenarSelect(
+    CAMPOS_SAFI.suscripcion,
+    periodicidades.length > 0
+      ? ficha.listas.suscripcion.filter((opcion) => periodicidades.includes(opcion))
+      : ficha.listas.suscripcion,
+    ficha.propuesta.suscripcion
+  );
   llenarSelect(CAMPOS_SAFI.valorMembresia, ficha.listas.valorMembresia, ficha.propuesta.valorMembresia);
   llenarSelect(CAMPOS_SAFI.cuotaAnual, ficha.listas.cuotaAnual, ficha.propuesta.cuotaAnual, {
-    vacio: "— no se acoge a la anual —",
+    vacio: "(no se acoge a la anual)",
   });
   llenarSelect(CAMPOS_SAFI.cuotaMensual, ficha.listas.cuotaMensual, ficha.propuesta.cuotaMensual, {
-    vacio: "— no se acoge a la mensual —",
+    vacio: "(no se acoge a la mensual)",
   });
 
   sincronizarCuotas();
@@ -1551,7 +1565,7 @@ $("safi-oficial-fae").addEventListener("change", async (evento) => {
     const respuesta = await api(`/api/safi/socios?numero=${encodeURIComponent(numero)}`);
     if (turno !== consultaOficialFae) return;
     if (!respuesta.consultado) {
-      resultadoOficialFae("No se pudo consultar SAFI ahora; se comprobará al crear la ficha.", "");
+      resultadoOficialFae("No se pudo consultar SAFI ahora. Se comprobará al crear la ficha.", "");
       return;
     }
     describirOficialFae(respuesta.socio);
@@ -1614,7 +1628,13 @@ function sincronizarCuotas() {
   anual.disabled = Boolean(mensual.value);
   mensual.disabled = Boolean(anual.value);
 
-  $("safi-valor-cuota").value = valorCuotaElegida(mensual.value) || valorCuotaElegida(anual.value);
+  // Con Trimestral o Semestral, el valor es el de esa periodicidad: SAFI no
+  // tiene un campo de cuota para ellas.
+  const periodica = tarifaDeSuscripcion($(CAMPOS_SAFI.suscripcion).value, ["Trimestral", "Semestral"]);
+  $("safi-valor-cuota").value =
+    periodica !== null
+      ? periodica.toFixed(2)
+      : valorCuotaElegida(mensual.value) || valorCuotaElegida(anual.value);
 
   for (const [select, otro] of [
     [anual, mensual],
@@ -1646,6 +1666,57 @@ function acompasarSuscripcion(periodicidad) {
     suscripcion.value = periodicidad;
   }
 }
+
+/** «Mensual» ↔ `MENSUAL`: las periodicidades del tarifario y las de SAFI. */
+const NOMBRE_PERIODICIDAD = {
+  ANUAL: "Anual",
+  MENSUAL: "Mensual",
+  TRIMESTRAL: "Trimestral",
+  SEMESTRAL: "Semestral",
+};
+
+/** Valor del tarifario para la subscripción elegida, si es una de `admitidas`. */
+function tarifaDeSuscripcion(suscripcion, admitidas) {
+  if (!admitidas.includes(suscripcion)) return null;
+  const clave = Object.keys(NOMBRE_PERIODICIDAD).find((c) => NOMBRE_PERIODICIDAD[c] === suscripcion);
+  const valor = estado.safi?.ficha?.tarifas?.[clave];
+  return typeof valor === "number" ? valor : null;
+}
+
+/**
+ * Al elegir la subscripción, la cuota se llena sola con la del tarifario de la
+ * categoría (Coordinador, 24/09/2026): «Anual» pone la cuota anual y vacía la
+ * mensual; «Mensual», al revés; «Trimestral» y «Semestral» vacían las dos y
+ * llevan su valor al Valor Cuota. La Jefatura puede cambiarla después.
+ */
+$(CAMPOS_SAFI.suscripcion).addEventListener("change", () => {
+  const suscripcion = $(CAMPOS_SAFI.suscripcion).value;
+  const anual = $(CAMPOS_SAFI.cuotaAnual);
+  const mensual = $(CAMPOS_SAFI.cuotaMensual);
+  const poner = (select, valor) => {
+    const texto = valor === null ? "" : String(valor);
+    if (texto && ![...select.options].some((opcion) => opcion.value === texto)) {
+      // Un importe que el CRM todavía no tiene (el del Corresponsal A): se
+      // enseña marcado, como al abrir el panel.
+      select.insertAdjacentHTML(
+        "beforeend",
+        `<option value="${escapar(texto)}">${escapar(texto)} (no existe en SAFI)</option>`
+      );
+    }
+    select.value = texto;
+  };
+  if (suscripcion === "Anual") {
+    poner(anual, tarifaDeSuscripcion("Anual", ["Anual"]));
+    poner(mensual, null);
+  } else if (suscripcion === "Mensual") {
+    poner(mensual, tarifaDeSuscripcion("Mensual", ["Mensual"]));
+    poner(anual, null);
+  } else if (suscripcion === "Trimestral" || suscripcion === "Semestral") {
+    poner(anual, null);
+    poner(mensual, null);
+  }
+  sincronizarCuotas();
+});
 
 $(CAMPOS_SAFI.cuotaAnual).addEventListener("change", () => {
   if ($(CAMPOS_SAFI.cuotaAnual).value) {
@@ -1686,6 +1757,9 @@ $("safi-confirmar").addEventListener("click", async () => {
           confirmacion,
           observacion: $("safi-observacion").value.trim(),
           numeroOficialFae: $("safi-oficial-fae-grupo").hidden ? "" : $("safi-oficial-fae").value.trim(),
+          // Con qué versión del trámite se abrió el panel: si se corrigió desde
+          // la tableta mientras tanto, el servidor no crea nada.
+          version: estado.safi.ficha.version,
           cuentaSafiId: $("safi-cuenta-id").value.trim(),
           socioSafiId: $("safi-socio-id").value.trim(),
         }),
@@ -1697,6 +1771,15 @@ $("safi-confirmar").addEventListener("click", async () => {
     avisar(resultado.mensaje);
     await cargarBandeja();
   } catch (fallo) {
+    if (fallo.datos && fallo.datos.cambiado) {
+      // El trámite cambió con el panel abierto: se vuelve a abrir con los datos
+      // vigentes, y el aviso lo dice.
+      try {
+        await abrirDialogoSafi(estado.safi.solicitudId);
+      } catch {
+        // Si no se pudo reabrir, basta el mensaje.
+      }
+    }
     error.textContent = fallo.message;
     error.hidden = false;
   } finally {

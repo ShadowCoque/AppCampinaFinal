@@ -112,7 +112,7 @@ export function PasoCompromiso({ datos, errores, setDato }: Props) {
           <InfoNote tone="info" icon="calculator-outline">
             No se le preguntan al socio: salen del tarifario del Club para este tipo de socio y se
             imprimen así en la carta. Si cambia la categoría o el estado civil, se actualizan solas.
-            La modalidad con la que finalmente paga —anual o mensual— la elige la Jefatura de Socios
+            La modalidad con la que finalmente paga (anual o mensual) la elige la Jefatura de Socios
             al registrarlo en SAFI.
           </InfoNote>
         )}

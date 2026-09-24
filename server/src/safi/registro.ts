@@ -3,6 +3,8 @@ import {
   formatearValor,
   membresiaSugerida,
   periodicidadesDe,
+  tarifaDe,
+  type Periodicidad,
 } from "../../../src/domain/cuotas";
 import { FORMA_PAGO_META, type FormaPago } from "../../../src/domain/facturacion";
 import { calcularEdad } from "../../../src/domain/fechas";
@@ -296,7 +298,10 @@ export function faltantesDeConfirmacion(
 
   if (periodicidadesDe(tipoMiembro, estadoCivil).length > 0) {
     if (!confirmacion.suscripcion.trim()) faltan.push("Subscripciones");
-    if (!confirmacion.cuotaAnual.trim() && !confirmacion.cuotaMensual.trim()) {
+    // Con subscripción trimestral o semestral no hay cuota anual ni mensual
+    // que elegir: el importe va en el Valor Cuota.
+    const periodica = periodicidadNoMensualNiAnual(confirmacion.suscripcion);
+    if (!periodica && !confirmacion.cuotaAnual.trim() && !confirmacion.cuotaMensual.trim()) {
       faltan.push("Cuota anual o mensual");
     }
   }
@@ -321,6 +326,14 @@ function sinVacios(campos: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(campos).filter(([, valor]) => valor !== ""));
 }
 
+/** `TRIMESTRAL` o `SEMESTRAL` si esa es la subscripción elegida. */
+function periodicidadNoMensualNiAnual(suscripcion: string | undefined): Periodicidad | null {
+  const valor = (suscripcion ?? "").trim().toLowerCase();
+  if (valor === "trimestral") return "TRIMESTRAL";
+  if (valor === "semestral") return "SEMESTRAL";
+  return null;
+}
+
 /**
  * «Valor Cuota» (`cf_977`) de la Cuenta: la cuota que la Jefatura eligió en su
  * bandeja, la mensual o la anual (decisión del Coordinador, 23/09/2026).
@@ -334,8 +347,16 @@ function sinVacios(campos: Record<string, string>): Record<string, string> {
  * se acoge a esa modalidad».
  */
 export function valorCuotaDe(
-  confirmacion: Pick<ConfirmacionSafi, "cuotaAnual" | "cuotaMensual">
+  confirmacion: Pick<ConfirmacionSafi, "cuotaAnual" | "cuotaMensual"> & { suscripcion?: string },
+  categoria?: { tipoMiembro: TipoMiembro | null; estadoCivil: string }
 ): string {
+  // Trimestral y semestral no tienen campo de cuota en la ficha del Socio: el
+  // Valor Cuota lleva el de esa periodicidad, según el tarifario.
+  const periodica = periodicidadNoMensualNiAnual(confirmacion.suscripcion);
+  if (periodica && categoria) {
+    const valor = tarifaDe(categoria.tipoMiembro, categoria.estadoCivil)?.cuotas[periodica];
+    if (valor !== undefined) return formatearValor(valor);
+  }
   for (const cuota of [confirmacion.cuotaMensual, confirmacion.cuotaAnual]) {
     const numero = Number(cuota.replace(",", ".").trim());
     if (cuota.trim() && Number.isFinite(numero) && numero > 0) return formatearValor(numero);

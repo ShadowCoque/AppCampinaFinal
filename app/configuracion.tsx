@@ -188,7 +188,7 @@ export default function ConfiguracionScreen() {
   const confirmarBorrado = () => {
     Alert.alert(
       "Borrar los datos de prueba",
-      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y sus archivos.\n\nLas que ya llegaron al servidor se borrarán también allá, y desaparecerán de la bandeja de tareas de la Jefatura; las que ya estén creadas en SAFI las conservará el servidor y habrá que anularlas desde la bandeja.${
+      `Se borrarán de esta tableta ${situaciones.length} afiliaciones y ${actualizaciones} actualizaciones de datos, con todas sus firmas y sus archivos.\n\nLas que ya llegaron al servidor se borrarán también allá, y desaparecerán de la bandeja de tareas de la Jefatura. Las que ya estén creadas en SAFI las conservará el servidor y habrá que anularlas desde la bandeja.${
         sinEnviar > 0
           ? `\n\n${sinEnviar === 1 ? "Una de ellas todavía no llegó" : `${sinEnviar} de ellas todavía no llegaron`} al servidor: se perderán para siempre.`
           : ""

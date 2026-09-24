@@ -4,6 +4,7 @@ import {
   REGLA_GARANTE,
   REGLA_META,
   REGLA_OFICIAL,
+  avisoTraspaso,
   estadoNoActivo,
   estadoReferencia,
   motivoRechazo,
@@ -155,6 +156,20 @@ async function comprobarUna(
       });
     }
 
+    // Quien heredó la titularidad de un socio fallecido solo puede afiliar a la
+    // familia de ese socio: el sistema no puede comprobarlo, se recuerda.
+    const traspaso = avisoTraspaso(verificacion);
+    if (traspaso) {
+      avisos.push({
+        campo,
+        etiqueta: `${etiqueta}: titular por traspaso`,
+        valor: numero,
+        bloquea: false,
+        origen: "COHERENCIA",
+        mensaje: traspaso,
+      });
+    }
+
     // Informa, no detiene: un estado distinto de «Activo» es frecuente en el
     // CRM (el 23/09/2026, 1.116 fichas «Inactivo»).
     const estado = estadoNoActivo(verificacion);
@@ -167,7 +182,7 @@ async function comprobarUna(
         origen: "COHERENCIA",
         mensaje: `En SAFI, el socio N.º ${numero} (${nombreConGrado(
           verificacion
-        )}) tiene el estado «${estado}». No impide crear la ficha; es para tenerlo en cuenta.`,
+        )}) tiene el estado «${estado}». No impide crear la ficha. Es para tenerlo en cuenta.`,
       });
     }
   }
@@ -232,7 +247,7 @@ export async function comprobarReferencias(
             bloquea: true,
             origen: "COHERENCIA",
             mensaje:
-              "Escriba el número de socio del oficial FAE del que desciende este D-C —el padre o la madre de su socio D-B, Activo o Fundador—. Su grado y su nombre van al Parentesco de la ficha, que no puede quedar con el del D-B.",
+              "Escriba el número de socio del oficial FAE del que desciende este D-C (el padre o la madre de su socio D-B, Activo o Fundador). Su grado y su nombre van al Parentesco de la ficha, que no puede quedar con el del D-B.",
           },
         ]
       : [];

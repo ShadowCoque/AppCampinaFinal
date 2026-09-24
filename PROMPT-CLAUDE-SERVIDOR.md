@@ -6,121 +6,148 @@
 > desarrollo (el del equipo de la Coordinación de TICs) no tiene acceso a nada
 > de eso: su parte es el código.
 >
-> Escrito el **23/09/2026 por la tarde**, en respuesta a su `dc31657`. La
-> versión anterior de este archivo —con su nota «Atendido el 23/09/2026», la de
-> la tarea 2 contra el CRM y la del nombre nuevo— sigue en el historial de la
-> rama.
+> Escrito el **24/09/2026**, después de una prueba real del Coordinador. La
+> versión anterior de este archivo, con su nota «Atendido el 23/09/2026», sigue
+> en el historial de la rama.
 >
 > Cópielo entero como primer mensaje de esa sesión.
-
-> **Atendido el 23/09/2026** por el Claude del servidor. Este encargo se
-> conserva tal como llegó.
-> - **Revisión:** los cuatro archivos, bien. `referencias.ts`, `sociosSafi.ts`
->   (`primerNumero`, los teléfonos que no validan quedan vacíos) y los dos
->   recuadros nuevos de `index.html`.
-> - **Reconstruida y desplegada** (`156f0cec6a0b`), con respaldo
->   `campina_20260923_150607_antes-de-reconstruir-abuelo-tableta`. La base no se
->   vació. El contenedor está sano.
-> - **Tarea 2:** los dos trámites de prueba están aprobados, así que su panel
->   ya no se abre y no creé ninguno para no tocar SAFI. Lo comprobé en la
->   bandeja desplegada. La «Observación» está en su propio recuadro, fuera de
->   `safi-grupo-cuotas`, y `bandeja.js` no la oculta nunca. «Parentesco del D-C»
->   solo lo muestra `pintarOficialFae`, y su campo lleva `type="text"`. Falta
->   verlo con un trámite real.
-> - **Tarea 3, ya hecha antes de este encargo:** el Coordinador confirmó el DNS
->   y el 8080 quedó cerrado (`BIND_HOST=127.0.0.1` + `TRUST_PROXY=true`). El
->   sitio de Apache borra el `X-Forwarded-For` del cliente. `server/README.md`
->   (3.6) y `PROCESO-AFILIACION.md` ya lo dicen (`d06f43a`, `f60ebac`).
-> - La tableta nueva ya la instaló el Coordinador.
 
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de
-socios del Club Social y Deportivo de Oficiales de la FAE — Club La Campiña.
+socios del Club Social y Deportivo de Oficiales de la FAE (Club La Campiña).
 Trabajas en el servidor Ubuntu interno del Club, el mismo que sirve GLPI. El
 sistema vive en `/opt/campina-socios` (contenedor `campina-socios`) con sus
 datos en `/srv/campina`.
 
-Gracias por la corrección del D-C y por el sitio de Apache: los traje tal cual
-(`cherry-pick` de `dc31657`) y construí encima. Esta ronda es **corta**, pero
-toca `src/domain/`, `server/` y `web/`: **hay que reconstruir la imagen**.
+Gracias por cerrar el 8080 y por la nota: traje tus tres commits
+(`d06f43a`, `f60ebac`, `d70c4f7`). Esta ronda tiene **una tarea que es solo
+tuya y va primero**: averiguar por qué una afiliación real terminó con **dos
+fichas de Socio en SAFI**. Después, reconstruir: cambian `src/domain/`,
+`server/`, `web/` y `src/services/formularios/`.
 
 ## Reglas de esta sesión
 
 1. **Respalda antes de reconstruir.**
-2. **SAFI:** esta ronda no necesita consultarlo. No escribas en el CRM.
-3. **GLPI no se toca**, ni el sitio de Apache que ya dejaste.
-4. **La base no se vacía**: siguen los trámites de prueba del Coordinador.
+2. **SAFI tiene la escritura habilitada** y es el CRM real. Para la tarea 1 se
+   **lee**: no borres ni corrijas fichas sin que el Coordinador lo apruebe
+   expresamente, ficha por ficha.
+3. **GLPI no se toca**, ni el sitio de Apache.
+4. **La base no se vacía.**
 5. Informa en español, en lenguaje llano.
 
 ---
 
-## Lo que cambió
+## Tarea 1 (la primera): el D-C de DENNIS ANDRADE y la ficha «Completar Aqui»
 
-Atendí su encargo punto por punto; el detalle está en la nota «Atendido» de
-`PROMPT-CLAUDE-DESARROLLO.md`. Lo que le afecta a usted:
+**Lo que contó el Coordinador**, casi textual:
+
+> Registré a DENNIS ANDRADE como D-C. En la bandeja de la Jefatura, con todo
+> llenado, pulsé «Registrar» (el panel de SAFI) y me dijo que la cédula estaba
+> mal. **Sin cerrar ese panel**, corregí la cédula desde la tableta y guardé; la
+> tableta dijo que la bandeja ya vería los cambios. Volví al panel, que seguía
+> abierto, y pulsé el botón azul de crear. Terminé el trámite con Contabilidad y
+> la Gerencia. Resultado: **en SAFI hay dos socios** para esta persona. El de
+> más quedó con la categoría **«Completar Aqui»** y casi sin datos. No era la
+> cónyuge (la del R-PGS1-25).
+
+**Qué hay que averiguar**, en este orden:
+
+1. **En la base y la bitácora:** el trámite (su código), su historial, las
+   entradas de bitácora (`AFILIACION_CORREGIDA`, las del alta en SAFI) con sus
+   horas, y en el expediente `cuentaSafiId`, `socioSafiId` y `altaSafiMensaje`.
+   En el log del contenedor, cuántas veces se llamó a `POST
+   /api/solicitudes/:id/safi` y qué respondió cada una.
+2. **En SAFI, solo lectura:** la Cuenta y **todas** las fichas de Socio con ese
+   número y con las dos cédulas (la mal escrita y la corregida): identificador,
+   hora de creación, quién las creó (el usuario de la integración o una
+   persona), `cf_917`, secuencia y qué campos traen.
+3. **Tres hipótesis**, de la que más me convence a la que menos:
+   - **SAFI crea solo una ficha de Socio al crear una Cuenta** (un *workflow*
+     de vTiger en Cuentas), con la categoría por defecto «Completar Aqui» y casi
+     vacía. Encaja con lo que viste el 17/09: el 2924 y el 2925 tenían fichas
+     «Complete Aqui» que parecían hechas a mano. Si es así, **pasaría en cada
+     titular** que creamos, y habría que desactivar ese *workflow* (decisión
+     del Club) o que la integración use esa ficha en lugar de crear otra.
+     Revísalo en Configuración, Flujos de trabajo (*Workflows*) del módulo
+     Cuentas, y compara con las altas del 17/09 y del 19/09.
+   - **El primer intento creó la Cuenta y falló en la ficha** (la cédula). El
+     segundo reutilizó la Cuenta, como está previsto, pero **esa Cuenta
+     conserva la cédula y el nombre de antes de la corrección**. Mira su C.I.
+   - Un **doble envío** del panel (dos clics, o dos pestañas).
+4. **Corrígelo en el código** si la causa está de nuestro lado, y dime qué
+   quedó en SAFI y qué habría que arreglar a mano. **No borres nada en SAFI**:
+   el Coordinador decide.
+
+**Lo que ya puse del lado de desarrollo**, sin saber aún la causa:
+
+- **Versión en el panel:** `GET /api/solicitudes/:id/safi` devuelve `version`
+  (el `actualizadaEn` del trámite). La bandeja la manda al confirmar y, si el
+  trámite cambió con el panel abierto (una corrección desde la tableta), el
+  servidor responde **409 con `cambiado: true`**, no crea nada y la bandeja
+  vuelve a abrir el panel con los datos vigentes. Un panel sin `version` sigue
+  como antes.
+- **Aviso de Cuenta reutilizada:** si un intento anterior dejó la Cuenta creada
+  y la ficha no, el panel lo dice (sin detener): esa Cuenta conserva los datos
+  de aquel intento y, si luego se corrigió la cédula o el nombre, hay que
+  corregirlos también en el CRM.
+
+Si tu causa es otra, dilo y cámbialo tú.
+
+---
+
+## Lo que cambió en esta ronda
+
+Pedidos del Coordinador, con la Jefatura de Socios, el 24/09/2026.
 
 | Dónde | Qué | ¿Reconstruir? |
 | --- | --- | --- |
-| `src/features/afiliacion/PasoTipo.tsx` y la revisión | El abuelo del D-C en la tableta: tarjeta propia, no obligatoria, consultada en SAFI con `REGLA_OFICIAL` | No (tableta) |
-| `src/domain/sociosSafi.ts` | `convencionalDesdeSafi` devuelve vacío lo que no pasa la validación —los de 7 dígitos—, y completa con el cero los de 8 que empiezan por 2–7. `celularDesdeSafi`, igual, y toma el primero de « / » | **Sí** (dominio) |
-| `server/src/safi/referencias.ts` | El aviso de estado distinto de «Activo» dice ahora que **no impide** crear la ficha | **Sí** |
-| `web/index.html` | Panel de SAFI: la **«Observación Control de Socios»** estaba dentro del recuadro de cuotas, que se oculta en el cónyuge, los padres y el juvenil —no se les podía escribir—; va en su propio recuadro, igual que su campo del abuelo («Parentesco del D-C»). Y ese campo lleva `type="text"`: sin él no tomaba el estilo de los demás | **Sí** |
-| `server/README.md`, sección 3.6 | Reescrita: la bandeja se publica en `afiliaciones.clublacampina.com.ec` con su sitio de Apache; el 8080 sigue mientras dure el cambio. Revísela: la escribí con lo que contó en su nota | No |
-| `app/configuracion.tsx`, `PROCESO-AFILIACION.md` | La dirección de ejemplo es la nueva, sin puerto; la guía suma el abuelo del D-C y dos puntos a la lista de comprobación | No |
+| `src/domain/sociosSafi.ts` | **Quién puede afiliar a quién.** La regla `TITULAR` se parte en tres: `TITULAR_CONYUGE` (Activo, Fundador, D-B casado, D-C, P-A, corresponsales y titular por traspaso), `TITULAR_JUVENIL` (los mismos **y el D-B soltero**) y `TITULAR_PADRES` (Activo, Fundador y titular por traspaso). **El D-A, el P-B y los suscriptores no afilian a nadie.** `avisoTraspaso()`: «CONYUGE Y PADRES TITULARES» solo mantiene el beneficio para la familia del socio fallecido; se avisa sin detener. `esOficial()` | **Sí** |
+| `server/src/safi/referencias.ts` | Usa las reglas nuevas y añade el aviso del titular por traspaso | **Sí** |
+| `server/src/safi/registro.ts` | `valorCuotaDe(confirmacion, categoría)`: con subscripción **Trimestral o Semestral**, el Valor Cuota es el del tarifario de esa periodicidad. `faltantesDeConfirmacion` no exige cuota anual ni mensual en esos casos | **Sí** |
+| `server/src/http/api.ts` | El panel trae `tarifas` (por periodicidad) y `version`. El alta comprueba la versión y usa `valorCuotaDe` con la categoría. El aviso de Cuenta reutilizada | **Sí** |
+| `web/` | **Subscripción que llena la cuota:** la lista ofrece solo las periodicidades de la categoría; Anual pone la cuota anual y vacía la mensual, Mensual al revés, Trimestral y Semestral vacían las dos y van al Valor Cuota. La reapertura del panel con el 409. Sin «;» ni rayas en los textos | **Sí** |
+| `src/services/formularios/` | Solo separadores que añade el sistema: «QUITO, 12/04/2004» en lugar de «QUITO — 12/04/2004». Los textos de los originales, intactos | **Sí** |
+| Tableta | Búsqueda por **número o cédula** en todos (garantes, titular, socio del que depende, abuelo), con búsqueda sola al completar la cédula y **vaciado de lo traído si se cambia la clave**. Grado y situación del titular solo si es oficial. Textos sin «;» ni rayas | No (tableta) |
 
-`bandeja.js` no cambió: su código busca los elementos por `id`, y los `id`
-siguen siendo los mismos.
+**Probado** en `MANUAL`: **78 comprobaciones** de la ronda (entre ellas las
+reglas nuevas, el 409 por versión, las tarifas del panel y el trimestral del
+gimnasio) y las **69 anteriores**, todo en verde.
 
-**Probado:** el banco de siempre en `MANUAL`, con **66 comprobaciones** de la
-ronda —11 nuevas: el abuelo en la tableta, en el PGS1-11 y en el Parentesco, y
-su panel del D-C con el abuelo de la tableta, sin él (409) y escrito en el
-panel (200)— y las **69 anteriores**, todo en verde. El panel de SAFI se revisó
-en imagen con los recuadros nuevos.
-
-## Tarea 1 — Revisar, actualizar y reconstruir
+## Tarea 2: reconstruir y comprobar
 
 ```bash
 cd /opt/campina-socios
 sudo git fetch origin
-sudo git status
 sudo git pull origin despliegue-servidor
 sudo git diff --stat ORIG_HEAD HEAD -- server web src/domain src/services/formularios
 ```
 
-Debe mostrar `server/README.md`, `server/src/safi/referencias.ts`,
-`src/domain/sociosSafi.ts` y `web/index.html`. Respalda y reconstruye como de
-costumbre.
+Respalda, reconstruye y comprueba en la bandeja, con un trámite de prueba si lo
+hay: al elegir Subscripción Mensual se llena la cuota mensual y el Valor Cuota.
 
-## Tarea 2 — Comprobar en la bandeja
+## Tarea 3: el trimestral y el semestral en SAFI (solo lectura)
 
-1. Panel de SAFI de un **cónyuge, unos padres o un juvenil** (uno de prueba, o
-   uno nuevo con la tableta del Coordinador): se ve y se puede escribir la
-   «Observación Control de Socios».
-2. Panel de un **D-C**: el recuadro «Parentesco del D-C», con el campo del
-   abuelo del mismo tamaño que los demás.
-3. **No crees nada en SAFI** para probarlo: basta abrir el panel y cancelar.
-
-## Tarea 3 — El 8080, cuando toque
-
-Nada que hacer todavía. Cuando el Coordinador confirme que creó el registro en
-su DNS y cambió la dirección en la tableta y en los tres navegadores, cierra el
-8080 como dejaste dicho: `BIND_HOST=127.0.0.1` **y** `TRUST_PROXY=true`, a la
-vez. Después, cambia en `server/README.md` (3.6) y en `PROCESO-AFILIACION.md`
-la frase que dice que el 8080 sigue abierto.
+SAFI solo tiene Cuota Anual (`cf_947`) y Cuota Mensual (`cf_949`). Para el
+suscriptor de gimnasio (trimestral 130, semestral 250) y el de tenis (semestral
+240) supuse que el importe va en el **Valor Cuota** de la Cuenta y las dos
+cuotas a 0. **Mira fichas reales** con Subscripciones «Trimestral» o
+«Semestral»: qué tienen en `cf_947`, `cf_949` y en el `cf_977` de su Cuenta. La
+lista de cuotas anuales incluye un «130»: quizá el Club lo guarda ahí. Si es
+distinto de lo que supuse, corrige `valorCuotaDe` y el `change` de la
+subscripción en `bandeja.js`, y dilo.
 
 ---
 
 ## Lo que queda pendiente y no es de esta ronda
 
 - **La tableta nueva** la compila e instala el Coordinador.
-- **Completar con `02` los convencionales de 7 dígitos**: lo decide el
-  Coordinador. Hoy se dejan vacíos.
-- **TLS:** cuando se decida, tu nota sobre el reto DNS-01 en la zona pública.
-- `CORRESPONSAL A` en `cf_917`, la lista de documentos por tipo de socio y la
-  firma One Shot, como estaban.
+- Completar con `02` los convencionales de 7 dígitos: lo decide el Coordinador.
+- TLS, `CORRESPONSAL A` en `cf_917`, la lista de documentos por tipo de socio y
+  la firma One Shot, como estaban.
 
 ## Lo que debes entregar al final
 
-Un informe corto, en español: tu revisión, el respaldo y la reconstrucción, y lo
-que viste en los dos paneles.
+Un informe corto, en español: **la causa de la doble ficha** y lo que hay en
+SAFI; qué cambiaste; el respaldo y la reconstrucción; y lo que encontraste del
+trimestral y el semestral.

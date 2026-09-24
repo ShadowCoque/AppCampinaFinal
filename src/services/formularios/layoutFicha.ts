@@ -91,7 +91,7 @@ function bloqueDatosPersonales(
       "Apellidos y nombres (completos)",
       nombreCompleto(datos),
       "Lugar y fecha de nacimiento",
-      unir([datos.lugarNacimiento, fecha(datos.fechaNacimiento)], " — ")
+      unir([datos.lugarNacimiento, fecha(datos.fechaNacimiento)], ", ")
     ),
     filaDoble(
       "N.º cédula de ciudadanía",

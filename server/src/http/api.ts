@@ -31,7 +31,7 @@ import {
   nombreTipo,
   tieneCuentaPropia,
 } from "../../../src/domain/tiposMiembro";
-import { periodicidadesDe } from "../../../src/domain/cuotas";
+import { periodicidadesDe, tarifaDe } from "../../../src/domain/cuotas";
 import { config } from "../config";
 import {
   adjuntoDe,
@@ -1326,6 +1326,12 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       // cubiertos por la del titular, y el panel no debe pedírsela.
       pagaCuota:
         periodicidadesDe(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil).length > 0,
+      // Lo que el tarifario fija para esta categoría, por periodicidad: el panel
+      // llena la cuota al elegir la subscripción.
+      tarifas: tarifaDe(solicitud.datos.tipoMiembro, solicitud.datos.estadoCivil)?.cuotas ?? {},
+      // Versión del trámite con que se abre el panel: si cambia antes de
+      // confirmar (una corrección desde la tableta), el alta no sigue.
+      version: solicitud.actualizadaEn,
       propuesta,
       listas: listasParaPanel(delCrm),
       listasEnVivo: delCrm !== null,
@@ -1335,6 +1341,21 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
         ...verificacion.avisos,
         ...referencias.avisos,
         ...avisosDeConfirmacion(solicitud, propuesta, delCrm ?? undefined),
+        // Un intento anterior creó la Cuenta y falló en la ficha: el alta la
+        // reutiliza, pero la Cuenta conserva los datos de ese intento. Si el
+        // trámite se corrigió después, hay que corregirla también en SAFI.
+        ...(esTitular && solicitud.expediente.cuentaSafiId && !solicitud.expediente.socioSafiId
+          ? [
+              {
+                campo: "cuenta",
+                etiqueta: "Cuenta creada en un intento anterior",
+                valor: solicitud.expediente.cuentaSafiId,
+                bloquea: false,
+                origen: "COHERENCIA" as const,
+                mensaje: `Un intento anterior ya creó la Cuenta ${solicitud.expediente.cuentaSafiId} en SAFI y se reutilizará. Conserva los datos de ese momento: si después se corrigió la cédula o el nombre, corríjalos también en esa Cuenta del CRM.`,
+              },
+            ]
+          : []),
       ],
       oficialDependencia: referencias.dependencia.verificacion,
       // D-C: el oficial FAE del que desciende. El panel lo muestra en un campo
@@ -1368,6 +1389,21 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       return respuesta.code(409).send({ error: "El trámite está anulado: no se crea nada en SAFI." });
     }
 
+    // El panel se abrió con una versión del trámite. Si después se corrigió
+    // (desde la tableta, con el panel todavía abierto), lo que la Jefatura
+    // confirmó se revisó sobre datos que ya no son: no se crea nada y el panel
+    // se vuelve a abrir con los vigentes. Así empezó el caso del 23/09/2026, en
+    // el que un D-C corregido con el panel abierto terminó con dos fichas en
+    // SAFI. Un panel sin versión (una bandeja anterior) sigue como antes.
+    const version = (peticion.body as { version?: unknown } | undefined)?.version;
+    if (typeof version === "string" && version && version !== solicitud.actualizadaEn) {
+      return respuesta.code(409).send({
+        cambiado: true,
+        error:
+          "El trámite cambió mientras este panel estaba abierto (se corrigió desde la tableta). Se volvió a abrir con los datos vigentes: revíselos y confirme de nuevo.",
+      });
+    }
+
     const comprobacion = validarConfirmacionSafi(peticion.body);
     if (!comprobacion.ok) return respuesta.code(400).send({ error: comprobacion.error });
 
@@ -1377,7 +1413,7 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       // El Valor Cuota de la Cuenta es la cuota que la Jefatura eligió —la
       // mensual o la anual—, no un valor aparte (decisión del Coordinador,
       // 23/09/2026). Se calcula aquí aunque el panel ya lo muestre.
-      valorCuota: valorCuotaDe(comprobacion.confirmacion),
+      valorCuota: valorCuotaDe(comprobacion.confirmacion, solicitud.datos),
       confirmadaPor: usuario.nombre,
       confirmadaEn: new Date().toISOString(),
     };

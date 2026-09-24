@@ -152,7 +152,7 @@ export default function MiFirmaScreen() {
       <InfoNote tone="info" icon="information-circle-outline">
         Su firma acompaña a su nombre en la constancia que usted sella en el reverso del formulario:
         REGISTRADO en el Área de Socios, REVISADO en Contabilidad y APROBADO en la Gerencia. Se carga
-        una sola vez y puede volver a trazarla cuando quiera; las constancias ya emitidas conservan
+        una sola vez y puede volver a trazarla cuando quiera. Las constancias ya emitidas conservan
         la firma con la que se estamparon.
       </InfoNote>
 

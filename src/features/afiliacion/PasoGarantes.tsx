@@ -7,11 +7,11 @@ import {
   celularDesdeSafi,
   convencionalDesdeSafi,
 } from "../../domain/sociosSafi";
-import { normalizarNombre, normalizarNombreFinal, normalizarNumeroSocio } from "../../domain/texto";
+import { normalizarNombre, normalizarNombreFinal } from "../../domain/texto";
 import { bloquesPara, getTipo } from "../../domain/tiposMiembro";
 import { soloDigitos } from "../../domain/validaciones";
 import { Card, InfoNote, LienzoFirma, TextField } from "../../ui";
-import { AvisosSocioSafi, useBuscarSocio } from "./BuscarSocioSafi";
+import { CamposBusquedaSocio } from "./BuscarSocioSafi";
 
 /**
  * Recuadro «SOCIO QUE LE GARANTIZA» / «SOCIOS QUE LE GARANTIZA».
@@ -93,90 +93,44 @@ function TarjetaGarante({
   onFirma: Props["onFirma"];
   onDibujando: Props["onDibujando"];
 }) {
-  const busqueda = useBuscarSocio(REGLA_GARANTE);
-
   const cambiar = (cambios: Partial<DatosGarante>) => actualizarGarante(indice, () => cambios);
-
-  const buscar = async () => {
-    const buscado = { numeroSocio: garante.numeroSocio, cedula: garante.cedula };
-    const resultado = await busqueda.buscar(buscado);
-    if (!resultado) return;
-    const { verificacion, socio } = resultado;
-
-    actualizarGarante(indice, (actual) => {
-      // Si mientras tanto se escribió otro número o cédula, la respuesta ya no
-      // es de este garante.
-      const mismoNumero =
-        normalizarNumeroSocio(actual.numeroSocio) === normalizarNumeroSocio(buscado.numeroSocio);
-      const mismaCedula = actual.cedula === buscado.cedula;
-      if (!(buscado.numeroSocio ? mismoNumero : mismaCedula)) return null;
-
-      if (!socio) return { verificacion };
-      // Lo que SAFI tiene reemplaza a lo escrito; lo que SAFI no tiene, no borra
-      // lo escrito.
-      return {
-        verificacion,
-        numeroSocio: verificacion.numeroSocio,
-        apellidosNombres:
-          normalizarNombreFinal(`${socio.apellidos} ${socio.nombres}`) || actual.apellidosNombres,
-        cedula: socio.cedula || actual.cedula,
-        telefonoDomicilio: convencionalDesdeSafi(socio.telefonoDomicilio) || actual.telefonoDomicilio,
-        celular: celularDesdeSafi(socio.celular) || actual.celular,
-      };
-    });
-  };
 
   return (
     <Card title={titulo} icon="ribbon">
-      <TextField
-        label="N.º de socio"
-        required
-        keyboardType="number-pad"
-        maxLength={8}
-        icon="barcode-outline"
-        value={garante.numeroSocio}
-        onChangeText={(v) => {
-          cambiar({ numeroSocio: normalizarNumeroSocio(v) });
-          busqueda.olvidar();
-        }}
-        onBlur={() => {
-          if (garante.numeroSocio && garante.verificacion?.numeroSocio !== garante.numeroSocio) {
-            void buscar();
-          }
-        }}
-        error={errores[`garante-${indice}-socio`]}
-        helper="Debe ser de un Socio Activo o de un Fundador. Se comprueba en SAFI."
-      />
-      <TextField
-        label="Cédula"
-        keyboardType="number-pad"
-        maxLength={10}
-        icon="card-outline"
-        value={garante.cedula}
-        onChangeText={(v) => {
-          cambiar({ cedula: soloDigitos(v, 10) });
-          busqueda.olvidar();
-        }}
-        onBlur={() => {
-          // Sin número, la cédula completa basta para buscarlo.
-          if (!garante.numeroSocio && garante.cedula.length === 10) void buscar();
-        }}
-        error={errores[`garante-${indice}-cedula`]}
-        helper="Si no sabe su número de socio, con la cédula también se encuentra."
-      />
-
-      <AvisosSocioSafi
-        verificacion={garante.verificacion}
-        numero={garante.numeroSocio}
+      <CamposBusquedaSocio
         regla={REGLA_GARANTE}
         papel="el garante"
-        detalle="Sus datos se trajeron de SAFI; corríjalos si el socio los tiene distintos."
-        cedulaDeclarada={garante.cedula}
-        sinConsulta={busqueda.sinConsulta}
-        sinCoincidencia={busqueda.sinCoincidencia}
-        consultando={busqueda.consultando}
-        onBuscar={() => void buscar()}
-        puedeBuscar={Boolean(garante.numeroSocio) || garante.cedula.length === 10}
+        detalle="Sus datos se trajeron de SAFI. Corríjalos si el socio los tiene distintos."
+        etiquetaNumero="N.º de socio"
+        ayudaNumero="Debe ser de un Socio Activo o de un Fundador. Se comprueba en SAFI."
+        requerido
+        numero={garante.numeroSocio}
+        cedula={garante.cedula}
+        verificacion={garante.verificacion}
+        errorNumero={errores[`garante-${indice}-socio`]}
+        errorCedula={errores[`garante-${indice}-cedula`]}
+        onNumero={(numeroSocio) => cambiar({ numeroSocio })}
+        onCedula={(cedula) => cambiar({ cedula })}
+        onDescartar={() =>
+          cambiar({ verificacion: null, apellidosNombres: "", telefonoDomicilio: "", celular: "" })
+        }
+        onEncontrado={({ verificacion, socio }) =>
+          actualizarGarante(indice, (actual) =>
+            socio
+              ? {
+                  verificacion,
+                  numeroSocio: verificacion.numeroSocio,
+                  apellidosNombres:
+                    normalizarNombreFinal(`${socio.apellidos} ${socio.nombres}`) ||
+                    actual.apellidosNombres,
+                  cedula: socio.cedula || actual.cedula,
+                  telefonoDomicilio:
+                    convencionalDesdeSafi(socio.telefonoDomicilio) || actual.telefonoDomicilio,
+                  celular: celularDesdeSafi(socio.celular) || actual.celular,
+                }
+              : { verificacion }
+          )
+        }
       />
 
       <TextField
