@@ -1392,9 +1392,10 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
     // El panel se abrió con una versión del trámite. Si después se corrigió
     // (desde la tableta, con el panel todavía abierto), lo que la Jefatura
     // confirmó se revisó sobre datos que ya no son: no se crea nada y el panel
-    // se vuelve a abrir con los vigentes. Así empezó el caso del 23/09/2026, en
-    // el que un D-C corregido con el panel abierto terminó con dos fichas en
-    // SAFI. Un panel sin versión (una bandeja anterior) sigue como antes.
+    // se vuelve a abrir con los vigentes. Un panel sin versión (una bandeja
+    // anterior) sigue como antes. (La doble ficha del 2928, el 24/09/2026, no
+    // vino de aquí sino del flujo de SAFI que crea una ficha con cada Cuenta:
+    // ver `fichaAutomatica` en el adaptador.)
     const version = (peticion.body as { version?: unknown } | undefined)?.version;
     if (typeof version === "string" && version && version !== solicitud.actualizadaEn) {
       return respuesta.code(409).send({
@@ -1557,11 +1558,31 @@ function actorConFirma(usuario: Usuario, solicitudId: string) {
       actorConFirma(usuario, id)
     );
 
+    // La ficha que SAFI crea sola al crear la Cuenta (ver `fichaAutomatica` en
+    // el adaptador): se dice si se completó o si quedó sobrando en el CRM.
+    const automatica = alta.ok ? alta.fichaAutomatica : undefined;
+    const notaAutomatica = !automatica
+      ? ""
+      : automatica.completada
+        ? ` SAFI había creado sola la ficha ${automatica.id} al crear la Cuenta; se completó esa, sin crear otra.`
+        : ` Atención: SAFI había creado sola otra ficha, la ${automatica.id} («Complete Aqui»), al crear la Cuenta, y no dejó completarla (${(
+            automatica.motivo ?? "sin motivo"
+          ).replace(/\.$/, "")}). La del socio es la ${alta.ok ? alta.socioId : ""}: pida que borren la ${automatica.id} en el CRM.`;
+    if (automatica) {
+      registrarBitacora({
+        usuario: usuario.usuario,
+        area: usuario.area,
+        accion: "SAFI_FICHA_AUTOMATICA",
+        entidad: actualizada?.codigo ?? solicitud.codigo,
+        detalle: notaAutomatica.trim(),
+      });
+    }
+
     const creado = alta.ok || Boolean(socioFinal);
     return respuesta.code(creado ? 200 : 202).send({
       creado,
       mensaje: alta.ok
-        ? `Creado en SAFI: Cuenta ${alta.cuentaId}, Socio ${alta.socioId}. Contabilidad ya puede revisarlo.`
+        ? `Creado en SAFI: Cuenta ${alta.cuentaId}, Socio ${alta.socioId}.${notaAutomatica} Contabilidad ya puede revisarlo.`
         : socioFinal
           ? `Registrado el alta hecha a mano en SAFI: Cuenta ${cuentaFinal ?? "—"}, Socio ${socioFinal}. Contabilidad ya puede revisarlo.`
           : alta.mensaje,

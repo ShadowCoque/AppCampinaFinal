@@ -298,10 +298,10 @@ export function faltantesDeConfirmacion(
 
   if (periodicidadesDe(tipoMiembro, estadoCivil).length > 0) {
     if (!confirmacion.suscripcion.trim()) faltan.push("Subscripciones");
-    // Con subscripción trimestral o semestral no hay cuota anual ni mensual
-    // que elegir: el importe va en el Valor Cuota.
-    const periodica = periodicidadNoMensualNiAnual(confirmacion.suscripcion);
-    if (!periodica && !confirmacion.cuotaAnual.trim() && !confirmacion.cuotaMensual.trim()) {
+    // Con subscripción trimestral o semestral, el importe del período va en la
+    // cuota anual: así las registra la Jefatura (las 29 fichas del CRM con esas
+    // subscripciones, 24/09/2026: 130, 240 o 250 en `cf_947` y 0 en `cf_949`).
+    if (!confirmacion.cuotaAnual.trim() && !confirmacion.cuotaMensual.trim()) {
       faltan.push("Cuota anual o mensual");
     }
   }
@@ -350,8 +350,9 @@ export function valorCuotaDe(
   confirmacion: Pick<ConfirmacionSafi, "cuotaAnual" | "cuotaMensual"> & { suscripcion?: string },
   categoria?: { tipoMiembro: TipoMiembro | null; estadoCivil: string }
 ): string {
-  // Trimestral y semestral no tienen campo de cuota en la ficha del Socio: el
-  // Valor Cuota lleva el de esa periodicidad, según el tarifario.
+  // Trimestral y semestral no tienen campo propio en la ficha del Socio (su
+  // importe va en la cuota anual): el Valor Cuota lleva el de esa
+  // periodicidad, según el tarifario.
   const periodica = periodicidadNoMensualNiAnual(confirmacion.suscripcion);
   if (periodica && categoria) {
     const valor = tarifaDe(categoria.tipoMiembro, categoria.estadoCivil)?.cuotas[periodica];

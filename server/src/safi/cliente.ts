@@ -494,6 +494,34 @@ export class ClienteApi {
     }
   }
 
+  /**
+   * Cambia los campos indicados de un registro que ya existe (`revise`: los
+   * que no se mandan se quedan como están). Se usa solo para completar la
+   * ficha de Socio que SAFI crea sola al crear una Cuenta (ver
+   * `AdaptadorSafi.fichaAutomatica`).
+   */
+  async revisar(
+    wsId: string,
+    campos: Record<string, string>
+  ): Promise<{ ok: true } | { ok: false; mensaje: string }> {
+    try {
+      const datos = await this.conSesion<{ id: string }>(() =>
+        this.pedir({
+          operation: "revise",
+          sessionName: this.sesion!,
+          element: JSON.stringify({ ...campos, id: wsId }),
+        })
+      );
+      if (!datos.success) {
+        if (datos.error?.code === "INVALID_SESSIONID") this.sesion = null;
+        return { ok: false, mensaje: datos.error?.message ?? "SAFI rechazó el cambio." };
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, mensaje: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   /** Elimina un registro. Se usa solo para deshacer un documento que quedó a medias. */
   async eliminar(wsId: string): Promise<boolean> {
     try {

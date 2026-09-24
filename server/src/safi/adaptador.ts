@@ -57,7 +57,17 @@ export type ResultadoPublicacion =
 
 /** Alta de una persona en el CRM: su ficha de Socio y, si es titular, su Cuenta. */
 export type ResultadoAlta =
-  | { ok: true; cuentaId: string; socioId: string }
+  | {
+      ok: true;
+      cuentaId: string;
+      socioId: string;
+      /**
+       * La ficha que SAFI creó sola al crear la Cuenta (ver `fichaAutomatica`):
+       * `completada` si es la misma `socioId`; si no se pudo completar, sigue en
+       * el CRM «Complete Aqui» y hay que borrarla a mano.
+       */
+      fichaAutomatica?: { id: string; completada: boolean; motivo?: string };
+    }
   | {
       ok: false;
       mensaje: string;
@@ -838,6 +848,23 @@ class AdaptadorConectado implements AdaptadorSafi {
       };
     }
 
+    // SAFI crea sola una ficha de Socio al crear una Cuenta de socio (un flujo
+    // de trabajo del CRM). Si está, se completa esa en lugar de crear otra.
+    const automatica = via === "API" ? await this.fichaAutomatica(referenciaCuenta) : null;
+    let motivoAutomatica: string | undefined;
+    if (automatica) {
+      const revisada = await this.api.revisar(automatica.wsId, compuestaSocio.campos);
+      if (revisada.ok) {
+        return {
+          ok: true,
+          cuentaId: cuenta,
+          socioId: automatica.id,
+          fichaAutomatica: { id: automatica.id, completada: true },
+        };
+      }
+      motivoAutomatica = revisada.mensaje;
+    }
+
     const socio = await this.crear(MODULOS.socio, compuestaSocio.campos);
     if (!socio.ok) {
       return {
@@ -849,7 +876,53 @@ class AdaptadorConectado implements AdaptadorSafi {
       };
     }
 
-    return { ok: true, cuentaId: cuenta, socioId: socio.id };
+    return {
+      ok: true,
+      cuentaId: cuenta,
+      socioId: socio.id,
+      ...(automatica
+        ? { fichaAutomatica: { id: automatica.id, completada: false, motivo: motivoAutomatica } }
+        : {}),
+    };
+  }
+
+  /**
+   * La ficha de Socio que SAFI crea sola al crear una Cuenta.
+   *
+   * El CRM del Club tiene un flujo de trabajo en Cuentas: al crear una cuyo
+   * «Grupo Facturación» (`cf_967`) no es OTROS —las de socios—, crea en ese
+   * mismo guardado una ficha de Socio colgada de ella, con el nombre, la cédula
+   * y el contacto de la Cuenta, el No. Socio `00` y el Tipo de Socio «Complete
+   * Aqui». La Jefatura, cuando da el alta a mano, completa esa ficha. Si la
+   * integración creara otra, el socio quedaría con dos (lo que pasó con el
+   * 2928, el 24/09/2026). Comprobado ese día sobre las 34 Cuentas creadas
+   * desde agosto: las 21 de socios la tienen, a 1 o 2 segundos de la Cuenta;
+   * las 13 con OTROS, no.
+   *
+   * Se reconoce por su Cuenta, el No. Socio vacío o `00` y el «Complete Aqui».
+   * Si hubiera más de una, no se elige ninguna: se crea la ficha como antes.
+   */
+  private async fichaAutomatica(cuentaWsId: string): Promise<{ id: string; wsId: string } | null> {
+    if (!/^\d+x\d+$/.test(cuentaWsId)) return null;
+    const buscar = async () => {
+      const fichas = await this.api.consultar<Record<string, string>>(
+        `SELECT id, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.tipoSocio} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.cuentaId} = '${cuentaWsId}';`
+      );
+      return fichas.filter(
+        (ficha) =>
+          ["", "0", "00"].includes(String(ficha[CAMPOS_SOCIO.numeroSocio] ?? "").trim()) &&
+          String(ficha[CAMPOS_SOCIO.tipoSocio] ?? "").trim() === "Complete Aqui"
+      );
+    };
+    try {
+      const fichas = await buscar();
+      if (fichas.length !== 1) return null;
+      const wsId = String(fichas[0].id);
+      return { id: wsId.split("x").pop() ?? wsId, wsId };
+    } catch {
+      // Sin poder mirarlo, se sigue como antes: se crea la ficha.
+      return null;
+    }
   }
 
   /* --- Documentos ------------------------------------------------- */

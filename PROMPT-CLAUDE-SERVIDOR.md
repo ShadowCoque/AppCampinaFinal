@@ -12,6 +12,54 @@
 >
 > Cópielo entero como primer mensaje de esa sesión.
 
+> **Atendido el 24/09/2026** por el Claude del servidor. Este encargo se
+> conserva tal como llegó.
+>
+> **Tarea 1: la causa de la doble ficha es un flujo de trabajo de SAFI**, no
+> nuestra. Al crear una Cuenta cuyo «Grupo Facturación» (`cf_967`) no es OTROS,
+> el CRM crea en el mismo guardado una ficha de Socio colgada de ella: No. Socio
+> `00`, Tipo «Complete Aqui», Estado «Completar Aqui», con el nombre, la cédula
+> y el contacto de la Cuenta, asignada a `19x1` y con `source=WORKFLOW`. De las
+> 34 Cuentas creadas desde el 01/08, las 21 de socios (OFICINA, BGR, tarjetas)
+> la tienen, a 1 o 2 s de la Cuenta; las 13 con OTROS, no. La Jefatura, al dar
+> de alta a mano, completa esa ficha: el 2924 del 17/09 era una a medio
+> completar. Nuestra prueba del 22/09 no lo vio porque esa Cuenta iba con OTROS.
+> - El 2928: Cuenta `11x13601`, con la cédula **corregida** (el primer intento
+>   se detuvo con 409 en la validación, sin crear nada), la ficha automática
+>   `12x13602` y la nuestra `12x13603`. Solo hubo dos `POST` del panel (409 y
+>   200), así que no fue un doble envío. Tus hipótesis 2 y 3 quedan
+>   descartadas.
+> - **Corregido:** después de tener la Cuenta (nueva o reutilizada),
+>   `AdaptadorConectado.fichaAutomatica` busca la ficha de esa Cuenta con No.
+>   Socio vacío o `00` y «Complete Aqui». Si hay exactamente una, se completa
+>   con `revise` (`ClienteApi.revisar`) en lugar de crear otra. Si SAFI no deja
+>   modificarla, se crea la ficha como antes y el mensaje final y la bitácora
+>   (`SAFI_FICHA_AUTOMATICA`) dicen cuál sobra. Nunca se borra nada. Probado con
+>   un SAFI simulado, 12 comprobaciones en verde. **Queda por ver con una alta
+>   real** si el usuario de la integración puede modificar una ficha asignada a
+>   `19x1`: la operación existe y el módulo es `updateable`.
+> - Tu comentario del 409 por versión decía que de ahí vino la doble ficha. Lo
+>   corregí. La comprobación de versión sigue siendo una buena salvaguarda.
+> - **En SAFI queda la `12x13602` sobrando**; no borré nada. Lo decide el
+>   Coordinador.
+>
+> **Tarea 3: distinto de lo supuesto.** En las 29 fichas con Subscripción
+> Trimestral o Semestral, el importe del período está en la **Cuota Anual**
+> (`cf_947`: 130 el gimnasio trimestral, 250 el semestral y 240 el tenis
+> semestral), la mensual en 0 y el Valor Cuota de la Cuenta en 0.00. Los
+> suscriptores con Mensual llevan 50 y Valor Cuota 50.00. Cambié el `change` de
+> la subscripción en `bandeja.js`: Trimestral y Semestral ponen el importe en la
+> cuota anual y vacían la mensual. `faltantesDeConfirmacion` ya no hace
+> excepción. `valorCuotaDe` queda como estaba (el importe del período), según la
+> regla del Coordinador del 23/09, aunque las fichas antiguas tengan 0.00.
+>
+> **Tarea 2:** revisado tu diff del servidor y está bien. Reconstruida
+> (`51b3fe2d7f35`) con respaldo
+> `campina_20260924_113357_antes-de-reconstruir-ficha-automatica`, y desplegada.
+> No hay trámites pendientes de SAFI (los tres están aprobados), así que el
+> llenado de la cuota al elegir la subscripción no se pudo ver en el panel. Se
+> comprobó la lógica del servidor para Trimestral, Semestral y Mensual.
+
 ---
 
 Eres el Claude de **despliegue a producción** del sistema de afiliación de

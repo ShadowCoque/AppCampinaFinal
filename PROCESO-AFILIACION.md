@@ -187,13 +187,18 @@ y la ven Contabilidad y la Gerencia.
    son cosas que el CRM no podría guardar o que conviene mirar dos veces.
    Elija la **Subscripción**: la cuota se llena sola con la del tarifario de la
    categoría (Anual pone la cuota anual, Mensual la mensual; Trimestral y
-   Semestral, que SAFI no tiene como cuota, van en el Valor Cuota). La lista
+   Semestral, que SAFI no tiene como cuota, ponen el importe del período en la
+   cuota anual, como las registra la Jefatura en el CRM). La lista
    solo ofrece las periodicidades que esa categoría admite. El **Valor Cuota**
    de la Cuenta sale de la elegida.
    Si el trámite se corrige desde la tableta con el panel abierto, al confirmar
    el panel se vuelve a abrir con los datos vigentes y no se crea nada.
 3. Confirme. Con la escritura habilitada, el sistema **crea la Cuenta y la ficha
-   de Socio** en SAFI y guarda sus identificadores en el expediente.
+   de Socio** en SAFI y guarda sus identificadores en el expediente. Al crear
+   una Cuenta de socio, SAFI crea sola una ficha «Complete Aqui» (un flujo de
+   trabajo del CRM): el sistema **completa esa ficha** en lugar de crear otra.
+   Si SAFI no le deja completarla, crea la suya y el mensaje final dice qué
+   ficha sobra, para borrarla a mano en el CRM.
 
 **Cómo se comprueba:** la tarea desaparece de Pendientes, el trámite pasa a
 **Atendidas** del Área de Socios, y la afiliación aparece en **Pendientes de

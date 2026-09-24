@@ -1628,8 +1628,8 @@ function sincronizarCuotas() {
   anual.disabled = Boolean(mensual.value);
   mensual.disabled = Boolean(anual.value);
 
-  // Con Trimestral o Semestral, el valor es el de esa periodicidad: SAFI no
-  // tiene un campo de cuota para ellas.
+  // Con Trimestral o Semestral, el valor es el de esa periodicidad, que va en
+  // la cuota anual (SAFI no tiene un campo de cuota para ellas).
   const periodica = tarifaDeSuscripcion($(CAMPOS_SAFI.suscripcion).value, ["Trimestral", "Semestral"]);
   $("safi-valor-cuota").value =
     periodica !== null
@@ -1686,8 +1686,10 @@ function tarifaDeSuscripcion(suscripcion, admitidas) {
 /**
  * Al elegir la subscripción, la cuota se llena sola con la del tarifario de la
  * categoría (Coordinador, 24/09/2026): «Anual» pone la cuota anual y vacía la
- * mensual; «Mensual», al revés; «Trimestral» y «Semestral» vacían las dos y
- * llevan su valor al Valor Cuota. La Jefatura puede cambiarla después.
+ * mensual; «Mensual», al revés. «Trimestral» y «Semestral» ponen el importe del
+ * período en la cuota anual y vacían la mensual: así las registra la Jefatura
+ * en SAFI, que no tiene campo para ellas (las 29 fichas del CRM, 24/09/2026).
+ * La Jefatura puede cambiarla después.
  */
 $(CAMPOS_SAFI.suscripcion).addEventListener("change", () => {
   const suscripcion = $(CAMPOS_SAFI.suscripcion).value;
@@ -1712,7 +1714,7 @@ $(CAMPOS_SAFI.suscripcion).addEventListener("change", () => {
     poner(mensual, tarifaDeSuscripcion("Mensual", ["Mensual"]));
     poner(anual, null);
   } else if (suscripcion === "Trimestral" || suscripcion === "Semestral") {
-    poner(anual, null);
+    poner(anual, tarifaDeSuscripcion(suscripcion, ["Trimestral", "Semestral"]));
     poner(mensual, null);
   }
   sincronizarCuotas();
