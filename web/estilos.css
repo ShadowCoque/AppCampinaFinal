@@ -959,3 +959,4 @@ dialog h2 {
 .mensajes-fila .texto-peligro, .mensajes-fila .texto-exito { font-weight: 500; }
 .aviso-fila { color: var(--alerta); }
 .titulo-seccion { font-size: 15px; color: var(--azul); margin: 22px 0 8px; }
+.bloque-importacion p { line-height: 1.55; }

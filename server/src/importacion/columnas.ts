@@ -40,7 +40,30 @@ export type ClaveColumna =
   | "valorMembresia"
   | "fechaIngreso"
   | "comunicaciones"
-  | "hobbie";
+  | "hobbie"
+  | "lugarNacimiento"
+  | "profesion"
+  | "lugarTrabajo"
+  | "cargo"
+  | "telefonoTrabajo";
+
+/**
+ * Las dos importaciones (29/09/2026). El Coordinador decidirá con cuál se
+ * queda cuando se apruebe el formato de los formularios y la firma
+ * electrónica:
+ *
+ *   `SAFI`        solo crea la Cuenta y la ficha en SAFI;
+ *   `FORMULARIO`  además registra un trámite por socio, con su R-PGS1-1, que
+ *                 sigue por Contabilidad y la Gerencia como uno de la tableta.
+ *                 Pide también lo que el formulario imprime y SAFI no guarda.
+ */
+export type ModoImportacion = "SAFI" | "FORMULARIO";
+
+export const MODOS_IMPORTACION: ModoImportacion[] = ["FORMULARIO", "SAFI"];
+
+export function esModoImportacion(valor: unknown): valor is ModoImportacion {
+  return valor === "SAFI" || valor === "FORMULARIO";
+}
 
 /** Listas desplegables de la plantilla. Sus valores los da el CRM en vivo. */
 export type ClaveLista =
@@ -74,6 +97,10 @@ export type Columna = {
   ejemplo: string;
   /** Otros encabezados que se reconocen como esta columna. */
   alias: string[];
+  /** Solo en la importación con formulario: son datos que SAFI no guarda. */
+  soloFormulario?: boolean;
+  /** Obligatoriedad distinta en la importación con formulario. */
+  obligatoriaConFormulario?: boolean | "condicional";
 };
 
 const TARIFA_ACTIVO = tarifaDe("SA", "");
@@ -166,7 +193,9 @@ export const COLUMNAS: Columna[] = [
     formato: "lista",
     lista: "tipoSangre",
     ancho: 12,
-    descripcion: "O+, O-, A+, A-, B+, B-, AB+ o AB-. Si no se conoce, déjelo vacío.",
+    descripcion:
+      "O+, O-, A+, A-, B+, B-, AB+ o AB-. En la importación solo a SAFI, si no se conoce, déjelo vacío; con formulario es obligatorio, porque el R-PGS1-1 lo pide.",
+    obligatoriaConFormulario: true,
     ejemplo: "O+",
     alias: ["sangre", "grupo sanguineo", "tipo sangre", "tipo sanguineo"],
   },
@@ -347,6 +376,61 @@ export const COLUMNAS: Columna[] = [
     alias: ["acepta comunicaciones", "comunicaciones", "autoriza comunicaciones"],
   },
   {
+    clave: "lugarNacimiento",
+    titulo: "Lugar de nacimiento",
+    obligatoria: true,
+    formato: "texto",
+    ancho: 18,
+    descripcion: "Ciudad o cantón de nacimiento. Lo imprime el formulario R-PGS1-1.",
+    ejemplo: "QUITO",
+    alias: ["lugar nacimiento", "ciudad de nacimiento"],
+    soloFormulario: true,
+  },
+  {
+    clave: "profesion",
+    titulo: "Profesión",
+    obligatoria: true,
+    formato: "texto",
+    ancho: 18,
+    descripcion: "Profesión u ocupación, como en el formulario (por ejemplo, OFICIAL FAE o PILOTO MILITAR).",
+    ejemplo: "OFICIAL FAE",
+    alias: ["profesion u ocupacion", "ocupacion"],
+    soloFormulario: true,
+  },
+  {
+    clave: "lugarTrabajo",
+    titulo: "Lugar de trabajo",
+    obligatoria: false,
+    formato: "texto",
+    ancho: 22,
+    descripcion: "Reparto o unidad. Opcional.",
+    ejemplo: "ALA DE COMBATE N.º 21",
+    alias: ["lugar trabajo", "reparto", "unidad"],
+    soloFormulario: true,
+  },
+  {
+    clave: "cargo",
+    titulo: "Cargo",
+    obligatoria: false,
+    formato: "texto",
+    ancho: 18,
+    descripcion: "Opcional.",
+    ejemplo: "PILOTO",
+    alias: [],
+    soloFormulario: true,
+  },
+  {
+    clave: "telefonoTrabajo",
+    titulo: "Teléfono de trabajo",
+    obligatoria: false,
+    formato: "texto",
+    ancho: 14,
+    descripcion: "9 dígitos con el código de provincia (022345678). Opcional.",
+    ejemplo: "022345678",
+    alias: ["telefono trabajo", "telefono oficina"],
+    soloFormulario: true,
+  },
+  {
     clave: "hobbie",
     titulo: "Hobbie",
     obligatoria: false,
@@ -391,8 +475,27 @@ export function columnaDeEncabezado(texto: string): ClaveColumna | null {
   return POR_ENCABEZADO.get(claveEncabezado(texto)) ?? null;
 }
 
+/** Las columnas de la plantilla de cada importación, con su obligatoriedad. */
+export function columnasDe(modo: ModoImportacion): Columna[] {
+  return COLUMNAS.filter((c) => modo === "FORMULARIO" || !c.soloFormulario).map((c) =>
+    modo === "FORMULARIO" && c.obligatoriaConFormulario !== undefined
+      ? { ...c, obligatoria: c.obligatoriaConFormulario }
+      : c
+  );
+}
+
 /** Columnas sin las cuales no se puede revisar ninguna fila. */
-export const COLUMNAS_OBLIGATORIAS = COLUMNAS.filter((c) => c.obligatoria === true).map((c) => c.clave);
+export function obligatoriasDe(modo: ModoImportacion): ClaveColumna[] {
+  return columnasDe(modo)
+    .filter((c) => c.obligatoria === true)
+    .map((c) => c.clave);
+}
+
+/** Nombre de cada importación, como lo ve la Jefatura. */
+export const NOMBRE_MODO: Record<ModoImportacion, string> = {
+  FORMULARIO: "con formulario",
+  SAFI: "solo SAFI",
+};
 
 /** Máximo de filas de un lote: un octubre trae unas decenas de cadetes. */
 export const MAXIMO_FILAS = 500;

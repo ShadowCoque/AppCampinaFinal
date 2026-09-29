@@ -428,9 +428,9 @@ base.
 
 | Ruta | Qué hace |
 | --- | --- |
-| `GET /api/importaciones/plantilla` | Plantilla con las listas del CRM de hoy |
+| `GET /api/importaciones/plantilla?modo=` | Plantilla con las listas del CRM de hoy, de `FORMULARIO` o `SAFI` |
 | `GET /api/importaciones/numeracion` | Últimos titulares creados en SAFI |
-| `POST /api/importaciones?desde=N` | Sube (multipart) y revisa, sin crear |
+| `POST /api/importaciones?modo=&desde=N` | Sube (multipart) y revisa, sin crear |
 | `GET /api/importaciones[/:id]` | Lotes recientes, o uno con sus filas |
 | `POST /api/importaciones/:id/revisar` | Vuelve a comprobar las filas no creadas |
 | `POST /api/importaciones/:id/crear` | Crea en segundo plano (202); una a la vez |
@@ -438,7 +438,11 @@ base.
 | `DELETE /api/importaciones/:id` | Descarta un lote sin filas creadas |
 | `GET /api/importaciones/:id/resultado` | Informe en Excel |
 
-Crear exige `SAFI_MODO=API` y `SAFI_ESCRITURA=true`. Cada fila usa la misma
+Hay dos importaciones (`modo`). `SAFI` solo crea la Cuenta y la ficha.
+`FORMULARIO` registra además un trámite por fila, con `registrarSolicitud`,
+**antes** del alta, y lo sella con `guardarAltaSafi`, como el panel. La firma
+del socio en la tableta queda omitida con su motivo. El trámite sigue por
+Contabilidad y la Gerencia, y su R-PGS1-1 se archiva al aprobar. Crear exige `SAFI_MODO=API` y `SAFI_ESCRITURA=true`. Cada fila usa la misma
 `darDeAlta` que el panel. Si el servidor se reinicia a mitad de un lote, el
 lote queda detenido y la fila en curso, fallida.
 

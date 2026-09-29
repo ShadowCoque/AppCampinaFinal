@@ -378,7 +378,9 @@ function depurarEntrante(
 
 export function registrarSolicitud(
   solicitud: SolicitudAfiliacion,
-  actor: { usuario: string; area: Area; nombre: string }
+  actor: { usuario: string; area: Area; nombre: string },
+  /** De dónde vino, para el historial. Por omisión, de la tableta. */
+  nota = "Afiliación registrada desde la aplicación."
 ): { solicitud: SolicitudAfiliacion; nueva: boolean } {
   // Idempotencia: la tableta reintenta cuando una respuesta se pierde. Si el
   // identificador ya existe, se devuelve lo almacenado en lugar de sobrescribir
@@ -401,7 +403,7 @@ export function registrarSolicitud(
         estado: "REGISTRADA",
         area: "SOCIOS",
         responsable: actor.nombre,
-        nota: "Afiliación registrada desde la aplicación.",
+        nota,
       },
     ],
   };

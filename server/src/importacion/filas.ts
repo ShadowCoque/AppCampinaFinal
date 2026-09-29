@@ -47,7 +47,7 @@ import {
   importeEnLista,
 } from "../safi/campos";
 import { valorCuotaDe } from "../safi/registro";
-import { COLUMNA_POR_CLAVE, type ClaveColumna } from "./columnas";
+import { COLUMNA_POR_CLAVE, type ClaveColumna, type ModoImportacion } from "./columnas";
 import type { CeldaLeida, FilaLeida, ListasPlantilla } from "./excel";
 import type { MensajeFila } from "./lotes";
 
@@ -338,7 +338,11 @@ export type FilaInterpretada = {
   avisos: MensajeFila[];
 };
 
-export function interpretarFila(leida: FilaLeida, catalogos: Catalogos): FilaInterpretada {
+export function interpretarFila(
+  leida: FilaLeida,
+  catalogos: Catalogos,
+  modo: ModoImportacion
+): FilaInterpretada {
   const errores: MensajeFila[] = [];
   const avisos: MensajeFila[] = [];
   const celda = (clave: ClaveColumna) => leida.celdas[clave];
@@ -525,6 +529,41 @@ export function interpretarFila(leida: FilaLeida, catalogos: Catalogos): FilaInt
   }
 
   datos.hobbie = texto("hobbie").slice(0, 100);
+
+  /* --- Lo que solo imprime el formulario ---------------------------- */
+
+  if (modo === "FORMULARIO") {
+    const lugar = normalizarTextoInstitucional(texto("lugarNacimiento")).trim();
+    if (!lugar) falta("lugarNacimiento");
+    datos.lugarNacimiento = lugar;
+
+    const profesion = normalizarTextoInstitucional(texto("profesion")).trim();
+    if (!profesion) falta("profesion");
+    datos.profesion = profesion;
+
+    datos.lugarTrabajo = normalizarTextoInstitucional(texto("lugarTrabajo")).trim().slice(0, 120);
+    datos.cargo = normalizarTextoInstitucional(texto("cargo")).trim().slice(0, 120);
+
+    let trabajo = digitos(celda("telefonoTrabajo"));
+    if (trabajo) {
+      if (trabajo.startsWith("593") && trabajo.length === 11) trabajo = `0${trabajo.slice(3)}`;
+      if (trabajo.length === 8 && /^[2-7]/.test(trabajo)) trabajo = `0${trabajo}`;
+      const problema = validarConvencional(trabajo, false);
+      if (problema) error("telefonoTrabajo", `${problema} (se leyó «${texto("telefonoTrabajo")}»).`);
+      datos.telefonoTrabajo = trabajo;
+    }
+
+    // El R-PGS1-1 pide el tipo de sangre a todas las categorías, como la tableta.
+    if (!datos.tipoSangre && !errores.some((e) => e.columna === "tipoSangre")) {
+      error(
+        "tipoSangre",
+        texto("tipoSangre")
+          ? "El formulario pide el tipo de sangre: con formulario no se admite «desconocido»."
+          : "Falta «Tipo de sangre»: el formulario lo pide."
+      );
+      avisos.splice(0, avisos.length, ...avisos.filter((a) => a.columna !== "tipoSangre"));
+    }
+  }
 
   /* --- Fechas del Club ---------------------------------------------- */
 

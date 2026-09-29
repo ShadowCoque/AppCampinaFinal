@@ -19,6 +19,12 @@ La Jefatura de Socios puede crear en SAFI, desde su bandeja (pestaña
 `PROCESO-AFILIACION.md` («Importación de socios oficiales desde Excel») y en
 `server/README.md` (sección 7).
 
+Son **dos importaciones**, hasta que el Coordinador elija una: «solo SAFI» y
+«con formulario». La segunda registra además un trámite por socio, con su
+R-PGS1-1, que sigue por Contabilidad y la Gerencia; la firma del socio queda
+omitida con su motivo. Para eso `registrarSolicitud` (`server/src/db/solicitudes.ts`)
+admite un tercer parámetro opcional, la nota del historial.
+
 Lo que toca código que usted también mantiene:
 
 | Dónde | Qué | Cuidado al tocarlo |

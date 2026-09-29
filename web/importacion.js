@@ -57,41 +57,70 @@ async function mostrarImportacion() {
   await Promise.all([cargarLotes(), cargarNumeracion()]);
 }
 
+/** Las dos importaciones. El Coordinador decidirá con cuál se queda. */
+const MODOS = {
+  FORMULARIO: {
+    titulo: "Importar socios oficiales desde Excel · con formulario",
+    nombre: "con formulario",
+    descripcion: `Por cada socio se registra un <b>trámite</b> (AF-…) con su formulario <b>R-PGS1-1</b>, el único que
+      lleva el Socio Activo, y se crean su Cuenta y su ficha en SAFI. El trámite sigue por Contabilidad y la
+      Gerencia como uno de la tableta, y el PDF se archiva al aprobarlo. La firma del socio queda pendiente de
+      la firma electrónica. La plantilla pide además lugar de nacimiento, profesión y datos de trabajo.`,
+  },
+  SAFI: {
+    titulo: "Importar socios oficiales desde Excel · solo SAFI",
+    nombre: "solo SAFI",
+    descripcion: `Solo crea la Cuenta y la ficha de cada socio en SAFI. <b>No genera formularios</b> ni trámites,
+      así que no pasa por Contabilidad ni la Gerencia.`,
+  },
+};
+
+function bloqueDeModo(modo) {
+  const m = MODOS[modo];
+  return `<div class="comprobador bloque-importacion">
+    <h2>${escapar(m.titulo)}</h2>
+    <p>${m.descripcion}</p>
+    <p><a class="boton sutil" href="/api/importaciones/plantilla?modo=${modo}" download>Descargar la plantilla ${escapar(
+      m.nombre
+    )} (.xlsx)</a></p>
+    <div class="comprobador-fila">
+      <div style="flex:2;min-width:240px">
+        <label for="imp-archivo-${modo}">Archivo de Excel (.xlsx)</label>
+        <input id="imp-archivo-${modo}" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label for="imp-desde-${modo}">Asignar números desde <span class="opcional">(filas sin número)</span></label>
+        <input id="imp-desde-${modo}" type="text" inputmode="numeric" maxlength="6" placeholder="Ej.: 2929" autocomplete="off" />
+      </div>
+      <button type="button" class="boton primario" data-subir="${modo}">Revisar el archivo</button>
+    </div>
+    <p class="error" id="imp-error-${modo}" role="alert" hidden></p>
+  </div>`;
+}
+
 function dibujarImportacion() {
   $("vista-importar").innerHTML = `<div class="instructivo importacion">
     <h2>Importar socios oficiales desde Excel</h2>
-    <p>Para los cadetes que ingresan cada octubre, o cualquier grupo de <b>Socios Activos</b>
-       (oficiales FAE): el sistema crea en SAFI la Cuenta y la ficha de cada uno, sin pasar por
-       la tableta. Las demás categorías se siguen afiliando desde la tableta.</p>
+    <p>Para los cadetes que ingresan cada octubre, o cualquier grupo de <b>Socios Activos</b> (oficiales FAE),
+       sin pasar por la tableta. Las demás categorías se siguen afiliando desde la tableta. Hay dos formas;
+       cada una tiene su propia plantilla.</p>
     <ol>
-      <li>Descargue la plantilla y escriba un socio por fila. Al pararse en una celda, Excel dice qué va en ella.</li>
-      <li>Súbala aquí. El sistema revisa cada fila y consulta SAFI, <b>sin crear nada</b>.</li>
+      <li>Descargue la plantilla de la importación que va a usar y escriba un socio por fila.</li>
+      <li>Súbala en ese mismo bloque. El sistema revisa cada fila y consulta SAFI, <b>sin crear nada</b>.</li>
       <li>Corrija lo que salga en rojo y vuelva a subirla, o cree solo las filas que están listas.</li>
       <li>Pulse «Crear en SAFI». Los socios se crean uno por uno; puede seguir el avance aquí.</li>
     </ol>
-    <p><a class="boton sutil" href="/api/importaciones/plantilla" download>Descargar la plantilla (.xlsx)</a></p>
-
-    <div class="comprobador">
-      <h2>Subir el archivo</h2>
-      <div class="comprobador-fila">
-        <div style="flex:2;min-width:240px">
-          <label for="imp-archivo">Archivo de Excel (.xlsx)</label>
-          <input id="imp-archivo" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-        </div>
-        <div style="flex:1;min-width:180px">
-          <label for="imp-desde">Asignar números desde <span class="opcional">(para las filas sin número)</span></label>
-          <input id="imp-desde" type="text" inputmode="numeric" maxlength="6" placeholder="Ej.: 2929" autocomplete="off" />
-        </div>
-        <button type="button" class="boton primario" id="imp-subir">Revisar el archivo</button>
-      </div>
-      <p class="pista" id="imp-numeracion">Consultando los últimos números creados en SAFI…</p>
-      <p class="error" id="imp-error" role="alert" hidden></p>
-    </div>
+    <p class="pista" id="imp-numeracion">Consultando los últimos números creados en SAFI…</p>
+    ${bloqueDeModo("FORMULARIO")}
+    ${bloqueDeModo("SAFI")}
   </div>
   <div id="imp-lote"></div>
   <div id="imp-historial"></div>`;
 
-  $("imp-subir").addEventListener("click", () => void subirArchivo());
+  $("vista-importar").addEventListener("click", (evento) => {
+    const subir = evento.target.closest("[data-subir]");
+    if (subir) void subirArchivo(subir.dataset.subir);
+  });
   $("imp-lote").addEventListener("click", (evento) => {
     const boton = evento.target.closest("[data-imp]");
     if (boton) void accionLote(boton.dataset.imp);
@@ -149,6 +178,7 @@ function dibujarHistorial(lotes) {
       (lote) => `<tr>
         <td><b>${escapar(lote.codigo)}</b></td>
         <td>${escapar(fechaHora(lote.creadaEn))}</td>
+        <td>${escapar((MODOS[lote.modo] || MODOS.SAFI).nombre)}</td>
         <td>${escapar(lote.archivo)}</td>
         <td><span class="etiqueta ${TONO_ESTADO_LOTE[lote.estado] ?? ""}">${escapar(ETIQUETA_ESTADO_LOTE[lote.estado] ?? lote.estado)}</span></td>
         <td>${escapar(lote.resumen.texto)}</td>
@@ -158,33 +188,33 @@ function dibujarHistorial(lotes) {
     .join("");
   $("imp-historial").innerHTML = `<h2 class="titulo-seccion">Importaciones anteriores</h2>
     <div class="tabla-envoltorio"><table class="listado">
-      <thead><tr><th>Lote</th><th>Subido</th><th>Archivo</th><th>Estado</th><th>Filas</th><th></th></tr></thead>
+      <thead><tr><th>Lote</th><th>Subido</th><th>Importación</th><th>Archivo</th><th>Estado</th><th>Filas</th><th></th></tr></thead>
       <tbody>${filas}</tbody>
     </table></div>`;
 }
 
-async function subirArchivo() {
-  const error = $("imp-error");
-  const archivo = $("imp-archivo").files[0];
+async function subirArchivo(modo) {
+  const error = $(`imp-error-${modo}`);
+  const archivo = $(`imp-archivo-${modo}`).files[0];
   error.hidden = true;
   if (!archivo) {
     error.textContent = "Elija el archivo de Excel.";
     error.hidden = false;
     return;
   }
-  const desde = $("imp-desde").value.replace(/\D/g, "");
+  const desde = $(`imp-desde-${modo}`).value.replace(/\D/g, "");
   const datos = new FormData();
   datos.append("archivo", archivo);
 
-  const boton = $("imp-subir");
+  const boton = document.querySelector(`[data-subir="${modo}"]`);
   boton.disabled = true;
   boton.textContent = "Revisando… (consulta SAFI)";
   try {
-    const { lote } = await api(`/api/importaciones?desde=${encodeURIComponent(desde)}`, {
+    const { lote } = await api(`/api/importaciones?modo=${modo}&desde=${encodeURIComponent(desde)}`, {
       method: "POST",
       body: datos,
     });
-    $("imp-archivo").value = "";
+    $(`imp-archivo-${modo}`).value = "";
     mostrarLote(lote);
     await cargarLotes();
   } catch (fallo) {
@@ -259,6 +289,11 @@ function mostrarLote(lote) {
         ...fila.errores.map((m) => `<li class="texto-peligro">${m.columna ? `<b>${escapar(m.columna)}:</b> ` : ""}${escapar(m.texto)}</li>`),
         ...fila.avisos.map((m) => `<li class="aviso-fila">${m.columna ? `<b>${escapar(m.columna)}:</b> ` : ""}${escapar(m.texto)}</li>`),
         fila.resultado && fila.resultado.mensaje ? `<li class="aviso-fila">${escapar(fila.resultado.mensaje)}</li>` : "",
+        fila.tramite
+          ? `<li>Trámite <b>${escapar(fila.tramite.codigo)}</b> · <a href="/api/solicitudes/${encodeURIComponent(
+              fila.tramite.id
+            )}/formulario.pdf" target="_blank" rel="noopener">ver el formulario</a></li>`
+          : "",
         fila.resultado && fila.resultado.socioSafiId
           ? `<li class="texto-exito">Cuenta ${escapar(fila.resultado.cuentaSafiId)} · Socio ${escapar(fila.resultado.socioSafiId)}${
               fila.resultado.fichaAutomatica && fila.resultado.fichaAutomatica.completada ? " (se completó la ficha que SAFI crea sola)" : ""
@@ -280,7 +315,7 @@ function mostrarLote(lote) {
 
   $("imp-lote").innerHTML = `<div class="tarjeta importacion-lote">
     <div class="tarjeta-cabecera">
-      <h3>Lote ${escapar(lote.codigo)} · ${escapar(lote.archivo)}</h3>
+      <h3>Lote ${escapar(lote.codigo)} · ${escapar((MODOS[lote.modo] || MODOS.SAFI).nombre)} · ${escapar(lote.archivo)}</h3>
       <span class="etiqueta ${TONO_ESTADO_LOTE[lote.estado] ?? ""}">${escapar(ETIQUETA_ESTADO_LOTE[lote.estado] ?? lote.estado)}</span>
     </div>
     <p class="detalle">Subido por ${escapar(lote.creadaPor)} el ${escapar(fechaHora(lote.creadaEn))} · hoja «${escapar(lote.hoja)}» ·
@@ -329,6 +364,10 @@ async function accionLote(accion) {
       const porCrear = r.listas + r.fallidas;
       $("imp-confirmar-detalle").innerHTML = `Se crearán en SAFI <b>${porCrear}</b> socio${porCrear === 1 ? "" : "s"}
         (Cuenta y ficha de cada uno), uno por uno.${
+          lote.modo === "FORMULARIO"
+            ? " Por cada uno se registra además un trámite con su formulario R-PGS1-1, que pasará a Contabilidad."
+            : " No se genera formulario."
+        }${
           r.errores ? ` Las <b>${r.errores}</b> filas con errores no se crean.` : ""
         } Antes de cada uno se vuelve a comprobar en SAFI que el número y la cédula sigan libres, y al
         primer problema el lote se detiene. Puede tardar varios minutos: puede dejar esta pantalla.`;
@@ -336,7 +375,8 @@ async function accionLote(accion) {
       return;
     }
     if (accion === "revisar") {
-      const desde = $("imp-desde").value.replace(/\D/g, "") || lote.numerarDesde || "";
+      const campo = $(`imp-desde-${lote.modo}`);
+      const desde = (campo ? campo.value.replace(/\D/g, "") : "") || lote.numerarDesde || "";
       const { lote: nuevo } = await api(`${ruta}/revisar`, { method: "POST", body: JSON.stringify({ desde }) });
       mostrarLote(nuevo);
       avisar("Lote comprobado otra vez contra SAFI.");

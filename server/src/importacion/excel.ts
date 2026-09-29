@@ -1,9 +1,11 @@
 import ExcelJS from "exceljs";
 
 import {
-  COLUMNAS,
   COLUMNA_POR_CLAVE,
-  COLUMNAS_OBLIGATORIAS,
+  NOMBRE_MODO,
+  columnasDe,
+  obligatoriasDe,
+  type ModoImportacion,
   MAXIMO_FILAS,
   claveEncabezado,
   columnaDeEncabezado,
@@ -208,7 +210,7 @@ function buscarEncabezado(hoja: ExcelJS.Worksheet): { fila: number; mapa: Map<nu
   return mejor;
 }
 
-export async function leerLibro(contenido: Buffer): Promise<LibroLeido> {
+export async function leerLibro(contenido: Buffer, modo: ModoImportacion): Promise<LibroLeido> {
   if (contenido.length > MAXIMO_BYTES) {
     throw new ErrorImportacion(
       `El archivo pesa ${(contenido.length / 1024 / 1024).toFixed(1)} MB y el máximo es ${
@@ -241,12 +243,12 @@ export async function leerLibro(contenido: Buffer): Promise<LibroLeido> {
     if (!encabezado) continue;
 
     const columnas = [...encabezado.mapa.values()];
-    const faltan = COLUMNAS_OBLIGATORIAS.filter((clave) => !columnas.includes(clave));
+    const faltan = obligatoriasDe(modo).filter((clave) => !columnas.includes(clave));
     if (faltan.length > 0) {
       throw new ErrorImportacion(
         `En la hoja «${hoja.name}» faltan columnas obligatorias: ${faltan
           .map((clave) => `«${COLUMNA_POR_CLAVE[clave].titulo}»`)
-          .join(", ")}. Use la plantilla que se descarga desde esta misma pantalla.`
+          .join(", ")}. Use la plantilla de la importación ${NOMBRE_MODO[modo]}, que se descarga desde esta misma pantalla.`
       );
     }
 
@@ -305,6 +307,8 @@ export type FilaResultado = {
   nombre: string;
   cuenta: string;
   socio: string;
+  /** Importación con formulario: el trámite registrado (AF-…). */
+  tramite: string;
   detalle: string;
 };
 
@@ -330,6 +334,7 @@ const FILAS_CON_FORMATO = MAXIMO_FILAS + 1;
  * corregirlas y volver a subir el mismo archivo.
  */
 export async function escribirLibro(opciones: {
+  modo: ModoImportacion;
   listas: ListasPlantilla;
   filas?: Partial<Record<ClaveColumna, string>>[];
   resultado?: { titulo: string; filas: FilaResultado[] };
@@ -337,6 +342,7 @@ export async function escribirLibro(opciones: {
   const libro = new ExcelJS.Workbook();
   libro.creator = "Club La Campiña · Área de Socios";
   libro.created = new Date();
+  const COLUMNAS = columnasDe(opciones.modo);
 
   const socios = libro.addWorksheet("Socios", {
     views: [{ state: "frozen", xSplit: 0, ySplit: 1 }],
@@ -468,7 +474,9 @@ export async function escribirLibro(opciones: {
     { key: "c", width: 90 },
     { key: "d", width: 30 },
   ];
-  const titulo = instrucciones.addRow(["Importación de socios oficiales (Socio Activo) · Club La Campiña"]);
+  const titulo = instrucciones.addRow([
+    `Importación de socios oficiales (Socio Activo), ${NOMBRE_MODO[opciones.modo]} · Club La Campiña`,
+  ]);
   titulo.font = { bold: true, size: 14, color: { argb: AZUL } };
   instrucciones.addRow([]);
   const pasos = [
@@ -476,7 +484,10 @@ export async function escribirLibro(opciones: {
     "2. Las columnas en azul oscuro son obligatorias; las doradas, en algunos casos; las claras, opcionales. Al pararse en una celda, Excel muestra qué va en ella.",
     "3. Guarde como Libro de Excel (.xlsx) y súbalo en la bandeja del Área de Socios, pestaña «Importar socios».",
     "4. El sistema revisa todas las filas y consulta SAFI sin crear nada. Corrija lo que marque en rojo y vuelva a subir el archivo.",
-    "5. Cuando esté conforme, pulse «Crear en SAFI»: se crea la Cuenta y la ficha de cada socio, uno por uno.",
+    opciones.modo === "FORMULARIO"
+      ? "5. Cuando esté conforme, pulse «Crear en SAFI»: por cada socio se registra un trámite con su formulario R-PGS1-1 y se crean su Cuenta y su ficha. El trámite sigue por Contabilidad y la Gerencia."
+      : "5. Cuando esté conforme, pulse «Crear en SAFI»: se crea la Cuenta y la ficha de cada socio, uno por uno. No se genera formulario.",
+    "Use la plantilla de la misma importación que va a subir: la de «con formulario» tiene más columnas.",
     "Solo para Socios Activos (oficiales FAE). El resto de categorías se afilian desde la tableta.",
     "Una persona que ya consta en SAFI (por ejemplo, como dependiente de su padre) no se importa: eso es un cambio de categoría y se hace en SAFI.",
   ];
@@ -514,6 +525,7 @@ export async function escribirLibro(opciones: {
       { key: "nombre", width: 38 },
       { key: "cuenta", width: 12 },
       { key: "socio", width: 12 },
+      { key: "tramite", width: 14 },
       { key: "detalle", width: 90 },
     ];
     const cabeza = hoja.addRow([opciones.resultado.titulo]);
@@ -526,6 +538,7 @@ export async function escribirLibro(opciones: {
       "Apellidos y nombres",
       "Cuenta SAFI",
       "Socio SAFI",
+      "Trámite",
       "Detalle",
     ]);
     nombres.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -541,6 +554,7 @@ export async function escribirLibro(opciones: {
         fila.nombre,
         fila.cuenta,
         fila.socio,
+        fila.tramite,
         fila.detalle,
       ]);
       agregada.alignment = { wrapText: true, vertical: "top" };

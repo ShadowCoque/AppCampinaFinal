@@ -14,6 +14,7 @@ import {
   revisarArchivo,
   vistaDeLote,
 } from "../importacion/proceso";
+import { esModoImportacion, type ModoImportacion } from "../importacion/columnas";
 import { adaptadorSafi } from "../safi/adaptador";
 import { exigirArea } from "./sesion";
 
@@ -31,6 +32,13 @@ function enviarXlsx(respuesta: FastifyReply, contenido: Buffer, nombre: string) 
     .header("Content-Disposition", `attachment; filename="${seguro}"`)
     .header("Cache-Control", "no-store")
     .send(contenido);
+}
+
+/** `?modo=SAFI` o `?modo=FORMULARIO`; sin él, solo SAFI. */
+function modoDe(consulta: unknown): ModoImportacion | null {
+  const valor = (consulta as { modo?: string } | undefined)?.modo;
+  if (valor === undefined || valor === "") return "SAFI";
+  return esModoImportacion(valor) ? valor : null;
 }
 
 function fallo(respuesta: FastifyReply, error: unknown) {
@@ -60,17 +68,30 @@ export async function registrarImportacion(app: FastifyInstance): Promise<void> 
 
   app.get("/api/importaciones/plantilla", async (peticion, respuesta) => {
     if (!exigirArea(peticion, respuesta, "SOCIOS")) return respuesta;
+    const modo = modoDe(peticion.query);
+    if (!modo) return respuesta.code(400).send({ error: "Importación desconocida." });
     try {
-      return enviarXlsx(respuesta, await plantillaVacia(), "Plantilla importacion socios oficiales.xlsx");
+      return enviarXlsx(
+        respuesta,
+        await plantillaVacia(modo),
+        modo === "FORMULARIO"
+          ? "Plantilla socios oficiales - con formulario.xlsx"
+          : "Plantilla socios oficiales - solo SAFI.xlsx"
+      );
     } catch (error) {
       return fallo(respuesta, error);
     }
   });
 
-  /** Sube un archivo y lo revisa. `?desde=2929` numera las filas sin número. */
+  /**
+   * Sube un archivo y lo revisa. `?modo=FORMULARIO|SAFI` elige la importación;
+   * `?desde=2929` numera las filas sin número.
+   */
   app.post("/api/importaciones", async (peticion, respuesta) => {
     const usuario = exigirArea(peticion, respuesta, "SOCIOS");
     if (!usuario) return respuesta;
+    const modo = modoDe(peticion.query);
+    if (!modo) return respuesta.code(400).send({ error: "Importación desconocida." });
 
     const parte = await peticion.file();
     if (!parte) return respuesta.code(400).send({ error: "No se recibió ningún archivo." });
@@ -86,7 +107,7 @@ export async function registrarImportacion(app: FastifyInstance): Promise<void> 
     try {
       const contenido = await parte.toBuffer();
       const desde = (peticion.query as { desde?: string } | undefined)?.desde ?? "";
-      const lote = await revisarArchivo({ contenido, nombreArchivo: nombre, numerarDesde: desde, usuario });
+      const lote = await revisarArchivo({ contenido, nombreArchivo: nombre, numerarDesde: desde, modo, usuario });
       return respuesta.code(201).send({ lote: vistaDeLote(lote) });
     } catch (error) {
       return fallo(respuesta, error);

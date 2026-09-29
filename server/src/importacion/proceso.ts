@@ -1,11 +1,19 @@
 import { createHash } from "node:crypto";
 
 import { nombreCompleto, tramiteVacio, expedienteVacio, identidadVacia, ESQUEMA_SOLICITUD, type SolicitudAfiliacion } from "../../../src/domain/solicitud";
+import { estamparFirma } from "../db/firmasFuncionarios";
 import { ahora, registrarBitacora } from "../db/indice";
+import {
+  actualizarExpediente,
+  guardarAltaSafi,
+  obtenerSolicitud,
+  omitirAdjunto,
+  registrarSolicitud,
+} from "../db/solicitudes";
 import type { Usuario } from "../db/usuarios";
 import { adaptadorSafi, type ConsultaLote, type FichaDeLote } from "../safi/adaptador";
 import { avisosDeConfirmacion, faltantesDeConfirmacion } from "../safi/registro";
-import { COLUMNAS, type ClaveColumna } from "./columnas";
+import { COLUMNAS, NOMBRE_MODO, type ClaveColumna, type ModoImportacion } from "./columnas";
 import { ErrorImportacion, escribirLibro, leerLibro, type FilaResultado } from "./excel";
 import { catalogosDe, hoyEcuador, interpretarFila, listasDePlantilla, type Catalogos } from "./filas";
 import {
@@ -82,7 +90,7 @@ async function comprobarFilas(lote: LoteImportacion): Promise<void> {
   const creadas = lote.filas.filter((fila) => fila.estado === "CREADA" || fila.estado === "EN_CURSO");
 
   for (const fila of pendientes) {
-    const interpretada = interpretarFila({ fila: fila.fila, celdas: fila.celdas }, catalogos);
+    const interpretada = interpretarFila({ fila: fila.fila, celdas: fila.celdas }, catalogos, lote.modo);
     fila.datos = interpretada.datos;
     fila.confirmacion = interpretada.confirmacion;
     fila.comunicaciones = interpretada.comunicaciones;
@@ -123,7 +131,8 @@ async function comprobarFilas(lote: LoteImportacion): Promise<void> {
   const tramites = tramitesConCedulas(pendientes.map((fila) => fila.datos.cedula));
   for (const fila of pendientes) {
     const tramite = tramites.get(fila.datos.cedula);
-    if (tramite) {
+    // El trámite que registró este mismo lote (importación con formulario) no cuenta.
+    if (tramite && tramite.id !== fila.tramite?.id) {
       fila.errores.push({
         columna: "cedula",
         texto: `Esta persona ya tiene el trámite ${tramite.codigo} (${tramite.estado.toLowerCase()}) en el sistema: siga con él en la bandeja en lugar de importarla.`,
@@ -291,9 +300,10 @@ export async function revisarArchivo(entrada: {
   contenido: Buffer;
   nombreArchivo: string;
   numerarDesde: string;
+  modo: ModoImportacion;
   usuario: Usuario;
 }): Promise<LoteImportacion> {
-  const libro = await leerLibro(entrada.contenido);
+  const libro = await leerLibro(entrada.contenido, entrada.modo);
   const huella = createHash("sha256").update(entrada.contenido).digest("hex");
 
   const mensajes: MensajeLote[] = [];
@@ -325,6 +335,7 @@ export async function revisarArchivo(entrada: {
   const borrador: LoteImportacion = {
     id: "",
     codigo: "",
+    modo: entrada.modo,
     estado: "REVISADO",
     archivo: { nombre: entrada.nombreArchivo, bytes: entrada.contenido.length, huella, hoja: libro.hoja },
     creadaEn: "",
@@ -356,7 +367,7 @@ export async function revisarArchivo(entrada: {
     area: entrada.usuario.area,
     accion: "IMPORTACION_REVISADA",
     entidad: lote.codigo,
-    detalle: `${entrada.nombreArchivo} · ${resumen(lote).texto}`,
+    detalle: `${NOMBRE_MODO[lote.modo]} · ${entrada.nombreArchivo} · ${resumen(lote).texto}`,
   });
   return lote;
 }
@@ -383,6 +394,11 @@ export function descartar(lote: LoteImportacion, usuario: Usuario): LoteImportac
   if (lote.estado === "EN_CURSO") throw new ErrorImportacion("El lote se está creando en SAFI: deténgalo antes.");
   if (lote.filas.some((fila) => fila.estado === "CREADA")) {
     throw new ErrorImportacion("Este lote ya creó socios en SAFI: no se descarta, queda como constancia.");
+  }
+  if (lote.filas.some((fila) => fila.tramite)) {
+    throw new ErrorImportacion(
+      "Este lote ya registró trámites en el sistema: no se descarta. Si alguno no debe seguir, anúlelo desde la bandeja."
+    );
   }
   lote.estado = "DESCARTADO";
   guardarLote(lote);
@@ -488,7 +504,23 @@ export function iniciarCreacion(lote: LoteImportacion, usuario: Usuario): LoteIm
 /** Crea una fila en SAFI. Devuelve el motivo para detener el lote, si lo hay. */
 async function crearFila(lote: LoteImportacion, fila: FilaImportacion, usuario: Usuario): Promise<string | null> {
   const adaptador = adaptadorSafi();
-  const solicitud = solicitudDeFila(lote, fila);
+  let solicitud = solicitudDeFila(lote, fila);
+
+  // Con formulario, un reintento puede encontrarse con que el trámite ya se
+  // creó en SAFI desde el panel de la bandeja: entonces la fila está hecha.
+  if (lote.modo === "FORMULARIO" && fila.tramite) {
+    const tramite = obtenerSolicitud(fila.tramite.id);
+    if (tramite?.expediente.socioSafiId) {
+      fila.estado = "CREADA";
+      fila.resultado = {
+        en: ahora(),
+        cuentaSafiId: tramite.expediente.cuentaSafiId ?? undefined,
+        socioSafiId: tramite.expediente.socioSafiId,
+        mensaje: `El trámite ${tramite.codigo} ya se había creado en SAFI desde la bandeja.`,
+      };
+      return null;
+    }
+  }
 
   // Justo antes de crear, SAFI otra vez: entre la revisión y ahora alguien pudo
   // crear a mano un socio con ese número o esa cédula.
@@ -510,6 +542,35 @@ async function crearFila(lote: LoteImportacion, fila: FilaImportacion, usuario: 
     return `La fila ${fila.fila} ya no se puede crear: ${bloqueantes[0].mensaje} Use «Volver a comprobar» antes de seguir.`;
   }
 
+  // Con formulario, el trámite se registra antes del alta: si SAFI falla,
+  // queda en la bandeja pendiente de «crear en SAFI», como uno de la tableta,
+  // y no se pierde nada. Su identificador sale del lote y la fila, así que
+  // registrarlo dos veces devuelve el mismo trámite.
+  if (lote.modo === "FORMULARIO") {
+    const { solicitud: registrada } = registrarSolicitud(
+      { ...solicitud, id: fila.tramite?.id ?? `imp-${lote.id}-${fila.fila}` },
+      { usuario: usuario.usuario, area: usuario.area, nombre: usuario.nombre },
+      `Importada desde Excel: lote ${lote.codigo}, fila ${fila.fila}.`
+    );
+    fila.tramite = { id: registrada.id, codigo: registrada.codigo };
+    guardarLote(lote);
+    // La firma del socio en la tableta no existe por esta vía: se da por
+    // resuelta con su motivo desde el registro, o quedaría una tarea que nadie
+    // puede cumplir (también si el alta en SAFI falla y el trámite espera).
+    omitirAdjunto(registrada.id, "FIRMA_SOLICITANTE", {
+      motivo: `Importado desde Excel (lote ${lote.codigo}): no pasó por la tableta. La firma del socio queda pendiente de la firma electrónica.`,
+      responsable: usuario.nombre,
+    });
+    solicitud = {
+      ...registrada,
+      tramite: { ...registrada.tramite, numeroSocio: fila.numero, ordinalDependiente: null },
+      expediente: {
+        ...registrada.expediente,
+        cuentaSafiId: fila.cuentaSafiId ?? registrada.expediente.cuentaSafiId ?? null,
+      },
+    };
+  }
+
   const confirmacion = { ...fila.confirmacion, confirmadaPor: usuario.nombre, confirmadaEn: ahora() };
   let alta;
   try {
@@ -526,6 +587,14 @@ async function crearFila(lote: LoteImportacion, fila: FilaImportacion, usuario: 
   if (!alta.ok) {
     fila.estado = "FALLIDA";
     if (alta.cuentaId) fila.cuentaSafiId = alta.cuentaId;
+    if (fila.tramite) {
+      // La Cuenta creada queda también en el trámite, para que el panel de la
+      // bandeja la reutilice si la Jefatura sigue desde allí.
+      actualizarExpediente(fila.tramite.id, {
+        ...(alta.cuentaId ? { cuentaSafiId: alta.cuentaId } : {}),
+        altaSafiMensaje: alta.mensaje,
+      });
+    }
     fila.resultado = { en: ahora(), cuentaSafiId: alta.cuentaId, mensaje: alta.mensaje };
     registrarBitacora({
       usuario: usuario.usuario,
@@ -545,13 +614,43 @@ async function crearFila(lote: LoteImportacion, fila: FilaImportacion, usuario: 
     socioSafiId: alta.socioId,
     fichaAutomatica: alta.fichaAutomatica,
   };
-  registrarBitacora({
-    usuario: usuario.usuario,
-    area: usuario.area,
-    accion: "SAFI_ALTA_CREADA",
-    entidad: lote.codigo,
-    detalle: `Fila ${fila.fila} · N.º ${fila.numero} · ${nombreCompleto(fila.datos)} · Cuenta ${alta.cuentaId} · Socio ${alta.socioId}`,
-  });
+  if (fila.tramite) {
+    // La constancia de «Registrado» del trámite, igual que al crear desde el
+    // panel: número, confirmación, identificadores de SAFI y firma de la
+    // Jefatura.
+    guardarAltaSafi(
+      fila.tramite.id,
+      {
+        numeroSocio: fila.numero,
+        ordinalDependiente: null,
+        confirmacion,
+        cuentaSafiId: alta.cuentaId,
+        socioSafiId: alta.socioId,
+        observacion: `Importado desde Excel (lote ${lote.codigo}, fila ${fila.fila}).`,
+      },
+      {
+        usuario: usuario.usuario,
+        area: usuario.area,
+        nombre: usuario.nombre,
+        firmaArchivo: estamparFirma({ usuario: usuario.usuario, solicitudId: fila.tramite.id, area: usuario.area }),
+      }
+    );
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "IMPORTACION_FILA_CREADA",
+      entidad: lote.codigo,
+      detalle: `Fila ${fila.fila} · ${fila.tramite.codigo} · N.º ${fila.numero} · Cuenta ${alta.cuentaId} · Socio ${alta.socioId}`,
+    });
+  } else {
+    registrarBitacora({
+      usuario: usuario.usuario,
+      area: usuario.area,
+      accion: "SAFI_ALTA_CREADA",
+      entidad: lote.codigo,
+      detalle: `Fila ${fila.fila} · N.º ${fila.numero} · ${nombreCompleto(fila.datos)} · Cuenta ${alta.cuentaId} · Socio ${alta.socioId}`,
+    });
+  }
 
   const automatica = alta.fichaAutomatica;
   if (automatica && !automatica.completada) {
@@ -657,6 +756,7 @@ export function vistaDeLote(lote: LoteImportacion, conFilas = true) {
   return {
     id: lote.id,
     codigo: lote.codigo,
+    modo: lote.modo,
     estado: lote.estado,
     archivo: lote.archivo.nombre,
     hoja: lote.archivo.hoja,
@@ -684,6 +784,7 @@ export function vistaDeLote(lote: LoteImportacion, conFilas = true) {
           errores: fila.errores.map((m) => ({ ...m, columna: m.columna ? tituloDe(m.columna) : undefined })),
           avisos: fila.avisos.map((m) => ({ ...m, columna: m.columna ? tituloDe(m.columna) : undefined })),
           resultado: fila.resultado ?? null,
+          tramite: fila.tramite ?? null,
         }))
       : undefined,
   };
@@ -702,9 +803,9 @@ const ETIQUETA_ESTADO_FILA: Record<FilaImportacion["estado"], string> = {
 };
 
 /** La plantilla vacía, con las listas del CRM de hoy. */
-export async function plantillaVacia(): Promise<Buffer> {
+export async function plantillaVacia(modo: ModoImportacion): Promise<Buffer> {
   const listas = await adaptadorSafi().listas().catch(() => null);
-  return escribirLibro({ listas: listasDePlantilla(catalogosDe(listas)) });
+  return escribirLibro({ modo, listas: listasDePlantilla(catalogosDe(listas)) });
 }
 
 /**
@@ -723,6 +824,7 @@ export async function informeDeLote(lote: LoteImportacion): Promise<Buffer> {
     nombre: fila.datos ? nombreCompleto(fila.datos) : "",
     cuenta: fila.resultado?.cuentaSafiId ?? fila.cuentaSafiId ?? "",
     socio: fila.resultado?.socioSafiId ?? "",
+    tramite: fila.tramite?.codigo ?? "",
     detalle: [
       ...fila.errores.map((m) => (m.columna ? `${tituloDe(m.columna)}: ${m.texto}` : m.texto)),
       ...fila.avisos.map((m) => `Aviso${m.columna ? ` (${tituloDe(m.columna)})` : ""}: ${m.texto}`),
@@ -733,10 +835,14 @@ export async function informeDeLote(lote: LoteImportacion): Promise<Buffer> {
       .join(" | "),
   }));
   return escribirLibro({
+    modo: lote.modo,
     listas: listasDePlantilla(catalogosDe(listas)),
     filas: noCreadas.map((fila) =>
       Object.fromEntries(Object.entries(fila.celdas).map(([clave, celda]) => [clave, celda?.texto ?? ""]))
     ),
-    resultado: { titulo: `Importación ${lote.codigo} · ${lote.archivo.nombre} · ${resumen(lote).texto}`, filas },
+    resultado: {
+      titulo: `Importación ${lote.codigo} (${NOMBRE_MODO[lote.modo]}) · ${lote.archivo.nombre} · ${resumen(lote).texto}`,
+      filas,
+    },
   });
 }

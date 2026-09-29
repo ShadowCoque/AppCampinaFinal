@@ -1,6 +1,6 @@
 import type { ConfirmacionSafi, DatosAfiliacion } from "../../../src/domain/solicitud";
 import { ahora, db, nuevoId } from "../db/indice";
-import type { ClaveColumna } from "./columnas";
+import type { ClaveColumna, ModoImportacion } from "./columnas";
 import type { CeldaLeida } from "./excel";
 
 /**
@@ -59,6 +59,12 @@ export type FilaImportacion = {
    * reutiliza en lugar de crear otra.
    */
   cuentaSafiId?: string | null;
+  /**
+   * Importación con formulario: el trámite registrado para esta fila. Se crea
+   * antes del alta en SAFI; si el alta falla, el trámite queda pendiente de
+   * «crear en SAFI», como uno de la tableta, y el reintento lo reutiliza.
+   */
+  tramite?: { id: string; codigo: string };
   resultado?: {
     en: string;
     cuentaSafiId?: string;
@@ -74,6 +80,8 @@ export type MensajeLote = { tono: "info" | "aviso" | "error"; texto: string };
 export type LoteImportacion = {
   id: string;
   codigo: string;
+  /** Solo SAFI, o también un trámite con su formulario por socio. Ver `ModoImportacion`. */
+  modo: ModoImportacion;
   estado: EstadoLote;
   archivo: { nombre: string; bytes: number; huella: string; hoja: string };
   creadaEn: string;
@@ -151,21 +159,27 @@ export function obtenerLote(id: string): LoteImportacion | null {
   const fila = db().prepare("SELECT documento FROM importaciones WHERE id = ?").get(id) as
     | FilaTabla
     | undefined;
-  return fila ? (JSON.parse(fila.documento) as LoteImportacion) : null;
+  return fila ? leer(fila.documento) : null;
+}
+
+/** Los lotes anteriores a las dos importaciones (29/09/2026) eran solo SAFI. */
+function leer(documento: string): LoteImportacion {
+  const lote = JSON.parse(documento) as LoteImportacion;
+  return { ...lote, modo: lote.modo ?? "SAFI" };
 }
 
 export function lotesRecientes(limite = 20): LoteImportacion[] {
   const filas = db()
     .prepare("SELECT documento FROM importaciones ORDER BY creada_en DESC LIMIT ?")
     .all(limite) as unknown as FilaTabla[];
-  return filas.map((fila) => JSON.parse(fila.documento) as LoteImportacion);
+  return filas.map((fila) => leer(fila.documento));
 }
 
 export function lotesEnCurso(): LoteImportacion[] {
   const filas = db()
     .prepare("SELECT documento FROM importaciones WHERE estado = 'EN_CURSO'")
     .all() as unknown as FilaTabla[];
-  return filas.map((fila) => JSON.parse(fila.documento) as LoteImportacion);
+  return filas.map((fila) => leer(fila.documento));
 }
 
 /** Otro lote, no descartado, subido con el mismo archivo. */
@@ -182,18 +196,18 @@ export function loteConHuella(huella: string): { codigo: string; creadaEn: strin
  * Trámites de la tableta con esas cédulas que siguen vivos (no anulados): una
  * persona que ya se está afiliando por la tableta no se importa otra vez.
  */
-export function tramitesConCedulas(cedulas: string[]): Map<string, { codigo: string; estado: string }> {
-  const resultado = new Map<string, { codigo: string; estado: string }>();
+export function tramitesConCedulas(cedulas: string[]): Map<string, { id: string; codigo: string; estado: string }> {
+  const resultado = new Map<string, { id: string; codigo: string; estado: string }>();
   const unicas = [...new Set(cedulas.filter((c) => /^\d{10}$/.test(c)))];
   for (let i = 0; i < unicas.length; i += 200) {
     const grupo = unicas.slice(i, i + 200);
     const filas = db()
       .prepare(
-        `SELECT cedula, codigo, estado FROM solicitudes
+        `SELECT id, cedula, codigo, estado FROM solicitudes
          WHERE cedula IN (${grupo.map(() => "?").join(",")}) AND estado != 'RECHAZADA'`
       )
-      .all(...grupo) as { cedula: string; codigo: string; estado: string }[];
-    for (const fila of filas) resultado.set(fila.cedula, { codigo: fila.codigo, estado: fila.estado });
+      .all(...grupo) as { id: string; cedula: string; codigo: string; estado: string }[];
+    for (const fila of filas) resultado.set(fila.cedula, { id: fila.id, codigo: fila.codigo, estado: fila.estado });
   }
   return resultado;
 }
