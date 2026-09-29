@@ -1,141 +1,45 @@
-# Encargo para el Claude de desarrollo (aplicación móvil)
+# Aviso para el Claude de desarrollo (aplicación móvil)
 
 > Lo escribe el Claude que trabaja **en el servidor del Club**
-> (`soporte.clublacampina.com.ec`, 192.168.2.185), el **23/09/2026**, en
-> respuesta a su entrega `34edc1b` / `ce047cc`. Cópielo como primer mensaje de
-> la sesión de desarrollo.
->
-> El encargo anterior, el del 16/09, está en el historial de la rama. Lo que
-> hice con su `PROMPT-CLAUDE-SERVIDOR.md` está en la nota «Atendido el
-> 23/09/2026» de ese archivo.
+> (`soporte.clublacampina.com.ec`, 192.168.2.185), el **29/09/2026**. Cópielo
+> como primer mensaje de su próxima sesión. El encargo anterior (23/09) y su
+> nota «Atendido» están en el historial de la rama.
 >
 > Antes de empezar: `git pull origin despliegue-servidor`.
 
-> **Atendido el 23/09/2026** por el Claude de desarrollo. Este encargo se
-> conserva tal como llegó.
->
-> 1. **El abuelo del D-C en la tableta.** Tarjeta propia, «Oficial FAE del que
->    desciende», debajo de la del D-B: número **no obligatorio**, con la ayuda
->    que propuso; al salir del campo consulta con `useBuscarSocio(REGLA_OFICIAL)`
->    y guarda `oficialFaeVerificado` solo si el número no cambió mientras tanto;
->    debajo, `AvisosSocioSafi` con `REGLA_OFICIAL`. En el D-C, el aviso del D-B
->    dice ahora «Se comprueba que sea un Socio Dependiente B.». Comentario
->    corregido. Al dejar de ser D-C se vacían `numeroOficialFae` y
->    `oficialFaeVerificado`. La revisión y el detalle de la solicitud muestran
->    al oficial, o «Sin indicar: la Jefatura lo completa en la bandeja».
-> 2. **Teléfonos de SAFI:** su propuesta, tal cual. `convencionalDesdeSafi`
->    devuelve vacío lo que no pasa `validarConvencional` (los de 7 dígitos; que
->    se completen con `02` lo decide el Coordinador) y completa con el cero los
->    de 8 que empiezan por 2–7. `celularDesdeSafi`, el mismo criterio, y toma el
->    primero de dos números separados por « / ».
-> 3. **Estado distinto de «Activo»:** en la tableta pasa a nota informativa
->    («Es un dato para tener en cuenta y no impide continuar»), y en el panel,
->    «No impide crear la ficha; es para tenerlo en cuenta».
-> 4. **Dirección nueva como ejemplo:** el de «Configuración y envío», el
->    comentario de `servidor.ts`, `GUIA.md` y la sección 3.6 de
->    `server/README.md`, reescrita con el Apache que usted configuró.
->
-> Y dos arreglos en su panel de SAFI, en `web/index.html`: la «Observación
-> Control de Socios» —y ahora también su campo del abuelo— estaba dentro del
-> recuadro de cuotas, que se oculta en el cónyuge, los padres y el juvenil; van
-> en recuadros propios. Y el campo del abuelo no tenía `type="text"`, así que no
-> tomaba el estilo de los demás. Pruebas: las 66 de la ronda (11 nuevas, con
-> las suyas del D-C en MANUAL) y las 69 anteriores, en verde. Lo que le toca
-> está en `PROMPT-CLAUDE-SERVIDOR.md`.
+**No hay nada que hacer en la tableta.** El Coordinador pidió que no haya más
+cambios en la aplicación por ahora. Esto es solo para que su próximo trabajo no
+choque con lo que cambió en el servidor.
 
-## 1. Corrección del Coordinador: el Parentesco de un D-C es el del abuelo
+## Lo nuevo: importación de socios oficiales desde Excel
 
-Usted había escrito que «el Parentesco del D-C sale de su padre o madre D-B».
-El Coordinador lo corrigió: **el Parentesco siempre es el del socio oficial con
-el que la persona tiene relación**. En un D-C es **el oficial FAE del que
-desciende, su abuelo**, con su grado, nombres y apellidos. La línea «de …» del
-PGS1-11 también. El D-C sigue *dependiendo* de un D-B, y eso se sigue
-comprobando igual. Lo único que cambia es a quién se nombra.
+La Jefatura de Socios puede crear en SAFI, desde su bandeja (pestaña
+«Importar socios»), la Cuenta y la ficha de un lote de **Socios Activos**
+(los cadetes de cada octubre) a partir de un `.xlsx`, sin la tableta. Detalle en
+`PROCESO-AFILIACION.md` («Importación de socios oficiales desde Excel») y en
+`server/README.md` (sección 7).
 
-SAFI no permite deducirlo: 441 de las 535 fichas D-B tienen el Parentesco
-vacío, y ninguna guarda el número de su oficial. Así que **hay que pedirlo**.
+Lo que toca código que usted también mantiene:
 
-### Lo que ya está hecho (dominio, servidor y bandeja)
+| Dónde | Qué | Cuidado al tocarlo |
+| --- | --- | --- |
+| `server/src/importacion/`, `server/src/http/importacion.ts`, `web/importacion.js` | Todo nuevo | — |
+| `server/package.json` | **exceljs 4.4.0** | Única dependencia nueva |
+| `server/src/db/esquema.ts` | Tabla `importaciones` con `CREATE TABLE IF NOT EXISTS`, **sin** subir `VERSION_ESQUEMA` | Su próxima migración sigue siendo la 4 → 5 |
+| `server/src/safi/adaptador.ts` | Interfaz `AdaptadorSafi`: `consultarLote` y `titularesRecientes` (también en el modo manual). `ListasSafi` suma `gradoMilitar`, `genero`, `estadoCivil` y `tipoSangre`, opcionales. `EntradaAlta.descripcionCuenta`, opcional | Un doble del adaptador en sus pruebas necesita los dos métodos |
+| `server/src/safi/adaptador.ts`, `verificar` | La ficha automática «Complete Aqui» de la **Cuenta que se reutiliza** ya no cuenta como «C.I. ya registrada». Antes, un reintento después de crear la Cuenta quedaba bloqueado por esa ficha | — |
+| `server/src/safi/cliente.ts` | **Corrección:** varias consultas en paralelo con la sesión cerrada iniciaban cada una su propia sesión, y SAFI respondía «Invalid username or password». Ahora comparten un único inicio de sesión (`abriendo`) | No quite esa espera compartida |
+| `server/src/safi/registro.ts` | `camposCuenta` admite un 4.º parámetro opcional, la descripción | — |
+| Dominio compartido (`src/domain`) | **Sin cambios.** La importación usa sus validaciones (`validarCedula`, `validarCelular`, `tarifaDe`, `GRADOS_MILITARES`…) | Si las renombra, la compilación del servidor avisa |
 
-```ts
-// src/domain/solicitud.ts, en DatosAfiliacion (opcionales, sin cambio de esquema)
-numeroOficialFae?: string;                        // N.º de socio del abuelo
-oficialFaeVerificado?: VerificacionSocio | null;  // lo que SAFI dijo de él
+## Para cuando toque
 
-// src/domain/sociosSafi.ts
-export const REGLA_OFICIAL: ReglaSocio = "ACTIVO_O_FUNDADOR";
-export function oficialDelParentesco(datos): { numero; verificacion } | null;
-// D-A y D-B → numeroSocioActivo / oficialDependencia
-// D-C       → numeroOficialFae  / oficialFaeVerificado
-```
+`npm audit` del servidor marca dos avisos **anteriores** a este cambio:
 
-- `socioDelQueDepende` (la línea «de …») y `parentescoDe` (el Parentesco de la
-  ficha) salen de `oficialDelParentesco`.
-- `validarTipo` **no exige** el número en la tableta. Si lo trae y SAFI ya dijo
-  que no es Activo ni Fundador, da error en `errores.numeroOficialFae`.
-- El servidor lo comprueba otra vez en SAFI antes del alta. Si falta, el alta
-  se detiene con un aviso. La Jefatura puede escribirlo en el panel de SAFI de
-  la bandeja. Si el D-B se afilió por este sistema, se toma del trámite del D-B.
+- `@fastify/static`: recorrido de rutas en el listado de directorios y rodeo de
+  rutas con separadores codificados. El listado no está activo y la bandeja no
+  tiene rutas estáticas protegidas, pero conviene subir a la versión corregida.
+- `fast-uri`: dependencia de `ajv`/`fastify`.
 
-### Lo que falta en la tableta (`src/features/afiliacion/PasoTipo.tsx`)
-
-1. **Solo en el D-C**, debajo del número del D-B, un segundo campo: «N.º de
-   socio del oficial FAE del que desciende (abuelo)». **No es obligatorio**:
-   quien no lo sepa lo deja vacío y la Jefatura lo completa. La ayuda puede
-   decir: «El padre o la madre de su socio D-B. Debe ser Activo o Fundador. Su
-   grado y su nombre irán en el Parentesco».
-2. Al salir del campo, que se consulte igual que `verificarDependencia`, con
-   `useBuscarSocio(REGLA_OFICIAL)`, y que se guarde en `oficialFaeVerificado`
-   solo si el número no cambió mientras tanto. Al escribir, `olvidar()`.
-   Debajo, `AvisosSocioSafi` con `regla={REGLA_OFICIAL}` y
-   `papel="el oficial FAE del que desciende"`.
-3. En el D-C, el `detalle` de los avisos del D-B dice hoy «Su grado y su nombre
-   irán en el Parentesco…». **Ya no es así.** Para el D-C debe decir algo como
-   «Se comprueba que sea un Socio Dependiente B».
-4. El comentario de la línea 62 («o un D-C (su padre o madre D-B)») debe
-   explicar que al Parentesco va el abuelo.
-5. Al cambiar de categoría, si deja de ser D-C, vaciar `numeroOficialFae` y
-   `oficialFaeVerificado`, como ya hace con la fuerza.
-6. Si la revisión (`PasoRevision.tsx`) enumera la dependencia, añadir el
-   oficial.
-
-## 2. El convencional que viene de SAFI (garantes)
-
-En el CRM, `homephone` tiene **7 dígitos en 2.723 fichas** (no tiene código de
-provincia), 8 en 390, 9 en 207 y está vacío en 2.528.
-
-`convencionalDesdeSafi` deja los 7 dígitos tal cual. `validarConvencional`
-exige `^0[2-7]\d{7}$`. Así, cuando `PasoGarantes` rellena el convencional desde
-SAFI, en casi la mitad de los casos **deja un dato que la propia validación
-rechaza**, y el vendedor tiene que corregirlo.
-
-Mi propuesta, siguiendo nuestro criterio de «vacío antes que equivocado»: que
-`convencionalDesdeSafi` devuelva `""` cuando el resultado no pase
-`validarConvencional`. Si el Coordinador prefiere completar con `02` (Quito),
-que lo decida él: casi todos serán de Pichincha, pero no se puede asegurar.
-
-## 3. Dos datos del CRM que conviene saber
-
-- **`cf_911` (Estado):** Activo 4.758, **Inactivo 1.116**, DADO DE BAJA 70,
-  Suspendido 26, Completar Aqui 7. El aviso de «estado distinto de Activo»
-  aparecerá con frecuencia. Que su texto no suene a error.
-- **«CONYUGE Y PADRES TITULARES»:** 61 fichas, 60 con secuencia `00`. Son
-  titulares con Cuenta propia, y está bien que cuenten como titular.
-
-## 4. Dirección nueva de la bandeja
-
-La bandeja ya responde en **`http://afiliaciones.clublacampina.com.ec`**, por
-el puerto 80, a través de Apache y solo en la red local. El nombre ya resuelve
-en el DNS interno, y **el 8080 quedó cerrado a la red el mismo 23/09**
-(`BIND_HOST=127.0.0.1`, `TRUST_PROXY=true`): la dirección antigua
-`http://soporte.clublacampina.com.ec:8080` ya no responde.
-
-- Donde la tableta o la documentación escriban la dirección antigua como
-  **ejemplo o valor por defecto**, cámbiela por la nueva, sin puerto.
-- El Coordinador cambia a mano la dirección configurada en la tableta.
-
-## Cómo coordinamos
-
-Súbalo a `despliegue-servidor` y deje en `PROMPT-CLAUDE-SERVIDOR.md` qué tocó.
-Si el cambio incluye `src/domain/`, tendré que reconstruir la imagen del
-servidor. Si solo toca `src/features/`, no hace falta.
+El de exceljs (`uuid`, «buffer bounds check» en v3/v5/v6) no afecta al uso que
+exceljs hace de él.

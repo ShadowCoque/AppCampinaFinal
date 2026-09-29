@@ -88,6 +88,11 @@ export type EntradaAlta = {
    * dependiente es la Cuenta de su titular, que ya debe existir.
    */
   cuentaId: string | null;
+  /**
+   * Descripción de la Cuenta nueva. Por omisión, la de un trámite de la
+   * tableta; la importación desde Excel dice de qué lote y fila viene.
+   */
+  descripcionCuenta?: string;
 };
 
 /**
@@ -106,7 +111,39 @@ export type ListasSafi = {
   cuotaMensual: string[];
   valorMembresia: string[];
   tipoSocio: string[];
+  /** Listas de la ficha del Socio que solo necesita la importación desde Excel. */
+  gradoMilitar?: string[];
+  genero?: string[];
+  estadoCivil?: string[];
+  tipoSangre?: string[];
 };
+
+/** Una ficha de Socio, tal como la devuelve la consulta en bloque. */
+export type FichaDeLote = {
+  id: string;
+  numero: string;
+  secuencia: string;
+  cedula: string;
+  nombre: string;
+  tipoSocio: string;
+  estado: string;
+  /** Identificador de servicio web de su Cuenta (`11x13601`). */
+  cuentaId: string;
+};
+
+/** Una Cuenta, tal como la devuelve la consulta en bloque. */
+export type CuentaDeLote = { id: string; nombre: string; cedula: string };
+
+/**
+ * Lo que el CRM tiene con los números y las cédulas de un lote de la
+ * importación desde Excel. `consultado: false` es «no se sabe», no «no hay».
+ */
+export type ConsultaLote =
+  | { consultado: true; fichas: FichaDeLote[]; cuentas: CuentaDeLote[] }
+  | { consultado: false; motivo: string };
+
+/** Un socio titular recién creado en el CRM: su número y cuándo se creó. */
+export type TitularReciente = { numero: string; tipoSocio: string; creadoEn: string };
 
 /** Lo que el CRM dice sobre una persona antes de crearla. */
 export type VerificacionSafi = {
@@ -153,6 +190,18 @@ export interface AdaptadorSafi {
     cuentaSafiId: string | null;
     socioSafiId: string | null;
   }): Promise<AvisoSafi[]>;
+  /**
+   * Fichas de Socio con esos números o esas cédulas, y Cuentas con esas
+   * cédulas, en pocas consultas. Es lo que usa la importación desde Excel para
+   * revisar un lote entero sin una consulta por fila. Solo lectura.
+   */
+  consultarLote(entrada: { numeros: string[]; cedulas: string[] }): Promise<ConsultaLote>;
+  /**
+   * Los últimos socios titulares creados en el CRM, del más reciente al más
+   * antiguo: la importación los muestra para elegir desde qué número asignar.
+   * Vacío si no se puede consultar. Solo lectura.
+   */
+  titularesRecientes(cuantos: number): Promise<TitularReciente[]>;
 }
 
 /** Tipos de contenido admitidos por el repositorio, por extensión. */
@@ -234,6 +283,17 @@ class AdaptadorManual implements AdaptadorSafi {
   async comprobarIdentificadores(): Promise<AvisoSafi[]> {
     return [];
   }
+
+  async consultarLote(): Promise<ConsultaLote> {
+    return {
+      consultado: false,
+      motivo: "La integración con SAFI no está habilitada (SAFI_MODO=MANUAL).",
+    };
+  }
+
+  async titularesRecientes(): Promise<TitularReciente[]> {
+    return [];
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -252,6 +312,18 @@ type FichaSafi = {
   account_id?: string;
   [clave: string]: unknown;
 };
+
+/**
+ * La ficha de Socio que el flujo de trabajo del CRM crea sola al crear una
+ * Cuenta de socio: No. Socio vacío o `00` y Tipo «Complete Aqui». Ver
+ * `fichaAutomatica`.
+ */
+function esFichaAutomatica(ficha: FichaSafi): boolean {
+  return (
+    ["", "0", "00"].includes(String(ficha[CAMPOS_SOCIO.numeroSocio] ?? "").trim()) &&
+    String(ficha[CAMPOS_SOCIO.tipoSocio] ?? "").trim() === "Complete Aqui"
+  );
+}
 
 class AdaptadorConectado implements AdaptadorSafi {
   readonly modo: "HTTP" | "API";
@@ -285,7 +357,7 @@ class AdaptadorConectado implements AdaptadorSafi {
     const limpia = soloDigitos(cedula);
     if (!limpia || this.modo !== "API") return [];
     return this.api.consultar<FichaSafi>(
-      `SELECT id, firstname, lastname, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.secuencia} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.cedula} = '${limpia}';`
+      `SELECT id, firstname, lastname, account_id, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.secuencia}, ${CAMPOS_SOCIO.tipoSocio} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.cedula} = '${limpia}';`
     );
   }
 
@@ -296,6 +368,16 @@ class AdaptadorConectado implements AdaptadorSafi {
     return this.api.consultar<FichaSafi>(
       `SELECT id, accountname FROM ${MODULOS.cuenta} WHERE ${CAMPOS_CUENTA.cedula} = '${limpia}';`
     );
+  }
+
+  /**
+   * Si una ficha es la que SAFI creó sola con la Cuenta `cuentaId` (número
+   * numérico, sin prefijo), que el alta va a completar. Sin Cuenta, ninguna.
+   */
+  private esAutomaticaDe(ficha: FichaSafi, cuentaId: string | null): boolean {
+    if (!cuentaId) return false;
+    const suCuenta = this.valor(ficha, "account_id").split("x").pop() ?? "";
+    return suCuenta === cuentaId && esFichaAutomatica(ficha);
   }
 
   private valor(ficha: FichaSafi, campo: string): string {
@@ -419,7 +501,13 @@ class AdaptadorConectado implements AdaptadorSafi {
 
       // La cédula del solicitante ya consta como socio: o es un duplicado, o el
       // socio ya existe y lo que toca es registrar su identificador.
-      const yaSocio = fichasCedula[0];
+      //
+      // Salvo la ficha que SAFI crea sola con la Cuenta (ver `fichaAutomatica`):
+      // si un intento anterior dejó creada la Cuenta y falló después, esa ficha
+      // lleva ya la cédula, y el reintento no debe tomarla por un duplicado,
+      // porque es justo la que va a completar.
+      const cuentaReutilizada = solicitud.expediente.cuentaSafiId ?? null;
+      const yaSocio = fichasCedula.find((ficha) => !this.esAutomaticaDe(ficha, cuentaReutilizada));
       if (yaSocio && !solicitud.expediente.socioSafiId) {
         const referencia = this.nombreDe(yaSocio);
         const numeroExistente = this.valor(yaSocio, CAMPOS_SOCIO.numeroSocio);
@@ -666,7 +754,133 @@ class AdaptadorConectado implements AdaptadorSafi {
       cuotaMensual: opciones(socio, CAMPOS_SOCIO.cuotaMensual),
       valorMembresia: opciones(socio, CAMPOS_SOCIO.valorMembresia),
       tipoSocio: opciones(socio, CAMPOS_SOCIO.tipoSocio),
+      gradoMilitar: opciones(socio, CAMPOS_SOCIO.gradoMilitar),
+      genero: opciones(socio, CAMPOS_SOCIO.genero),
+      estadoCivil: opciones(socio, CAMPOS_SOCIO.estadoCivil),
+      tipoSangre: opciones(socio, CAMPOS_SOCIO.tipoSangre),
     };
+  }
+
+  /* --- Consultas en bloque (importación desde Excel) ------------- */
+
+  /**
+   * Todas las filas de una consulta, página a página: el servicio web de
+   * vTiger devuelve como mucho 100 por consulta. `sentencia` va sin `LIMIT`
+   * ni punto y coma.
+   */
+  private async consultarTodo(sentencia: string): Promise<FichaSafi[]> {
+    const filas: FichaSafi[] = [];
+    for (let desde = 0; desde < 10_000; desde += 100) {
+      const pagina = await this.api.consultar<FichaSafi>(`${sentencia} LIMIT ${desde}, 100;`);
+      filas.push(...pagina);
+      if (pagina.length < 100) break;
+    }
+    return filas;
+  }
+
+  async consultarLote(entrada: { numeros: string[]; cedulas: string[] }): Promise<ConsultaLote> {
+    if (this.modo !== "API") {
+      return {
+        consultado: false,
+        motivo: "Con el modo HTTP no se puede consultar el CRM antes de crear.",
+      };
+    }
+
+    // Solo dígitos llegan a la consulta: es lo único que se interpola.
+    const numeros = [...new Set(entrada.numeros.map(normalizarNumeroSocio).filter(Boolean))];
+    const cedulas = [...new Set(entrada.cedulas.map(soloDigitos).filter((c) => c.length === 10))];
+    const lista = (valores: string[]) => valores.map((valor) => `'${valor}'`).join(",");
+    const trozos = (valores: string[], tamano: number): string[][] => {
+      const grupos: string[][] = [];
+      for (let i = 0; i < valores.length; i += tamano) grupos.push(valores.slice(i, i + tamano));
+      return grupos;
+    };
+
+    const camposFicha = [
+      "id",
+      "firstname",
+      "lastname",
+      "account_id",
+      CAMPOS_SOCIO.numeroSocio,
+      CAMPOS_SOCIO.secuencia,
+      CAMPOS_SOCIO.cedula,
+      CAMPOS_SOCIO.tipoSocio,
+      CAMPOS_SOCIO.estadoSocio,
+    ].join(", ");
+    const sentencias: { modulo: "socio" | "cuenta"; sentencia: string }[] = [
+      ...trozos(numeros, 25).map((grupo) => ({
+        modulo: "socio" as const,
+        sentencia: `SELECT ${camposFicha} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.numeroSocio} IN (${lista(grupo)})`,
+      })),
+      ...trozos(cedulas, 40).map((grupo) => ({
+        modulo: "socio" as const,
+        sentencia: `SELECT ${camposFicha} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.cedula} IN (${lista(grupo)})`,
+      })),
+      ...trozos(cedulas, 40).map((grupo) => ({
+        modulo: "cuenta" as const,
+        sentencia: `SELECT id, accountname, ${CAMPOS_CUENTA.cedula} FROM ${MODULOS.cuenta} WHERE ${CAMPOS_CUENTA.cedula} IN (${lista(grupo)})`,
+      })),
+    ];
+
+    try {
+      const fichas = new Map<string, FichaDeLote>();
+      const cuentas = new Map<string, CuentaDeLote>();
+      // De tres en tres: un lote de quinientas filas son unas cuarenta
+      // consultas, y el CRM de producción no debe recibirlas todas a la vez.
+      for (let i = 0; i < sentencias.length; i += 3) {
+        const tanda = sentencias.slice(i, i + 3);
+        const resultados = await Promise.all(tanda.map((s) => this.consultarTodo(s.sentencia)));
+        tanda.forEach((s, j) => {
+          for (const fila of resultados[j]) {
+            const id = this.valor(fila, "id");
+            if (s.modulo === "cuenta") {
+              cuentas.set(id, {
+                id,
+                nombre: this.valor(fila, "accountname"),
+                cedula: this.valor(fila, CAMPOS_CUENTA.cedula),
+              });
+            } else {
+              fichas.set(id, {
+                id,
+                numero: this.valor(fila, CAMPOS_SOCIO.numeroSocio),
+                secuencia: this.valor(fila, CAMPOS_SOCIO.secuencia),
+                cedula: this.valor(fila, CAMPOS_SOCIO.cedula),
+                nombre: this.nombreDe(fila),
+                tipoSocio: this.valor(fila, CAMPOS_SOCIO.tipoSocio),
+                estado: this.valor(fila, CAMPOS_SOCIO.estadoSocio),
+                cuentaId: this.valor(fila, "account_id"),
+              });
+            }
+          }
+        });
+      }
+      return { consultado: true, fichas: [...fichas.values()], cuentas: [...cuentas.values()] };
+    } catch (error) {
+      return { consultado: false, motivo: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async titularesRecientes(cuantos: number): Promise<TitularReciente[]> {
+    if (this.modo !== "API") return [];
+    const limite = Math.max(1, Math.min(100, Math.trunc(cuantos) || 1));
+    try {
+      const filas = await this.api.consultar<FichaSafi>(
+        `SELECT ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.tipoSocio}, createdtime FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.secuencia} = '00' ORDER BY createdtime DESC LIMIT ${limite};`
+      );
+      return (
+        filas
+          .map((fila) => ({
+            numero: normalizarNumeroSocio(this.valor(fila, CAMPOS_SOCIO.numeroSocio)),
+            tipoSocio: this.valor(fila, CAMPOS_SOCIO.tipoSocio),
+            // El CRM guarda la hora en UTC y la devuelve sin zona.
+            creadoEn: this.valor(fila, "createdtime").replace(" ", "T") + "Z",
+          }))
+          // Las fichas automáticas llevan `00`: no son un número de socio.
+          .filter((titular) => /^\d+$/.test(titular.numero) && Number(titular.numero) > 0)
+      );
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -752,7 +966,12 @@ class AdaptadorConectado implements AdaptadorSafi {
    * falla, se devuelve el identificador de la Cuenta creada para que el
    * reintento la reutilice en lugar de duplicarla.
    */
-  async darDeAlta({ solicitud, confirmacion, cuentaId }: EntradaAlta): Promise<ResultadoAlta> {
+  async darDeAlta({
+    solicitud,
+    confirmacion,
+    cuentaId,
+    descripcionCuenta: descripcionDeLaCuenta,
+  }: EntradaAlta): Promise<ResultadoAlta> {
     if (!this.escritura) {
       return {
         ok: false,
@@ -788,7 +1007,7 @@ class AdaptadorConectado implements AdaptadorSafi {
 
     if (esTitular && !cuenta) {
       const compuesta = this.depurar(
-        camposCuenta(solicitud, confirmacion, asignadoA),
+        camposCuenta(solicitud, confirmacion, asignadoA, descripcionDeLaCuenta),
         descripcionCuenta,
         "la Cuenta"
       );
@@ -908,11 +1127,7 @@ class AdaptadorConectado implements AdaptadorSafi {
       const fichas = await this.api.consultar<Record<string, string>>(
         `SELECT id, ${CAMPOS_SOCIO.numeroSocio}, ${CAMPOS_SOCIO.tipoSocio} FROM ${MODULOS.socio} WHERE ${CAMPOS_SOCIO.cuentaId} = '${cuentaWsId}';`
       );
-      return fichas.filter(
-        (ficha) =>
-          ["", "0", "00"].includes(String(ficha[CAMPOS_SOCIO.numeroSocio] ?? "").trim()) &&
-          String(ficha[CAMPOS_SOCIO.tipoSocio] ?? "").trim() === "Complete Aqui"
-      );
+      return fichas.filter((ficha) => esFichaAutomatica(ficha));
     };
     try {
       const fichas = await buscar();

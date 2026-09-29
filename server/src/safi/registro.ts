@@ -388,7 +388,9 @@ function importeSafi(valor: string | number): string {
 export function camposCuenta(
   solicitud: SolicitudAfiliacion,
   confirmacion: ConfirmacionSafi,
-  asignadoA: string
+  asignadoA: string,
+  /** Descripción de la Cuenta. Por omisión, la de un trámite de la tableta. */
+  descripcion?: string
 ): Record<string, string> {
   const { datos } = solicitud;
 
@@ -410,7 +412,8 @@ export function camposCuenta(
     [CAMPOS_CUENTA.provincia]: normalizarTextoInstitucional(datos.provincia).trim(),
     [CAMPOS_CUENTA.pais]: normalizarTextoInstitucional(datos.pais).trim(),
     [CAMPOS_CUENTA.noEnviarEmail]: noEnviarEmail(solicitud),
-    [CAMPOS_CUENTA.descripcion]: `Afiliación ${solicitud.codigo} · registrada desde la aplicación del Área de Socios.`,
+    [CAMPOS_CUENTA.descripcion]:
+      descripcion ?? `Afiliación ${solicitud.codigo} · registrada desde la aplicación del Área de Socios.`,
   });
 }
 

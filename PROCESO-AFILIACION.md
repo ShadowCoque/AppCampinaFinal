@@ -482,6 +482,58 @@ sin trámites y no hay ninguno resucitado por la aplicación anterior.
 
 ---
 
+## Importación de socios oficiales desde Excel
+
+Desde el 29/09/2026, para los **Socios Activos** (oficiales FAE), sobre todo
+los cadetes que ingresan cada octubre. Crea en SAFI la **Cuenta y la ficha** de
+cada uno sin pasar por la tableta. Las demás categorías se siguen afiliando con
+la tableta.
+
+**Dónde:** bandeja del Área de Socios, pestaña **«Importar socios»**.
+
+1. **Descargar la plantilla (.xlsx)** y escribir un socio por fila. Tiene las
+   listas desplegables de SAFI y, al pararse en una celda, Excel dice qué va en
+   ella. La hoja «Instrucciones» explica cada columna.
+2. **Subirla.** Si hay filas sin número de socio, indique **desde qué número
+   asignar**. La pantalla muestra los últimos números creados en SAFI. Ojo: el
+   26/09 se creó el 2960 y del 2929 al 2959 está libre, así que el sistema no
+   adivina el siguiente, lo decide la Jefatura. Los números que ya estén
+   ocupados se saltan solos.
+3. El sistema **revisa todas las filas y consulta SAFI sin crear nada**. Cada
+   fila queda **Lista** o **Con errores**, con el motivo y la columna.
+4. **«Crear N socios en SAFI».** Se crean uno por uno, en segundo plano:
+   la pantalla muestra el avance y se puede cerrar. Antes de cada uno se
+   vuelve a comprobar en SAFI que el número y la cédula sigan libres. **Al
+   primer problema el lote se detiene.** Se corrige y se pulsa «Volver a
+   comprobar» y «Crear»: lo ya creado no se repite.
+5. **«Descargar resultado (.xlsx)»**: la hoja «Resultado» dice qué pasó con
+   cada fila y con qué Cuenta y Socio quedó en SAFI. La hoja «Socios» trae solo
+   las filas **no creadas**, tal como se escribieron, para corregirlas y subir
+   ese mismo archivo.
+
+**Columnas obligatorias:** Cédula, Apellidos, Nombres, Sexo, Fecha de
+nacimiento, Estado civil, Grado (de la FAE), Promoción, Celular, Correo
+electrónico, Dirección, Ciudad, Provincia (si vive en el Ecuador) y Forma de
+pago. **Grupo de facturación**, solo con tarjeta o débito bancario (con FAE,
+ISSFA o efectivo se pone solo). **Opcionales:** N.º de socio, Tipo de sangre,
+Teléfono convencional, País (Ecuador), Subscripción (Anual; o Mensual), Tipo de
+contribuyente, Valor de membresía (el del tarifario), Fecha de ingreso al Club
+(el día de la creación), Acepta comunicaciones por correo (No) y Hobbie. La
+cuota sale del tarifario del Socio Activo, igual que en el panel.
+
+**No se importa y sale como error:**
+- una persona que ya consta en SAFI, por ejemplo como dependiente de su padre.
+  Eso es un **cambio de categoría** y se hace en SAFI;
+- una persona que ya tiene un trámite en el sistema;
+- una cédula repetida en el archivo;
+- un número ocupado;
+- un grado que no es de la Fuerza Aérea.
+
+**Qué no hace esta versión:** no genera el R-PGS1-1 ni pasa por Contabilidad y
+la Gerencia; tampoco crea un expediente. Por eso un escaneo con el número de un
+socio importado queda «en espera» en la bandeja. Todo queda en la bitácora
+(`IMPORTACION_*` y `SAFI_ALTA_CREADA` con el código del lote, `IMP-2026-0001`).
+
 ## Cuando algo no cuadra
 
 | Síntoma | Dónde mirar |

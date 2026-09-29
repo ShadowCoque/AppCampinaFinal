@@ -947,3 +947,15 @@ dialog h2 {
 /* Resultado de la consulta del oficial FAE de un D-C, en el panel de SAFI. */
 .texto-exito { color: var(--exito); font-weight: 600; }
 .texto-peligro { color: var(--peligro); font-weight: 600; }
+
+/* --- Importación de socios oficiales -------------------------------- */
+
+.importacion { margin-bottom: 16px; }
+.importacion input[type="file"] { padding: 6px; }
+.importacion-lote { margin-bottom: 12px; }
+.contadores-lote { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0; font-size: 13.5px; }
+.tabla-importacion td { vertical-align: top; }
+.mensajes-fila { margin: 0; padding-left: 16px; font-size: 12.5px; line-height: 1.45; }
+.mensajes-fila .texto-peligro, .mensajes-fila .texto-exito { font-weight: 500; }
+.aviso-fila { color: var(--alerta); }
+.titulo-seccion { font-size: 15px; color: var(--azul); margin: 22px 0 8px; }

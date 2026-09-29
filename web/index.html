@@ -71,6 +71,9 @@
         <button type="button" class="pestana" data-vista="ayuda" role="tab" aria-selected="false" id="pestana-ayuda" hidden>
           Cómo escanear
         </button>
+        <button type="button" class="pestana" data-vista="importar" role="tab" aria-selected="false" id="pestana-importar" hidden>
+          Importar socios
+        </button>
       </nav>
 
       <main class="contenido">
@@ -78,6 +81,7 @@
         <section id="vista-camino" class="vista" hidden></section>
         <section id="vista-atendidas" class="vista" hidden></section>
         <section id="vista-ayuda" class="vista" hidden></section>
+        <section id="vista-importar" class="vista" hidden></section>
       </main>
 
       <footer class="pie-sistema" id="pie-sistema"></footer>
@@ -302,6 +306,21 @@
       </form>
     </dialog>
 
+    <!-- ------------------------------------------------------------ -->
+    <!-- Importación: confirmación antes de crear en SAFI              -->
+    <!-- ------------------------------------------------------------ -->
+    <dialog id="dialogo-importacion">
+      <form method="dialog">
+        <h2>Crear en SAFI</h2>
+        <p class="dialogo-detalle" id="imp-confirmar-detalle"></p>
+        <div class="dialogo-acciones">
+          <button type="button" class="boton sutil" id="imp-confirmar-cancelar">Cancelar</button>
+          <button type="button" class="boton primario" id="imp-confirmar-aceptar">Crear en SAFI</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="bandeja.js"></script>
+    <script src="importacion.js"></script>
   </body>
 </html>

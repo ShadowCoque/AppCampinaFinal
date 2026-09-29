@@ -418,6 +418,30 @@ Todas las rutas exigen sesión salvo `/api/salud`.
 
 ---
 
+### Importación de socios oficiales (`/api/importaciones`)
+
+Solo el Área de Socios. El código está en `src/importacion/` y las rutas en
+`src/http/importacion.ts`. Lee y escribe `.xlsx` con **exceljs**, la única
+dependencia añadida. Los lotes se guardan en la tabla `importaciones`
+(documento JSON, como las solicitudes), que entra en el respaldo diario con la
+base.
+
+| Ruta | Qué hace |
+| --- | --- |
+| `GET /api/importaciones/plantilla` | Plantilla con las listas del CRM de hoy |
+| `GET /api/importaciones/numeracion` | Últimos titulares creados en SAFI |
+| `POST /api/importaciones?desde=N` | Sube (multipart) y revisa, sin crear |
+| `GET /api/importaciones[/:id]` | Lotes recientes, o uno con sus filas |
+| `POST /api/importaciones/:id/revisar` | Vuelve a comprobar las filas no creadas |
+| `POST /api/importaciones/:id/crear` | Crea en segundo plano (202); una a la vez |
+| `POST /api/importaciones/:id/detener` | Para al terminar la fila en curso |
+| `DELETE /api/importaciones/:id` | Descarta un lote sin filas creadas |
+| `GET /api/importaciones/:id/resultado` | Informe en Excel |
+
+Crear exige `SAFI_MODO=API` y `SAFI_ESCRITURA=true`. Cada fila usa la misma
+`darDeAlta` que el panel. Si el servidor se reinicia a mitad de un lote, el
+lote queda detenido y la fila en curso, fallida.
+
 ## 8. Protección de datos
 
 - Las contraseñas se almacenan con `scrypt` y una sal por usuario; la

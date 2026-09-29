@@ -13,6 +13,7 @@ import { hayUsuarios, purgarSesiones } from "./db/usuarios";
 import { iniciarVigilante, detenerVigilante } from "./expediente/vigilante";
 import { pdfDisponible } from "./formularios/pdf";
 import { registrarApi } from "./http/api";
+import { registrarImportacion } from "./http/importacion";
 import { detenerColaSafi, iniciarColaSafi } from "./safi/cola";
 import { localizarWeb } from "./web";
 
@@ -125,6 +126,8 @@ async function arrancar(): Promise<void> {
   }
 
   await registrarApi(app);
+  // Importación de socios oficiales desde Excel (29/09/2026).
+  await registrarImportacion(app);
 
   if (!hayUsuarios()) {
     app.log.warn(

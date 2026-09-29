@@ -284,6 +284,14 @@ export class OperacionNoDisponible extends Error {}
 
 export class ClienteApi {
   private sesion: string | null = null;
+  /**
+   * Inicio de sesión en curso. Varias consultas en paralelo con la sesión
+   * cerrada (al arrancar, o cuando caduca) iniciaban cada una la suya, y el
+   * `getchallenge` de una invalidaba el token de las otras: SAFI respondía
+   * «Invalid username or password» aunque las credenciales fueran buenas
+   * (29/09/2026). Ahora comparten un único inicio de sesión.
+   */
+  private abriendo: Promise<void> | null = null;
   /** Identificador de servicio web del usuario de la integración (`19x1`). */
   private usuarioId: string | null = null;
   private readonly descripciones = new Map<string, DescripcionModulo>();
@@ -316,7 +324,16 @@ export class ClienteApi {
     return leerJson<T>(respuesta);
   }
 
-  private async abrirSesion(): Promise<void> {
+  private abrirSesion(): Promise<void> {
+    if (!this.abriendo) {
+      this.abriendo = this.iniciarSesion().finally(() => {
+        this.abriendo = null;
+      });
+    }
+    return this.abriendo;
+  }
+
+  private async iniciarSesion(): Promise<void> {
     const saludo = await fetch(
       `${urlBase()}/webservice.php?operation=getchallenge&username=${encodeURIComponent(
         config.safiUsuario

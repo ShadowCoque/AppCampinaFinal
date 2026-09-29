@@ -264,6 +264,9 @@ async function cargarBandeja() {
   $("contador-camino").textContent = String(camino.length);
 
   $("pestana-ayuda").hidden = !(area === "SOCIOS" && instructivoEscaneo.length > 0);
+  // La importación de socios oficiales desde Excel es solo del Área de Socios
+  // (ver importacion.js).
+  $("pestana-importar").hidden = area !== "SOCIOS";
 
   dibujarPendientes();
   dibujarEnCamino();
@@ -528,9 +531,10 @@ document.querySelectorAll(".pestana").forEach((pestana) => {
       otra.classList.toggle("activa", activa);
       otra.setAttribute("aria-selected", String(activa));
     });
-    for (const nombre of ["pendientes", "camino", "atendidas", "ayuda"]) {
+    for (const nombre of ["pendientes", "camino", "atendidas", "ayuda", "importar"]) {
       $(`vista-${nombre}`).hidden = nombre !== estado.vista;
     }
+    if (estado.vista === "importar" && typeof mostrarImportacion === "function") void mostrarImportacion();
   });
 });
 

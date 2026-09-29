@@ -126,6 +126,23 @@ CREATE TABLE IF NOT EXISTS meta (
   clave TEXT PRIMARY KEY,
   valor TEXT NOT NULL
 );
+
+/* Lotes de la importación de socios oficiales desde Excel (29/09/2026). El
+   lote completo —filas leídas, lo comprobado en SAFI y lo que se creó— va en
+   \`documento\` como JSON, igual que las solicitudes. Tabla nueva: no necesita
+   migración, \`CREATE TABLE IF NOT EXISTS\` la crea también en una base que ya
+   estaba en producción. */
+CREATE TABLE IF NOT EXISTS importaciones (
+  id             TEXT PRIMARY KEY,
+  codigo         TEXT NOT NULL UNIQUE,
+  estado         TEXT NOT NULL,
+  archivo        TEXT NOT NULL,
+  huella         TEXT NOT NULL,
+  creada_por     TEXT NOT NULL,
+  creada_en      TEXT NOT NULL,
+  actualizada_en TEXT NOT NULL,
+  documento      TEXT NOT NULL
+);
 `;
 
 /**
@@ -150,6 +167,7 @@ CREATE INDEX IF NOT EXISTS idx_archivos_socio ON archivos(numero_socio, ordinal_
 CREATE INDEX IF NOT EXISTS idx_archivos_safi  ON archivos(safi_estado);
 CREATE INDEX IF NOT EXISTS idx_incidencias_abiertas ON incidencias(resuelta_en);
 CREATE INDEX IF NOT EXISTS idx_bitacora_en ON bitacora(en);
+CREATE INDEX IF NOT EXISTS idx_importaciones_creada ON importaciones(creada_en DESC);
 `;
 
 /** Versión del esquema. Al subirla, añada la migración correspondiente. */
